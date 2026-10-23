@@ -1,0 +1,4 @@
+# Canonical files (craft saves, data) must be byte-identical on every OS.
+* text=auto eol=lf
+*.png binary
+*.wav binary
