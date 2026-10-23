@@ -320,7 +320,12 @@ func land() -> bool:
 		step(1 if agl < 60.0 else 5)
 	api.handle({"cmd": "throttle", "value": 0.0})
 	api.handle({"cmd": "sas", "mode": "stability"})
-	step(150)  # settle for 3 s
+	# settle: legs spring, maybe a little slide on a slope; wait for rest
+	for i in 150:
+		step(5)
+		t = tel()
+		if t.landed and t.surface_speed < 0.3 and i > 30:
+			break
 	t = tel()
 	var upright: bool = t.pitch_deg > 60.0
 	landed_on_krill = t.landed and t.body == "krill" and upright and t.get("crew_capacity", 0) > 0

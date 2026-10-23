@@ -18,6 +18,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(tux_rocket_science C)
 
+# Keep Godot from importing build products when the build dir is in the project.
+file(WRITE "${CMAKE_BINARY_DIR}/.gdignore" "")
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)

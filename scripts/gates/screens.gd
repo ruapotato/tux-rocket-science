@@ -32,6 +32,7 @@ func run(runner: Node) -> Dictionary:
 	if tree.current_scene:
 		tree.current_scene.queue_free()
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT))
+	FileAccess.open(OUT + ".gdignore", FileAccess.WRITE)  # review output, not game assets
 	var lander := FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "krill_lander.craft.json")
 
 	# 1. hangar
