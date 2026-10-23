@@ -17,6 +17,7 @@
       "mu": 3.528e12,
       "radius": 600000,
       "rotation_period": 19800,
+      "rotation_at_epoch_deg": 215,
       "orbit": { "a": 14000000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 0 },
       "atmosphere": {
         "height": 70000,
@@ -24,7 +25,8 @@
         "sea_level_density": 1.225,
         "scale_height": 5800
       },
-      "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68 }
+      "terrain": { "seed": 7, "amplitude": 1400, "base_freq": 3.0, "octaves": 9, "persistence": 0.52, "offset": 350, "ridge": 0.35 },
+      "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68, "flat_radius": 1500 }
     },
     {
       "id": "krill",
@@ -34,6 +36,7 @@
       "mu": 62920000000,
       "radius": 220000,
       "tidally_locked": true,
+      "terrain": { "seed": 41, "amplitude": 1800, "base_freq": 2.2, "octaves": 8, "persistence": 0.5, "offset": 0, "ridge": 0.15, "crater_freq": 9, "crater_depth": 2600 },
       "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 }
     }
   ]

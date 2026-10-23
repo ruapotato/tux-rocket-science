@@ -245,10 +245,12 @@ trs_gate_status trs_gate_staging(trs_log *log, const char *data_dir) {
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
 
-/* Places a craft upright at an altitude above Floe's equator, co-rotating. */
+/* Places a craft upright at an altitude above the terrain at Floe's
+ * equator (lon 0), co-rotating. */
 static int drop_at(trs_world *w, const trs_craft *c, int floe, double alt, double vdown) {
 	const trs_body *b = &w->sys.bodies[floe];
-	trs_v3 r = v3(b->radius + alt, 0, 0);
+	double ground = trs_body_terrain_at(b, w->t, v3(b->radius, 0, 0));
+	trs_v3 r = v3(b->radius + ground + alt, 0, 0);
 	trs_v3 v = v3_add(v3_cross(trs_body_omega(b), r), v3(-vdown, 0, 0));
 	/* local +Y (nose) along radial-out */
 	trs_quat q = quat_from_to(v3(0, 1, 0), v3(1, 0, 0));
@@ -276,8 +278,11 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		int id = drop_at(w, &c, floe, 3000, 150);
 		trs_world_stage(w, id, NULL, 0);
 		trs_vessel *vs = &w->vessels[id];
-		while (vs->altitude > 300 || vs->altitude == 0)
+		double ground = trs_body_terrain_at(F, w->t, vs->r);
+		for (int s = 0; s < 50 * 3600 && (vs->altitude - ground > 300 || vs->altitude == 0); s++) {
 			trs_world_step_physics(w);
+			ground = trs_body_terrain_at(F, w->t, vs->r);
+		}
 		/* analytic: m g = 1/2 rho v^2 CdA, CdA from the same part data */
 		const trs_part_def *pd = &cat.defs[trs_catalog_find(&cat, "pod_1")];
 		const trs_part_def *cd = &cat.defs[trs_catalog_find(&cat, "parachute")];
@@ -289,8 +294,8 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		double sp = v3_len(vair), e = fabs(sp - vt) / vt;
 		int ok = e < 0.01 && vs->craft->parts[1].chute == TRS_CHUTE_FULL;
 		failed += !ok;
-		trs_log_printf(log, "%s parachute descent at %.0f m: %.3f m/s vs analytic %.3f m/s (err %.3f%%)\n",
-				ok ? "ok  " : "FAIL", vs->altitude, sp, vt, 100 * e);
+		trs_log_printf(log, "%s parachute descent at %.0f m above terrain: %.3f m/s vs analytic %.3f m/s (err %.3f%%)\n",
+				ok ? "ok  " : "FAIL", vs->altitude - ground, sp, vt, 100 * e);
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
@@ -305,7 +310,7 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		const trs_part_def *pd = &cat.defs[trs_catalog_find(&cat, "pod_1")];
 		trs_world *w = malloc(sizeof(trs_world));
 		trs_world_init(w, &sys, 0);
-		int id = drop_at(w, &c, floe, 2000, 60);
+		int id = drop_at(w, &c, floe, 4000, 60);
 		trs_vessel *vs = &w->vessels[id];
 		double worst = 0, worst_dir = 0;
 		for (int s = 0; s < 50 * 15; s++) {
@@ -335,12 +340,15 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 			continue;
 		}
 		double g0 = F->mu / (F->radius * F->radius);
-		trs_stage_stats st[16];
-		trs_craft_stage_stats(&c, trs_craft_max_stage(&c), g0, F->atm.p0, st, 16);
 		trs_world *w = malloc(sizeof(trs_world));
 		trs_world_init(w, &sys, 0);
-		int id = drop_at(w, &c, floe, 0.0, 0);
+		int id = drop_at(w, &c, floe, 50.0, 0); /* clear of the ground: thrust only */
 		trs_vessel *vs = &w->vessels[id];
+		/* readout at the pressure the engines actually see there */
+		double p_here, rho_here;
+		trs_atmosphere_at(F, v3_len(vs->r) - F->radius, &p_here, &rho_here);
+		trs_stage_stats st[16];
+		trs_craft_stage_stats(&c, trs_craft_max_stage(&c), g0, p_here, st, 16);
 		vs->throttle = 1;
 		trs_world_stage(w, id, NULL, 0);
 		trs_world_step_physics(w);
@@ -351,8 +359,162 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		double e = fabs(thrust_sim - st[0].thrust_sl) / st[0].thrust_sl;
 		int ok = e < 0.005;
 		failed += !ok;
-		trs_log_printf(log, "%s %-13s pad thrust %.1f kN vs readout %.1f kN (TWR %.3f), err %.3f%%\n", ok ? "ok  " : "FAIL",
-				c.name, thrust_sim / 1e3, st[0].thrust_sl / 1e3, st[0].twr_sl, 100 * e);
+		trs_log_printf(log, "%s %-13s thrust at %.0f Pa: %.1f kN vs readout %.1f kN (TWR %.3f), err %.3f%%\n",
+				ok ? "ok  " : "FAIL", c.name, p_here, thrust_sim / 1e3, st[0].thrust_sl / 1e3, st[0].twr_sl, 100 * e);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}
+
+static double agl(const trs_world *w, int id) {
+	trs_v3 r, v;
+	trs_vessel_state(w, id, &r, &v);
+	const trs_body *b = &w->sys.bodies[w->vessels[id].body];
+	return v3_len(r) - b->radius - trs_body_terrain_at(b, w->t, r);
+}
+
+static double surface_speed(const trs_world *w, int id) {
+	trs_v3 r, v;
+	trs_vessel_state(w, id, &r, &v);
+	const trs_body *b = &w->sys.bodies[w->vessels[id].body];
+	return v3_len(v3_sub(v, v3_cross(trs_body_omega(b), r)));
+}
+
+static int count_events(const trs_world *w, trs_world_event_kind k) {
+	int n = 0;
+	for (int i = 0; i < w->nevents; i++)
+		n += w->events[i].kind == k;
+	return n;
+}
+
+/* The lander's top half (above the transfer-stage decoupler), legs out. */
+static int lander_only(trs_log *log, const char *data_dir, const trs_part_catalog *cat, trs_craft *c) {
+	if (!trs_gate_load_craft(log, data_dir, "krill_lander", cat, c))
+		return 0;
+	for (int i = 0; i < c->count; i++)
+		if (!strcmp(trs_craft_def(c, i)->id, "engine_small")) {
+			for (int k = i + 1; k < c->count; k++)
+				if (c->parts[k].parent == i && trs_craft_def(c, k)->decoupler) {
+					trs_craft pieces[8];
+					int n = trs_craft_remove_part(c, k, pieces, 8);
+					for (int p = 0; p < n; p++)
+						trs_craft_free(&pieces[p]);
+					break;
+				}
+			break;
+		}
+	for (int i = 0; i < c->count; i++) {
+		if (trs_craft_def(c, i)->is_leg)
+			c->parts[i].legs_deployed = 1;
+		if (c->parts[i].stage > 0)
+			c->parts[i].stage = -1; /* nothing to fire */
+	}
+	return 1;
+}
+
+/* Drops a craft upright onto a body at lat/lon from height agl0 at speed v. */
+static int drop_on(trs_world *w, const trs_craft *c, int body, double agl0, double vdown) {
+	const trs_body *b = &w->sys.bodies[body];
+	trs_v3 up = v3(1, 0, 0);
+	double ground = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, up) : 0;
+	trs_v3 r = v3_scale(up, b->radius + ground + agl0);
+	trs_v3 v = v3_add(v3_cross(trs_body_omega(b), r), v3_scale(up, -vdown));
+	int id = trs_world_add_craft(w, c, body, r, v, quat_from_to(v3(0, 1, 0), up));
+	w->vessels[id].sas = TRS_SAS_STABILITY;
+	return id;
+}
+
+trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe"), krill = trs_system_find(&sys, "krill");
+	const trs_body *F = &sys.bodies[floe];
+	int failed = 0;
+
+	/* 1. Clamps hold on the pad; staging releases them and the rocket climbs. */
+	{
+		trs_craft c;
+		trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = trs_world_launch(w, &c, floe, F->site_lat, F->site_lon);
+		double h0 = agl(w, id);
+		for (int s = 0; s < 50 * 10; s++)
+			trs_world_step_physics(w);
+		double h1 = agl(w, id), v1 = surface_speed(w, id);
+		w->vessels[id].throttle = 1;
+		trs_world_stage(w, id, NULL, 0);
+		for (int s = 0; s < 50 * 10; s++)
+			trs_world_step_physics(w);
+		double h2 = agl(w, id);
+		int ok = fabs(h1 - h0) < 1e-6 && v1 < 1e-6 && h2 > 100 && w->vessels[id].craft->count == c.count;
+		failed += !ok;
+		trs_log_printf(log, "%s pad: clamped 10 s drift %.1e m (speed %.1e), released -> %.0f m AGL after 10 s\n",
+				ok ? "ok  " : "FAIL", fabs(h1 - h0), v1, h2);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 2. Lander touches down on Krill at 3 m/s and settles intact. */
+	{
+		trs_craft c;
+		lander_only(log, data_dir, &cat, &c);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_on(w, &c, krill, 3.0, 3.0);
+		int s;
+		for (s = 0; s < 50 * 30 && !(w->vessels[id].landed && surface_speed(w, id) < 0.05); s++)
+			trs_world_step_physics(w);
+		int destroyed = count_events(w, TRS_WEV_PART_DESTROYED);
+		int ok = w->vessels[id].landed && destroyed == 0 && w->vessels[id].craft->count == c.count;
+		failed += !ok;
+		trs_log_printf(log, "%s Krill touchdown at 3 m/s: settled in %.1f s, %d parts destroyed, %d contacts, %.2f m AGL\n",
+				ok ? "ok  " : "FAIL", s * TRS_PHYSICS_DT, destroyed, w->vessels[id].contacts, agl(w, id));
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 3. The same lander hitting at 40 m/s breaks apart. */
+	{
+		trs_craft c;
+		lander_only(log, data_dir, &cat, &c);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		drop_on(w, &c, krill, 2.0, 40.0);
+		for (int s = 0; s < 50 * 5; s++)
+			trs_world_step_physics(w);
+		int destroyed = count_events(w, TRS_WEV_PART_DESTROYED);
+		int ok = destroyed >= 3;
+		failed += !ok;
+		trs_log_printf(log, "%s Krill impact at 40 m/s: %d parts destroyed, %d debris vessels\n", ok ? "ok  " : "FAIL",
+				destroyed, count_events(w, TRS_WEV_VESSEL_CREATED));
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 4. A pod under its chute lands intact on Floe. */
+	{
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&c, trs_catalog_find(&cat, "parachute"), pod, "bottom", "top", v3(0, 0.675, 0), quat_identity(), 0, 0);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_on(w, &c, floe, 2500.0, 120.0);
+		trs_world_stage(w, id, NULL, 0);
+		int s;
+		for (s = 0; s < 50 * 900 && !(w->vessels[id].landed && surface_speed(w, id) < 0.05); s++)
+			trs_world_step_physics(w);
+		int destroyed = count_events(w, TRS_WEV_PART_DESTROYED);
+		int ok = w->vessels[id].alive && w->vessels[id].landed && destroyed == 0;
+		failed += !ok;
+		trs_log_printf(log, "%s chute landing on Floe: down after %.0f s, touchdown %.1f m/s, %d parts destroyed\n",
+				ok ? "ok  " : "FAIL", s * TRS_PHYSICS_DT, w->vessels[id].max_impact, destroyed);
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);

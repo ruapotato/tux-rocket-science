@@ -77,6 +77,33 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 			b->atm.rho0 = trs_json_num(atm, "sea_level_density", 0);
 			b->atm.scale_height = trs_json_num(atm, "scale_height", 1);
 		}
+		const trs_json *tj = trs_json_get(j, "terrain");
+		if (tj) {
+			trs_terrain *t = &b->terrain;
+			t->enabled = 1;
+			t->seed = (unsigned)trs_json_num(tj, "seed", 1);
+			t->amplitude = trs_json_num(tj, "amplitude", 0);
+			t->base_freq = trs_json_num(tj, "base_freq", 4);
+			t->octaves = (int)trs_json_num(tj, "octaves", 6);
+			t->persistence = trs_json_num(tj, "persistence", 0.5);
+			t->offset = trs_json_num(tj, "offset", 0);
+			t->ridge = trs_json_num(tj, "ridge", 0);
+			t->crater_freq = trs_json_num(tj, "crater_freq", 0);
+			t->crater_depth = trs_json_num(tj, "crater_depth", 0);
+		}
+		const trs_json *ls = trs_json_get(j, "launch_site");
+		if (ls) {
+			b->has_site = 1;
+			snprintf(b->site_name, sizeof b->site_name, "%s", trs_json_str(ls, "name", "Launch site"));
+			b->site_lat = trs_json_num(ls, "lat_deg", 0) * DEG;
+			b->site_lon = trs_json_num(ls, "lon_deg", 0) * DEG;
+			b->site_alt = trs_json_num(ls, "altitude", 0);
+			trs_terrain *t = &b->terrain;
+			t->has_site = 1;
+			t->site_dir = v3(cos(b->site_lat) * cos(b->site_lon), cos(b->site_lat) * sin(b->site_lon), sin(b->site_lat));
+			t->site_radius = trs_json_num(ls, "flat_radius", 1500);
+			t->site_height = b->site_alt;
+		}
 		b->soi = INFINITY;
 		if (b->parent >= 0) {
 			trs_body *p = &sys->bodies[b->parent];
@@ -163,4 +190,20 @@ void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, dou
 	double f = (k - top) / (1 - top);
 	*pressure = b->atm.p0 * f;
 	*density = b->atm.rho0 * f;
+}
+
+trs_v3 trs_body_to_fixed(const trs_body *b, double t, trs_v3 v) {
+	double a = -trs_body_rotation(b, t), c = cos(a), s = sin(a);
+	return v3(c * v.x - s * v.y, s * v.x + c * v.y, v.z);
+}
+
+trs_v3 trs_body_from_fixed(const trs_body *b, double t, trs_v3 v) {
+	double a = trs_body_rotation(b, t), c = cos(a), s = sin(a);
+	return v3(c * v.x - s * v.y, s * v.x + c * v.y, v.z);
+}
+
+double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r) {
+	if (!b->terrain.enabled)
+		return 0;
+	return trs_terrain_height(&b->terrain, b->radius, v3_norm(trs_body_to_fixed(b, t, r)));
 }

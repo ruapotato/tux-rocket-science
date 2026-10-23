@@ -143,7 +143,7 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	if (level != GDEXTENSION_INITIALIZATION_SCENE)
 		return;
 	/* One method table per API area, merged into the single TrsSim class. */
-	static trs_method_def all[64];
+	static trs_method_def all[128];
 	int n = 0;
 	for (size_t i = 0; i < sizeof(SIM_METHODS) / sizeof(SIM_METHODS[0]); i++)
 		all[n++] = SIM_METHODS[i];
@@ -151,6 +151,8 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 		all[n++] = TRS_SIM_WORLD_METHODS[i];
 	for (int i = 0; i < TRS_SIM_CRAFT_METHOD_COUNT; i++)
 		all[n++] = TRS_SIM_CRAFT_METHODS[i];
+	for (int i = 0; i < TRS_SIM_FLIGHT_METHOD_COUNT; i++)
+		all[n++] = TRS_SIM_FLIGHT_METHODS[i];
 	static trs_class_def sim_class;
 	sim_class = (trs_class_def){ "TrsSim", "RefCounted", sim_create, sim_destroy, all, n };
 	trs_binder_register(&sim_class);

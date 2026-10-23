@@ -23,6 +23,7 @@
 #define TRS_SYSTEM_H
 
 #include "trs/kepler.h"
+#include "trs/terrain.h"
 
 #include <stddef.h>
 
@@ -43,6 +44,10 @@ typedef struct {
 	double rotation_period; /* sidereal, s; spin axis is +Z */
 	double rotation_at_epoch; /* rad at t = 0 */
 	trs_atmosphere atm;
+	trs_terrain terrain;
+	int has_site; /* launch site */
+	char site_name[48];
+	double site_lat, site_lon, site_alt; /* rad, rad, m */
 	trs_orbit orbit; /* relative to parent; unused for the root */
 	int children[TRS_MAX_BODIES];
 	int nchildren;
@@ -66,6 +71,11 @@ void trs_body_state_abs(const trs_system *sys, int i, double t, trs_v3 *r, trs_v
 double trs_body_rotation(const trs_body *b, double t);
 /* Angular velocity vector of the body's spin. */
 trs_v3 trs_body_omega(const trs_body *b);
+/* Body-fixed <-> SOI-frame (non-rotating) conversions at time t. */
+trs_v3 trs_body_to_fixed(const trs_body *b, double t, trs_v3 v);
+trs_v3 trs_body_from_fixed(const trs_body *b, double t, trs_v3 v);
+/* Terrain height (m above datum) under an SOI-frame position at time t. */
+double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r);
 /* Atmosphere at altitude (m above surface): pressure (Pa), density (kg/m^3). */
 void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, double *density);
 

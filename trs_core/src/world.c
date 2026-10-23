@@ -25,6 +25,7 @@
 #include <string.h>
 
 void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h);
+void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed);
 
 static void time_add(trs_world *w, double dt) {
 	double y = dt - w->t_comp;
@@ -52,9 +53,15 @@ static void vessel_release(trs_vessel *vs) {
 	free(vs->fuel_group);
 	free(vs->face_top);
 	free(vs->face_bottom);
+	free(vs->contact_pt);
+	free(vs->contact_part);
+	free(vs->contact_leg);
 	vs->craft = NULL;
 	vs->fuel_group = NULL;
 	vs->face_top = vs->face_bottom = NULL;
+	vs->contact_pt = NULL;
+	vs->contact_part = NULL;
+	vs->contact_leg = NULL;
 }
 
 void trs_world_free(trs_world *w) {
@@ -100,6 +107,9 @@ int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, tr
 	trs_vessel *vs = &w->vessels[id];
 	vs->craft = malloc(sizeof(trs_craft));
 	trs_craft_copy(vs->craft, c);
+	for (int i = 0; i < vs->craft->count; i++)
+		vs->craft->parts[i].uid = w->next_uid++;
+	vs->craft->next_uid = w->next_uid;
 	vs->q = q;
 	vs->sas_hold = q;
 	vs->next_stage = trs_craft_max_stage(c);
@@ -107,8 +117,23 @@ int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, tr
 	return id;
 }
 
+trs_quat trs_body_quat(const trs_body *b, double t) {
+	return quat_axis_angle(v3(0, 0, 1), trs_body_rotation(b, t));
+}
+
+void trs_world_push_event(trs_world *w, trs_world_event ev) {
+	if (w->nevents < TRS_MAX_EVENTS)
+		w->events[w->nevents++] = ev;
+}
+
 void trs_vessel_state(const trs_world *w, int id, trs_v3 *r, trs_v3 *v) {
 	const trs_vessel *vs = &w->vessels[id];
+	if (vs->mode == TRS_MODE_LANDED) {
+		const trs_body *b = &w->sys.bodies[vs->body];
+		*r = trs_body_from_fixed(b, w->t, vs->fixed_r);
+		*v = v3_cross(trs_body_omega(b), *r);
+		return;
+	}
 	if (vs->mode == TRS_MODE_RAILS) {
 		trs_orbit_state_at(&vs->orbit, w->t, r, v);
 	} else {
@@ -123,17 +148,31 @@ void trs_vessel_orbit(const trs_world *w, int id, trs_orbit *o) {
 		*o = vs->orbit;
 		return;
 	}
-	trs_orbit_from_state(o, w->sys.bodies[vs->body].mu, vs->r, vs->v, w->t);
+	trs_v3 r, v;
+	trs_vessel_state(w, id, &r, &v);
+	trs_orbit_from_state(o, w->sys.bodies[vs->body].mu, r, v, w->t);
 }
 
 void trs_vessel_set_mode(trs_world *w, int id, trs_mode mode) {
 	trs_vessel *vs = &w->vessels[id];
 	if (vs->mode == mode)
 		return;
-	if (mode == TRS_MODE_RAILS) {
-		trs_orbit_from_state(&vs->orbit, w->sys.bodies[vs->body].mu, vs->r, vs->v, w->t);
-	} else {
+	const trs_body *b = &w->sys.bodies[vs->body];
+	/* leave the current mode: materialise r, v, q, w */
+	if (vs->mode == TRS_MODE_RAILS) {
 		trs_orbit_state_at(&vs->orbit, w->t, &vs->r, &vs->v);
+	} else if (vs->mode == TRS_MODE_LANDED) {
+		vs->r = trs_body_from_fixed(b, w->t, vs->fixed_r);
+		vs->v = v3_cross(trs_body_omega(b), vs->r);
+		vs->q = quat_normalize(quat_mul(trs_body_quat(b, w->t), vs->fixed_q));
+		vs->w = trs_body_omega(b);
+	}
+	/* enter the new one */
+	if (mode == TRS_MODE_RAILS) {
+		trs_orbit_from_state(&vs->orbit, b->mu, vs->r, vs->v, w->t);
+	} else if (mode == TRS_MODE_LANDED) {
+		vs->fixed_r = trs_body_to_fixed(b, w->t, vs->r);
+		vs->fixed_q = quat_normalize(quat_mul(quat_conj(trs_body_quat(b, w->t)), vs->q));
 	}
 	vs->mode = mode;
 }
@@ -282,6 +321,7 @@ static void physics_soi_check(trs_world *w, trs_vessel *vs) {
 			trs_rebase_state(&w->sys, vs->body, b->parent, w->t, &vs->r, &vs->v);
 			vs->body = b->parent;
 			vs->soi_changes++;
+			trs_world_push_event(w, (trs_world_event){ TRS_WEV_SOI_CHANGE, w->t, (int)(vs - w->vessels), vs->body, -1, "", 0 });
 			continue;
 		}
 		int entered = 0;
@@ -293,6 +333,7 @@ static void physics_soi_check(trs_world *w, trs_vessel *vs) {
 				trs_rebase_state(&w->sys, vs->body, c, w->t, &vs->r, &vs->v);
 				vs->body = c;
 				vs->soi_changes++;
+				trs_world_push_event(w, (trs_world_event){ TRS_WEV_SOI_CHANGE, w->t, (int)(vs - w->vessels), c, -1, "", 0 });
 				entered = 1;
 				break;
 			}
@@ -315,6 +356,33 @@ void trs_world_step_physics(trs_world *w) {
 			rk4(w, vs, t, h);
 	}
 	time_add(w, h);
+	int n = w->nvessels; /* destruction may append vessels */
+	for (int i = 0; i < n; i++) {
+		trs_vessel *vs = &w->vessels[i];
+		if (!vs->alive || !vs->npending)
+			continue;
+		int np = vs->npending;
+		vs->npending = 0;
+		int uids[TRS_MAX_PENDING];
+		double speeds[TRS_MAX_PENDING];
+		memcpy(uids, vs->pending_uid, sizeof(int) * (size_t)np);
+		memcpy(speeds, vs->pending_speed, sizeof(double) * (size_t)np);
+		/* a part may already have left with debris; find it wherever it is */
+		for (int q = 0; q < np; q++)
+			for (int j = 0; j < w->nvessels; j++) {
+				trs_vessel *o = &w->vessels[j];
+				if (!o->alive || !o->craft)
+					continue;
+				int found = -1;
+				for (int k = 0; k < o->craft->count; k++)
+					if (o->craft->parts[k].uid == uids[q])
+						found = k;
+				if (found >= 0) {
+					trs_vessel_destroy_part(w, j, found, speeds[q]);
+					break;
+				}
+			}
+	}
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
 		if (vs->alive && vs->mode == TRS_MODE_PHYSICS)
@@ -344,6 +412,7 @@ static trs_event advance_rails(trs_world *w, trs_vessel *vs, double t_start, dou
 		vs->body = ev.body;
 		trs_orbit_from_state(&vs->orbit, w->sys.bodies[ev.body].mu, r, v, ev.t);
 		vs->soi_changes++;
+		trs_world_push_event(w, (trs_world_event){ TRS_WEV_SOI_CHANGE, ev.t, (int)(vs - w->vessels), ev.body, -1, "", 0 });
 		t = ev.t;
 	}
 	return none;
@@ -362,7 +431,7 @@ void trs_world_warp(trs_world *w, double dt, int stop_on, trs_event *stop) {
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
 		if (!vs->alive || vs->mode != TRS_MODE_RAILS || i == stop_on)
-			continue;
+			continue; /* LANDED vessels ride the body rotation analytically */
 		advance_rails(w, vs, t0, t1, 0);
 	}
 	time_set(w, t1);

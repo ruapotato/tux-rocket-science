@@ -104,6 +104,14 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "rotation_period", trs_json_new_num(b->rotation_period));
 	trs_json_set(j, "atmosphere_height", trs_json_new_num(b->atm.height));
 	trs_json_set(j, "surface_gravity", trs_json_new_num(b->mu / (b->radius * b->radius)));
+	if (b->has_site) {
+		trs_json *site = trs_json_new(TRS_JSON_OBJECT);
+		trs_json_set(site, "name", trs_json_new_str(b->site_name));
+		trs_json_set(site, "lat_deg", trs_json_new_num(b->site_lat * DEG));
+		trs_json_set(site, "lon_deg", trs_json_new_num(b->site_lon * DEG));
+		trs_json_set(site, "altitude", trs_json_new_num(b->site_alt));
+		trs_json_set(j, "site", site);
+	}
 	if (b->parent >= 0) {
 		trs_json_set(j, "sma", trs_json_new_num(b->orbit.a));
 		trs_json_set(j, "period", trs_json_new_num(b->orbit.period));

@@ -97,6 +97,10 @@ int trs_craft_engine_fed(const trs_craft *c, const int *group, int i);
 /* Splitting. For decoupler part d, moves the detached piece into `out`
  * (initialised here) and removes it from c. Returns 0 if nothing detached. */
 int trs_craft_split(trs_craft *c, int d, trs_craft *out);
+/* Destroys part d. Each of its children's subtrees becomes a separate craft
+ * written to pieces[] (initialised here, up to max). If d is the root, the
+ * remaining craft is left empty. Returns the number of pieces. */
+int trs_craft_remove_part(trs_craft *c, int d, trs_craft *pieces, int max);
 /* Marks (into mask) the parts that firing decoupler d would detach. */
 void trs_craft_detach_set(const trs_craft *c, int d, unsigned char *mask);
 

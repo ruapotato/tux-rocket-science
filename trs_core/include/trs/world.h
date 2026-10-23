@@ -44,6 +44,7 @@
 typedef enum {
 	TRS_MODE_PHYSICS = 0,
 	TRS_MODE_RAILS = 1,
+	TRS_MODE_LANDED = 2, /* fixed to the rotating surface (clamps, landed warp) */
 } trs_mode;
 
 typedef enum {
@@ -68,7 +69,17 @@ typedef enum {
 	TRS_SAS_OFF = 0,
 	TRS_SAS_STABILITY, /* hold the attitude captured when input is released */
 	TRS_SAS_TARGET,    /* point the nose (+Y) along sas_target (SOI frame) */
+	TRS_SAS_PROGRADE,  /* orbital velocity */
+	TRS_SAS_RETROGRADE,
+	TRS_SAS_NORMAL,
+	TRS_SAS_ANTINORMAL,
+	TRS_SAS_RADIAL_OUT,
+	TRS_SAS_RADIAL_IN,
+	TRS_SAS_SURF_PROGRADE, /* surface-relative velocity */
+	TRS_SAS_SURF_RETROGRADE,
+	TRS_SAS_COUNT
 } trs_sas_mode;
+
 
 typedef struct {
 	int alive;
@@ -96,6 +107,17 @@ typedef struct {
 	double dv_expended;  /* integral of |thrust accel| dt */
 	double pressure, density, altitude;
 
+	/* Surface */
+	trs_v3 fixed_r;   /* body-fixed position in LANDED mode */
+	trs_quat fixed_q; /* body-fixed attitude in LANDED mode */
+	int clamped;      /* held by launch clamps until the first stage */
+	int contacts;     /* contact points touching the ground last tick */
+	int landed;       /* resting on the surface (contacts, slow) */
+	double max_impact; /* worst contact speed seen, m/s (telemetry) */
+	int npending; /* parts (by uid) to destroy after this tick */
+	int pending_uid[64];
+	double pending_speed[64];
+
 	/* Caches rebuilt when the assembly changes */
 	int dirty;
 	double mass;
@@ -103,15 +125,45 @@ typedef struct {
 	trs_m3 inertia;   /* about cm, vessel-local */
 	int *fuel_group;
 	double *face_top, *face_bottom; /* exposed axial area per part */
+	int ncontact;
+	trs_v3 *contact_pt;  /* vessel-local contact points */
+	int *contact_part;
+	unsigned char *contact_leg;
+	double bound_radius; /* max distance of any contact point from the CoM */
 } trs_vessel;
 
+typedef enum {
+	TRS_WEV_PART_DESTROYED = 1,
+	TRS_WEV_VESSEL_CREATED,
+	TRS_WEV_SOI_CHANGE,
+	TRS_WEV_LANDED,
+	TRS_WEV_LIFTOFF,
+	TRS_WEV_FLAMEOUT,
+} trs_world_event_kind;
+
+typedef struct {
+	trs_world_event_kind kind;
+	double t;
+	int vessel;  /* vessel involved */
+	int other;   /* new vessel id / body index */
+	int uid;     /* part uid */
+	char part[32];
+	double speed;
+} trs_world_event;
+
+#define TRS_MAX_EVENTS 256
+
 #define TRS_MAX_VESSELS 64
+#define TRS_MAX_PENDING 64
 
 typedef struct {
 	trs_system sys;
 	double t, t_comp; /* world time with Kahan compensation */
 	trs_vessel vessels[TRS_MAX_VESSELS];
 	int nvessels;
+	trs_world_event events[TRS_MAX_EVENTS];
+	int nevents;
+	int next_uid; /* part uids are unique across the whole world */
 } trs_world;
 
 void trs_world_init(trs_world *w, const trs_system *sys, double t0);
@@ -121,6 +173,14 @@ void trs_world_remove_vessel(trs_world *w, int id);
 /* Adds a vessel built from a craft (copied). Position/velocity are for the
  * centre of mass; q orients the craft's local frame. Starts in PHYSICS. */
 int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, trs_v3 v, trs_quat q);
+/* Places a craft on a body's surface at lat/lon (radians), nose up, held by
+ * launch clamps until its first stage fires. Returns the vessel id. */
+int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, double lon);
+void trs_world_push_event(trs_world *w, trs_world_event ev);
+/* Body-frame attitude quaternion (rotation of the body since epoch). */
+trs_quat trs_body_quat(const trs_body *b, double t);
+/* Direction for a SAS mode at the vessel's current state (SOI frame). */
+trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m);
 /* Fires the vessel's next stage. New vessels created by decouplers are
  * written to new_ids (up to max); returns how many. */
 int trs_world_stage(trs_world *w, int id, int *new_ids, int max);

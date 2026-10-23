@@ -349,6 +349,56 @@ int trs_craft_split(trs_craft *c, int d, trs_craft *out) {
 	return 1;
 }
 
+/* Extracts the subtree rooted at r into out (re-indexed), leaving c intact. */
+static void extract_subtree(const trs_craft *c, int r, trs_craft *out) {
+	unsigned char *mask = calloc((size_t)c->count, 1);
+	mark_subtree(c, r, mask);
+	int *remap = malloc(sizeof(int) * (size_t)c->count);
+	trs_craft_init(out, c->cat);
+	snprintf(out->name, sizeof out->name, "%.56s debris", c->name);
+	out->next_uid = c->next_uid;
+	for (int i = 0; i < c->count; i++)
+		if (mask[i])
+			out->cap++;
+	out->parts = malloc(sizeof(trs_part) * (size_t)(out->cap ? out->cap : 1));
+	for (int i = 0; i < c->count; i++) {
+		if (!mask[i])
+			continue;
+		trs_part p = c->parts[i];
+		remap[i] = out->count;
+		p.parent = (i == r) ? -1 : remap[p.parent];
+		if (i == r)
+			p.node[0] = p.parent_node[0] = 0;
+		out->parts[out->count++] = p;
+	}
+	free(remap);
+	free(mask);
+}
+
+int trs_craft_remove_part(trs_craft *c, int d, trs_craft *pieces, int max) {
+	int n = 0;
+	for (int i = d + 1; i < c->count; i++)
+		if (c->parts[i].parent == d && n < max)
+			extract_subtree(c, i, &pieces[n++]);
+	/* drop d and its whole subtree from c */
+	unsigned char *mask = calloc((size_t)c->count, 1);
+	mark_subtree(c, d, mask);
+	int *remap = malloc(sizeof(int) * (size_t)c->count);
+	int k = 0;
+	for (int i = 0; i < c->count; i++) {
+		if (mask[i])
+			continue;
+		trs_part p = c->parts[i];
+		remap[i] = k;
+		p.parent = p.parent >= 0 ? remap[p.parent] : -1;
+		c->parts[k++] = p;
+	}
+	c->count = k;
+	free(remap);
+	free(mask);
+	return n;
+}
+
 /* ---- staging readouts ------------------------------------------------------ */
 
 void trs_craft_activate_stage_root_only(trs_craft *c, int s) {

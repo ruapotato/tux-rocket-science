@@ -23,6 +23,7 @@
 #include "trs/world.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -42,6 +43,57 @@ static int neighbour_at(const trs_craft *c, int i, const char *name) {
 		if (c->parts[k].parent == i && !strcmp(c->parts[k].parent_node, name))
 			return k;
 	return -1;
+}
+
+/* Hull contact points: rims of each part's ends (fins: corners; deployed
+ * legs: the foot, with the leg's own spring). Vessel-local frame. */
+static void build_contacts(trs_vessel *vs) {
+	const trs_craft *c = vs->craft;
+	free(vs->contact_pt);
+	free(vs->contact_part);
+	free(vs->contact_leg);
+	int cap = c->count * 16 + 1;
+	vs->contact_pt = malloc(sizeof(trs_v3) * (size_t)cap);
+	vs->contact_part = malloc(sizeof(int) * (size_t)cap);
+	vs->contact_leg = malloc((size_t)cap);
+	int n = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part *p = &c->parts[i];
+		const trs_part_def *d = trs_craft_def(c, i);
+		trs_v3 local[16];
+		int m = 0, leg = 0;
+		if (d->is_leg) {
+			if (p->legs_deployed) {
+				double a = 20.0 * TRS_PI / 180.0;
+				local[m++] = v3(0, -d->leg_length * cos(a), d->leg_length * sin(a) + 0.08);
+				leg = 1;
+			} else {
+				local[m++] = v3(0, -0.3, 0.1);
+			}
+		} else if (!strcmp(d->category, "aero") && d->is_parachute == 0 && d->radius < 0.31 && d->height <= 1.0) {
+			/* fins: root ends and the tip */
+			local[m++] = v3(0, d->height * 0.5, 0);
+			local[m++] = v3(0, -d->height * 0.5, 0);
+			local[m++] = v3(0, -d->height * 0.5, 0.8);
+		} else {
+			double r = d->radius, h = d->height * 0.5;
+			for (int k = 0; k < 8; k++) {
+				double a = TRS_TAU * k / 8;
+				local[m++] = v3(r * sin(a), -h, r * cos(a));
+				local[m++] = v3(r * sin(a), h, r * cos(a));
+			}
+		}
+		for (int k = 0; k < m; k++) {
+			vs->contact_pt[n] = v3_add(p->pos, quat_rotate(p->rot, local[k]));
+			vs->contact_part[n] = i;
+			vs->contact_leg[n] = (unsigned char)leg;
+			n++;
+		}
+	}
+	vs->ncontact = n;
+	vs->bound_radius = 0;
+	for (int k = 0; k < n; k++)
+		vs->bound_radius = fmax(vs->bound_radius, v3_len(v3_sub(vs->contact_pt[k], vs->cm)));
 }
 
 void trs_vessel_refresh(trs_world *w, int id) {
@@ -71,6 +123,7 @@ void trs_vessel_refresh(trs_world *w, int id) {
 		vs->face_bottom[i] = bottom;
 	}
 	trs_craft_mass_props(c, &vs->mass, &vs->cm, &vs->inertia);
+	build_contacts(vs);
 	vs->dirty = 0;
 }
 
@@ -209,13 +262,129 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 	*force = quat_rotate(vs->q, f_local_total);
 }
 
+/* ---- ground contact ----------------------------------------------------------- */
+
+#define CONTACT_OMEGA 22.0  /* rad/s: hull stiffness, well inside RK4 stability at 50 Hz */
+#define CONTACT_ZETA 0.8
+#define FRICTION_MU 0.5
+#define SLIP_REG 0.08 /* m/s: friction regularisation */
+
+#define MAX_CRASH 64
+
+typedef struct {
+	int touching;
+	int ncrash;          /* parts hitting faster than their tolerance */
+	int crash_part[MAX_CRASH];
+	double crash_speed[MAX_CRASH];
+	double max_speed;
+} contact_report;
+
+/* Ground force (SOI frame) and torque about the CoM (vessel-local) for a
+ * vessel at (r, v) with the attitude/spin from the start of the tick. */
+static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r, trs_v3 v, trs_v3 *force,
+		trs_v3 *torque_local, contact_report *rep) {
+	*force = v3(0, 0, 0);
+	if (torque_local)
+		*torque_local = v3(0, 0, 0);
+	if (rep) {
+		rep->touching = 0;
+		rep->ncrash = 0;
+		rep->max_speed = 0;
+	}
+	const trs_body *b = &w->sys.bodies[vs->body];
+	double rl = v3_len(r);
+	double h_here = trs_body_terrain_at(b, t, r);
+	if (rl - b->radius - h_here > vs->bound_radius + 5.0)
+		return;
+	trs_v3 omega_b = trs_body_omega(b);
+	trs_v3 nrm = trs_body_from_fixed(b, t,
+			trs_terrain_normal(&b->terrain, b->radius, v3_norm(trs_body_to_fixed(b, t, r)), 2.0));
+	if (!b->terrain.enabled)
+		nrm = v3_scale(r, 1.0 / rl);
+	double m = vs->mass;
+	double k_hull = m * CONTACT_OMEGA * CONTACT_OMEGA / 4.0;
+	double c_hull = 2 * CONTACT_ZETA * sqrt(k_hull * m / 4.0);
+	const trs_craft *c = vs->craft;
+	for (int k = 0; k < vs->ncontact; k++) {
+		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
+		trs_v3 p = v3_add(r, arm);
+		double pl = v3_len(p);
+		double h = trs_body_terrain_at(b, t, p);
+		double depth = (b->radius + h - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
+		if (depth <= 0)
+			continue;
+		trs_v3 vp = v3_sub(v3_add(v, v3_cross(vs->w, arm)), v3_cross(omega_b, p));
+		double vn = v3_dot(vp, nrm);
+		double kk = k_hull, cc = c_hull;
+		const trs_part_def *d = trs_craft_def(c, vs->contact_part[k]);
+		if (vs->contact_leg[k]) {
+			kk = d->leg_spring;
+			cc = d->leg_damper;
+		}
+		double fn = kk * depth - cc * vn;
+		if (fn < 0)
+			fn = 0;
+		trs_v3 vt = v3_sub(vp, v3_scale(nrm, vn));
+		double vtl = v3_len(vt);
+		trs_v3 ft = v3_scale(vt, -FRICTION_MU * fn / fmax(vtl, SLIP_REG));
+		trs_v3 f = v3_add(v3_scale(nrm, fn), ft);
+		*force = v3_add(*force, f);
+		if (torque_local)
+			*torque_local = v3_add(*torque_local, quat_rotate(quat_conj(vs->q), v3_cross(arm, f)));
+		if (rep) {
+			rep->touching++;
+			double impact = -vn;
+			double tol = vs->contact_leg[k] ? d->leg_max_speed : d->crash_tolerance;
+			rep->max_speed = fmax(rep->max_speed, impact);
+			if (impact > tol) {
+				int part = vs->contact_part[k], seen = 0;
+				for (int q = 0; q < rep->ncrash; q++)
+					if (rep->crash_part[q] == part) {
+						seen = 1;
+						rep->crash_speed[q] = fmax(rep->crash_speed[q], impact);
+					}
+				if (!seen && rep->ncrash < MAX_CRASH) {
+					rep->crash_part[rep->ncrash] = part;
+					rep->crash_speed[rep->ncrash++] = impact;
+				}
+			}
+		}
+	}
+}
+
 /* ---- attitude ------------------------------------------------------------------ */
 
 static double clampd(double x, double lo, double hi) {
 	return x < lo ? lo : x > hi ? hi : x;
 }
 
-static trs_v3 control_torque(trs_vessel *vs, double gimbal_authority) {
+trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
+	const trs_vessel *vs = &w->vessels[id];
+	trs_v3 r, v;
+	trs_vessel_state(w, id, &r, &v);
+	const trs_body *b = &w->sys.bodies[vs->body];
+	trs_v3 vs_rel = v3_sub(v, v3_cross(trs_body_omega(b), r));
+	trs_v3 h = v3_cross(r, v);
+	switch (m) {
+	case TRS_SAS_PROGRADE: return v3_norm(v);
+	case TRS_SAS_RETROGRADE: return v3_neg(v3_norm(v));
+	case TRS_SAS_NORMAL: return v3_norm(h);
+	case TRS_SAS_ANTINORMAL: return v3_neg(v3_norm(h));
+	case TRS_SAS_RADIAL_OUT: return v3_norm(v3_cross(v3_norm(h), v3_norm(v)));
+	case TRS_SAS_RADIAL_IN: return v3_neg(v3_norm(v3_cross(v3_norm(h), v3_norm(v))));
+	case TRS_SAS_SURF_PROGRADE: return v3_norm(vs_rel);
+	case TRS_SAS_SURF_RETROGRADE: return v3_neg(v3_norm(vs_rel));
+	case TRS_SAS_TARGET: return vs->sas_target;
+	default: return quat_rotate(vs->q, v3(0, 1, 0));
+	}
+}
+
+static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimbal_authority) {
+	if (vs->sas >= TRS_SAS_PROGRADE) {
+		trs_v3 d = trs_sas_direction(world, (int)(vs - world->vessels), vs->sas);
+		if (v3_len2(d) > 0.5)
+			vs->sas_target = d;
+	}
 	const trs_craft *c = vs->craft;
 	double wheel = 0;
 	for (int i = 0; i < c->count; i++)
@@ -228,9 +397,9 @@ static trs_v3 control_torque(trs_vessel *vs, double gimbal_authority) {
 	trs_v3 cmd = v3(0, 0, 0);
 	int manual = fabs(vs->input.x) + fabs(vs->input.y) + fabs(vs->input.z) > 1e-6;
 
-	if (vs->sas == TRS_SAS_TARGET || (vs->sas == TRS_SAS_STABILITY && !manual)) {
+	if (vs->sas >= TRS_SAS_TARGET || (vs->sas == TRS_SAS_STABILITY && !manual)) {
 		trs_v3 err; /* rotation vector from current to target, local frame */
-		if (vs->sas == TRS_SAS_TARGET && v3_len2(vs->sas_target) > 0) {
+		if (vs->sas >= TRS_SAS_TARGET && v3_len2(vs->sas_target) > 0) {
 			trs_v3 nose = v3(0, 1, 0);
 			trs_v3 tgt = v3_norm(quat_rotate(quat_conj(vs->q), vs->sas_target));
 			trs_v3 ax = v3_cross(nose, tgt);
@@ -290,9 +459,10 @@ static void accel(const dyn_ctx *cx, double t, trs_v3 r, trs_v3 v, trs_v3 *a, tr
 	double mu = cx->w->sys.bodies[cx->vs->body].mu;
 	double rl2 = v3_len2(r), rl = sqrt(rl2);
 	double m = cx->m0 - cx->mdot * (t - cx->t0);
-	trs_v3 fa;
+	trs_v3 fa, fg;
 	aero(cx->w, cx->vs, r, v, &fa, NULL);
-	trs_v3 ng = v3_scale(v3_add(cx->thrust_world, fa), 1.0 / m);
+	ground(cx->w, cx->vs, t, r, v, &fg, NULL, NULL);
+	trs_v3 ng = v3_scale(v3_add(v3_add(cx->thrust_world, fa), fg), 1.0 / m);
 	if (cx->vs->accel)
 		ng = v3_add(ng, cx->vs->accel(cx->vs->accel_user, cx->vs->body, t, r, v));
 	*a = v3_add(v3_scale(r, -mu / (rl2 * rl)), ng);
@@ -350,7 +520,14 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	/* attitude once per tick from start-of-tick torques */
 	trs_v3 fa, aero_torque;
 	aero(w, vs, vs->r, vs->v, &fa, &aero_torque);
-	trs_v3 torque = v3_add(v3_add(control_torque(vs, es.gimbal_authority), aero_torque), es.torque_local);
+	trs_v3 fg, ground_torque;
+	contact_report rep;
+	ground(w, vs, t, vs->r, vs->v, &fg, &ground_torque, &rep);
+	vs->contacts = rep.touching;
+	if (rep.touching)
+		vs->max_impact = fmax(vs->max_impact, rep.max_speed);
+	trs_v3 torque = v3_add(v3_add(control_torque(w, vs, es.gimbal_authority), aero_torque), es.torque_local);
+	torque = v3_add(torque, ground_torque);
 	if (es.n) {
 		/* gimbal trims out thrust misalignment up to its authority */
 		double tm = v3_len(es.torque_local);
@@ -390,6 +567,24 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	vs->dv_expended += dv;
 	vs->sensed_accel = sensed;
 	integrate_attitude(vs, torque, h);
+
+	/* landed: touching and moving with the surface */
+	if (rep.touching) {
+		trs_v3 vs_rel = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
+		int was = vs->landed;
+		vs->landed = v3_len(vs_rel) < 0.3;
+		if (vs->landed && !was)
+			trs_world_push_event(w, (trs_world_event){ TRS_WEV_LANDED, t + h, (int)(vs - w->vessels), vs->body, -1, "", 0 });
+	} else {
+		if (vs->landed)
+			trs_world_push_event(w, (trs_world_event){ TRS_WEV_LIFTOFF, t + h, (int)(vs - w->vessels), vs->body, -1, "", 0 });
+		vs->landed = 0;
+	}
+	/* queue every over-tolerance part, by uid (indices shift as parts go) */
+	for (int q = 0; q < rep.ncrash && vs->npending < TRS_MAX_PENDING; q++) {
+		vs->pending_uid[vs->npending] = vs->craft->parts[rep.crash_part[q]].uid;
+		vs->pending_speed[vs->npending++] = rep.crash_speed[q];
+	}
 }
 
 /* ---- staging --------------------------------------------------------------------- */
@@ -415,8 +610,12 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 	trs_vessel *vs = &w->vessels[id];
 	if (!vs->craft || vs->next_stage < 0)
 		return 0;
-	if (vs->mode == TRS_MODE_RAILS)
+	if (vs->mode != TRS_MODE_PHYSICS)
 		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+	if (vs->clamped) {
+		vs->clamped = 0;
+		vs->sas_hold = vs->q;
+	}
 	int s = vs->next_stage--;
 	trs_craft *c = vs->craft;
 	for (int i = 0; i < c->count; i++) {
@@ -512,4 +711,84 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		made++;
 	}
 	return made < max ? made : max;
+}
+
+/* ---- destruction, launch ------------------------------------------------------- */
+
+/* Spawns a vessel for a detached piece, moving rigidly with the parent. */
+static int spawn_piece(trs_world *w, int parent_id, trs_craft *piece, trs_v3 cm_old) {
+	trs_vessel *vs = &w->vessels[parent_id];
+	trs_v3 r_old = vs->r, v_old = vs->v, w_old = vs->w;
+	trs_quat q = vs->q;
+	int body = vs->body;
+	int nid = trs_world_add_vessel(w, body, r_old, v_old);
+	if (nid < 0) {
+		trs_craft_free(piece);
+		return -1;
+	}
+	trs_vessel *nv = &w->vessels[nid];
+	nv->craft = malloc(sizeof(trs_craft));
+	*nv->craft = *piece;
+	nv->q = q;
+	nv->w = w_old;
+	nv->next_stage = trs_craft_max_stage(piece);
+	trs_vessel_refresh(w, nid);
+	trs_v3 d = quat_rotate(q, v3_sub(nv->cm, cm_old));
+	nv->r = v3_add(r_old, d);
+	nv->v = v3_add(v_old, v3_cross(w_old, d));
+	return nid;
+}
+
+void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed) {
+	trs_vessel *vs = &w->vessels[id];
+	trs_craft *c = vs->craft;
+	if (!c || part < 0 || part >= c->count)
+		return;
+	trs_world_event ev = { TRS_WEV_PART_DESTROYED, w->t, id, -1, c->parts[part].uid, "", speed };
+	snprintf(ev.part, sizeof ev.part, "%s", trs_craft_def(c, part)->id);
+	trs_world_push_event(w, ev);
+	trs_v3 cm_old = vs->cm, r_old = vs->r, v_old = vs->v;
+	trs_craft pieces[32];
+	int n = trs_craft_remove_part(c, part, pieces, 32);
+	for (int k = 0; k < n; k++) {
+		int nid = spawn_piece(w, id, &pieces[k], cm_old);
+		if (nid >= 0)
+			trs_world_push_event(w, (trs_world_event){ TRS_WEV_VESSEL_CREATED, w->t, id, nid, -1, "", 0 });
+	}
+	vs = &w->vessels[id];
+	if (vs->craft->count == 0) {
+		trs_world_remove_vessel(w, id);
+		return;
+	}
+	trs_vessel_refresh(w, id);
+	trs_v3 d = quat_rotate(vs->q, v3_sub(vs->cm, cm_old));
+	vs->r = v3_add(r_old, d);
+	vs->v = v3_add(v_old, v3_cross(vs->w, d));
+}
+
+int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, double lon) {
+	const trs_body *b = &w->sys.bodies[body];
+	trs_v3 up = v3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+	trs_v3 east = v3_norm(v3_cross(v3(0, 0, 1), up));
+	trs_v3 south = v3_cross(east, up);
+	int id = trs_world_add_craft(w, c, body, v3_scale(up, b->radius * 2), v3(0, 0, 0), quat_identity());
+	if (id < 0)
+		return id;
+	trs_vessel *vs = &w->vessels[id];
+	double min_y = INFINITY;
+	for (int k = 0; k < vs->ncontact; k++)
+		min_y = fmin(min_y, vs->contact_pt[k].y);
+	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, up) : 0;
+	vs->mode = TRS_MODE_LANDED;
+	vs->fixed_r = v3_scale(up, b->radius + h + (vs->cm.y - min_y) + 0.01);
+	vs->fixed_q = quat_from_basis(east, up, south);
+	vs->clamped = 1;
+	vs->landed = 1;
+	vs->sas_hold = vs->fixed_q;
+	/* keep r/v/q coherent for anything that reads them directly */
+	vs->r = trs_body_from_fixed(b, w->t, vs->fixed_r);
+	vs->v = v3_cross(trs_body_omega(b), vs->r);
+	vs->q = quat_normalize(quat_mul(trs_body_quat(b, w->t), vs->fixed_q));
+	vs->w = trs_body_omega(b);
+	return id;
 }

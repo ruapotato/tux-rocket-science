@@ -88,6 +88,26 @@ static inline trs_quat quat_from_to(trs_v3 a, trs_v3 b) {
 	return quat_normalize(q);
 }
 
+/* Quaternion whose rotated basis vectors are x, y, z (orthonormal, RH). */
+static inline trs_quat quat_from_basis(trs_v3 x, trs_v3 y, trs_v3 z) {
+	double tr = x.x + y.y + z.z;
+	trs_quat q;
+	if (tr > 0) {
+		double s = sqrt(tr + 1.0) * 2;
+		q = (trs_quat){ (y.z - z.y) / s, (z.x - x.z) / s, (x.y - y.x) / s, 0.25 * s };
+	} else if (x.x > y.y && x.x > z.z) {
+		double s = sqrt(1.0 + x.x - y.y - z.z) * 2;
+		q = (trs_quat){ 0.25 * s, (y.x + x.y) / s, (z.x + x.z) / s, (y.z - z.y) / s };
+	} else if (y.y > z.z) {
+		double s = sqrt(1.0 + y.y - x.x - z.z) * 2;
+		q = (trs_quat){ (y.x + x.y) / s, 0.25 * s, (z.y + y.z) / s, (z.x - x.z) / s };
+	} else {
+		double s = sqrt(1.0 + z.z - x.x - y.y) * 2;
+		q = (trs_quat){ (z.x + x.z) / s, (z.y + y.z) / s, 0.25 * s, (x.y - y.x) / s };
+	}
+	return quat_normalize(q);
+}
+
 /* Integrates attitude by a world-frame angular velocity over dt. */
 static inline trs_quat quat_integrate(trs_quat q, trs_v3 w, double dt) {
 	double ang = v3_len(w) * dt;

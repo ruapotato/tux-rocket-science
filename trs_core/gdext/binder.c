@@ -262,6 +262,15 @@ static void method_call(void *ud, GDExtensionClassInstancePtr inst, const GDExte
 			args[i].f = (double)x;
 			continue;
 		}
+		if (vt == GDEXTENSION_VARIANT_TYPE_FLOAT && want == GDEXTENSION_VARIANT_TYPE_INT) {
+			/* JSON numbers arrive as floats; accept integral values */
+			double x;
+			from_variant[GDEXTENSION_VARIANT_TYPE_FLOAT](&x, v);
+			if (x == (double)(int64_t)x) {
+				args[i].i = (int64_t)x;
+				continue;
+			}
+		}
 		if (vt != want) {
 			for (int j = 0; j < i; j++)
 				free_val(&args[j]);
