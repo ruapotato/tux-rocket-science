@@ -32,6 +32,16 @@ func run(runner: Node) -> Dictionary:
 	flight._cam.fov = 12.0
 	for i in 150:
 		await tree.process_frame
+	if OS.get_environment("MAGENTA_PLANET") != "":
+		var mm := StandardMaterial3D.new()
+		mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mm.albedo_color = Color(1, 0, 1)
+		for b in flight._scaled._bodies:
+			b.node.material_override = mm
+			if b.atmo: b.atmo.visible = false
+			if b.clouds: b.clouds.visible = false
+		for i in 5:
+			await tree.process_frame
 	if OS.get_environment("NO_TERRAIN") != "":
 		flight._terrain.visible = false
 		for i in 5:

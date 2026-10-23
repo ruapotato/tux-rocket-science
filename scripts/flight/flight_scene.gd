@@ -157,6 +157,8 @@ func _build() -> void:
 	_env.fog_light_color = SKY_DAY
 	_env.fog_density = 0.0
 	_env.fog_sky_affect = 0.0
+	# far terrain takes on the haze, like real air does
+	_env.fog_height_density = 0.0
 	var we := WorldEnvironment.new()
 	we.environment = _env
 	add_child(we)
@@ -490,7 +492,7 @@ func _render(delta: float) -> void:
 	if atm_h > 0.0 and t.altitude < atm_h:
 		density = pow(1.0 - clampf(t.altitude / atm_h, 0.0, 1.0), 1.6)
 		_env.fog_light_color = Color(0.62, 0.76, 0.93).lerp(Color(0.02, 0.02, 0.05), 1.0 - day)
-		_env.fog_density = 0.000008 * density
+		_env.fog_density = 0.00003 * density
 		_env.ambient_light_color = Color(0.55, 0.65, 0.85)
 		_env.ambient_light_energy = 0.1 + 0.4 * density * day
 	else:

@@ -133,6 +133,11 @@ void fragment() {
 		ice *= 1.0 - 0.8 * smoothstep(600.0, 3000.0, dist);  // edge-on slopes far away read as stripes
 		ice = max(ice, smoothstep(0.62, 0.8, big) * 0.6);
 		col = mix(snow, c_slope.rgb, ice);
+		// low basins are blue sea ice, the same rule the orbital bake uses,
+		// so near detail and the distant baked map agree
+		float basin = clamp((450.0 - hgt) / 450.0, 0.0, 1.0);
+		vec3 sea = mix(vec3(0.36, 0.58, 0.84), vec3(0.62, 0.78, 0.94), n_big);
+		col = mix(col, sea, basin * 0.85);
 		// rock on steep faces
 		float rock = smoothstep(0.42, 0.56, slope + (n_mid - 0.5) * 0.1);
 		col = mix(col, c_rock.rgb * (0.8 + 0.4 * n_mid), rock);
@@ -178,7 +183,9 @@ void fragment() {
 			vec3 bn = textureGrad(baked_normal, uv, dx, dy).rgb * 2.0 - 1.0;
 			col = mix(col, bc, fb);
 			vec3 nv = normalize((VIEW_MATRIX * MODEL_MATRIX * vec4(bn, 0.0)).xyz);
-			NORMAL = normalize(mix(NORMAL, nv, fb * 0.7));
+			// the bake's normals exaggerate relief for orbital views; at grazing
+			// angles from the ground they flip faces dark, so use them lightly
+			NORMAL = normalize(mix(NORMAL, nv, fb * 0.15));
 			rough = mix(rough, 0.85, fb);
 			EMISSION *= 1.0 - fb;
 		}
@@ -195,6 +202,14 @@ void fragment() {
 		float c = smoothstep(cloud_coverage, cloud_coverage + 0.08, c_field(drift * dd));
 		cloud_shade = 1.0 - 0.55 * c;
 	}
+	// sub-pixel ridges far away alias into dark dashes: soften their normals
+	// toward local up with distance (they'd be washed by haze anyway)
+	NORMAL = normalize(mix(NORMAL, up_view, smoothstep(1500.0, 12000.0, dist) * 0.65));
+	// a shading normal facing away from the eye on a visible surface makes
+	// black slivers at grazing angles: pull it back to the visible side
+	float nv_dot = dot(NORMAL, VIEW);
+	if (nv_dot < 0.05)
+		NORMAL = normalize(NORMAL + VIEW * (0.05 - nv_dot));
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = spec;
