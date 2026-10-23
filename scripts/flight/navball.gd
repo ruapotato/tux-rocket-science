@@ -160,6 +160,12 @@ func _draw() -> void:
 					for k in 4:
 						var d := Vector2.from_angle(k * PI / 2 + PI / 4)
 						draw_line(p + d * 3, p + d * 8, col, 2.5)
+			"maneuver":
+				var col := Color(0.35, 0.6, 1.0)
+				draw_arc(p, 11, 0, TAU, 24, col, 3.0, true)
+				draw_line(p + Vector2(0, -11), p + Vector2(0, -18), col, 3.0)
+				draw_line(p + Vector2(-10, 6), p + Vector2(-16, 10), col, 3.0)
+				draw_line(p + Vector2(10, 6), p + Vector2(16, 10), col, 3.0)
 			"target":
 				draw_arc(p, 10, 0, TAU, 24, Color(1, 0.35, 0.7), 2.5, true)
 				draw_circle(p, 3, Color(1, 0.35, 0.7))

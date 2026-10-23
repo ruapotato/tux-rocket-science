@@ -26,6 +26,8 @@
 ##   stage   legs {deployed}   switch {id}
 ##   warp {kind: physics|rails, index}   step {ticks | seconds}
 ##   query   vessels   events   predict {patches?, horizon?}   time
+##   warp_to {t}   trajectory {nodes: [[t, pro, nrm, rad]...], patches?, horizon?}
+##   node_vector {nodes, index}   burn_time {dv}
 class_name ControlAPI
 extends RefCounted
 
@@ -100,6 +102,17 @@ func handle(cmd: Dictionary) -> Dictionary:
 		"advance":
 			session.advance(float(cmd.get("seconds", 0.0)))
 			return _ok({"t": session.time()})
+		"warp_to":
+			var reason := session.warp_to(float(cmd.get("t", session.time())))
+			return _ok({"t": session.time(), "stopped": reason})
+		"trajectory":
+			return _ok({"patches": session.trajectory(cmd.get("nodes", []), int(cmd.get("patches", 6)),
+				float(cmd.get("horizon", 2.0e6)))})
+		"node_vector":
+			var v := session.node_vector(cmd.get("nodes", []), int(cmd.get("index", 0)))
+			return _ok({"vector": [v.x, v.y, v.z]})
+		"burn_time":
+			return _ok({"seconds": session.core.burn_time(session.active, float(cmd.get("dv", 0.0)))})
 		"query":
 			return _ok({"telemetry": session.telemetry()})
 		"vessels":

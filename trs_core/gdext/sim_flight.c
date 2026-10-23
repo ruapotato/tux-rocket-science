@@ -23,6 +23,7 @@
 #include "trs/craft.h"
 #include "trs/json.h"
 #include "trs/terrain.h"
+#include "trs/trajectory.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -293,7 +294,9 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
 	trs_json_set(j, "clamped", trs_json_new_bool(vs->clamped));
 	trs_json_set(j, "contacts", trs_json_new_num(vs->contacts));
+	trs_json_set(j, "max_impact", trs_json_new_num(vs->max_impact));
 	trs_json_set(j, "throttle", trs_json_new_num(vs->throttle));
+	trs_json_set(j, "dv_expended", trs_json_new_num(vs->dv_expended));
 	trs_json_set(j, "sas", trs_json_new_str(SAS_NAMES[vs->sas]));
 	trs_json_set(j, "next_stage", trs_json_new_num(vs->next_stage));
 	trs_json_set(j, "up", v3_json(up));
@@ -599,6 +602,179 @@ static void m_sas_direction(void *self, const trs_val *a, trs_val *r) {
 	ret_doubles(r, out, 3);
 }
 
+/* ---- maneuver nodes / trajectories ----------------------------------------- */
+
+static int read_nodes(const trs_val *a, trs_node *nodes, int max) {
+	int n = (int)(a->arr.n / 4);
+	if (n > max)
+		n = max;
+	for (int k = 0; k < n; k++) {
+		nodes[k].t = a->arr.data[k * 4];
+		nodes[k].pro = a->arr.data[k * 4 + 1];
+		nodes[k].nrm = a->arr.data[k * 4 + 2];
+		nodes[k].rad = a->arr.data[k * 4 + 3];
+	}
+	return n;
+}
+
+static int vessel_trajectory(trs_sim_handle *h, int id, const trs_val *nodes_arr, int max_patches, double horizon,
+		trs_patch *out) {
+	trs_node nodes[32];
+	int nn = read_nodes(nodes_arr, nodes, 32);
+	trs_orbit o;
+	trs_vessel_orbit(h->world, id, &o);
+	return trs_trajectory(&h->world->sys, h->world->vessels[id].body, &o, h->world->t, nodes, nn, horizon, out,
+			max_patches);
+}
+
+static const char *PATCH_END[] = { "horizon", "soi_exit", "soi_enter", "atmosphere", "surface", "node" };
+
+/* trajectory(id, nodes[t,pro,nrm,rad]*, max_patches, horizon) -> JSON patches */
+static void m_trajectory(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *arr = trs_json_new(TRS_JSON_ARRAY);
+	if (ok_vessel(h, a[0].i)) {
+		trs_patch patches[32];
+		int max = (int)a[2].i < 32 ? (int)a[2].i : 32;
+		int n = vessel_trajectory(h, (int)a[0].i, &a[1], max, a[3].f, patches);
+		for (int k = 0; k < n; k++) {
+			trs_patch *p = &patches[k];
+			const trs_body *b = &h->world->sys.bodies[p->body];
+			trs_json *pj = trs_json_new(TRS_JSON_OBJECT);
+			int closed = trs_orbit_is_closed(&p->orbit);
+			trs_json_set(pj, "body", trs_json_new_str(b->id));
+			trs_json_set(pj, "body_index", trs_json_new_num(p->body));
+			trs_json_set(pj, "t_start", trs_json_new_num(p->t0));
+			trs_json_set(pj, "t_end", trs_json_new_num(p->t1));
+			trs_json_set(pj, "end", trs_json_new_str(PATCH_END[p->end]));
+			trs_json_set(pj, "node", trs_json_new_num(p->node));
+			trs_json_set(pj, "sma", trs_json_new_num(p->orbit.a));
+			trs_json_set(pj, "ecc", trs_json_new_num(p->orbit.e));
+			trs_json_set(pj, "inc_deg", trs_json_new_num(p->orbit.inc * DEG));
+			trs_json_set(pj, "pe_alt", trs_json_new_num(p->orbit.rp - b->radius));
+			trs_json_set(pj, "ap_alt", closed ? trs_json_new_num(p->orbit.ra - b->radius) : trs_json_new(TRS_JSON_NULL));
+			double tpe = trs_orbit_next_periapsis(&p->orbit, p->t0);
+			trs_json_set(pj, "pe_t", tpe <= p->t1 ? trs_json_new_num(tpe) : trs_json_new(TRS_JSON_NULL));
+			double tap = trs_orbit_next_apoapsis(&p->orbit, p->t0);
+			trs_json_set(pj, "ap_t", tap <= p->t1 ? trs_json_new_num(tap) : trs_json_new(TRS_JSON_NULL));
+			trs_json_set(pj, "period", trs_json_new_num(p->orbit.period));
+			/* exact marker positions relative to the patch body (sim axes) */
+			trs_v3 rr, vv;
+			trs_orbit_state_at(&p->orbit, p->t1, &rr, &vv);
+			trs_json_set(pj, "end_pos", v3_json(rr));
+			trs_orbit_state_at(&p->orbit, p->t0, &rr, &vv);
+			trs_json_set(pj, "start_pos", v3_json(rr));
+			if (tpe <= p->t1) {
+				trs_orbit_state_at(&p->orbit, tpe, &rr, &vv);
+				trs_json_set(pj, "pe_pos", v3_json(rr));
+			}
+			if (tap <= p->t1) {
+				trs_orbit_state_at(&p->orbit, tap, &rr, &vv);
+				trs_json_set(pj, "ap_pos", v3_json(rr));
+			}
+			trs_json_push(arr, pj);
+		}
+	}
+	ret_json(r, arr);
+}
+
+/* trajectory_points(id, nodes, max_patches, horizon, samples) ->
+ * [patch, t, x, y, z]* positions relative to each patch's body (SOI frame),
+ * sampled evenly in true anomaly so periapses stay smooth. */
+static void m_trajectory_points(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!ok_vessel(h, a[0].i)) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	trs_patch patches[32];
+	int max = (int)a[2].i < 32 ? (int)a[2].i : 32;
+	int n = vessel_trajectory(h, (int)a[0].i, &a[1], max, a[3].f, patches);
+	int samples = (int)a[4].i < 8 ? 8 : (int)a[4].i > 2048 ? 2048 : (int)a[4].i;
+	double *d = malloc(sizeof(double) * (size_t)(n * (samples + 1) * 5 + 1));
+	int k = 0;
+	for (int pi = 0; pi < n; pi++) {
+		trs_patch *p = &patches[pi];
+		const trs_orbit *o = &p->orbit;
+		double nu0 = trs_orbit_true_anomaly_at(o, p->t0);
+		double span;
+		if (trs_orbit_is_closed(o) && (p->t1 - p->t0) >= o->period * 0.999) {
+			span = TRS_TAU;
+		} else {
+			double nu1 = trs_orbit_true_anomaly_at(o, p->t1);
+			span = nu1 - nu0;
+			if (trs_orbit_is_closed(o))
+				span = trs_wrap_tau(span);
+			if (span <= 0)
+				span += trs_orbit_is_closed(o) ? TRS_TAU : 0;
+		}
+		for (int s = 0; s <= samples; s++) {
+			double nu = nu0 + span * s / samples;
+			trs_v3 pos = trs_orbit_position_at_true(o, nu);
+			double t = s == 0 ? p->t0 : trs_orbit_time_at_true(o, p->t0, nu);
+			if (!isfinite(t) || t > p->t1)
+				t = p->t1;
+			double *row = d + (size_t)k * 5;
+			row[0] = pi, row[1] = t, row[2] = pos.x, row[3] = pos.y, row[4] = pos.z;
+			k++;
+		}
+	}
+	ret_doubles(r, d, (int64_t)k * 5);
+	free(d);
+}
+
+/* node_vector(id, nodes, index) -> [x,y,z] SOI-frame delta-v of node `index`
+ * on the predicted trajectory (for steering a burn). */
+static void m_node_vector(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double out[3] = { 0, 0, 0 };
+	if (ok_vessel(h, a[0].i)) {
+		trs_node nodes[32];
+		int nn = read_nodes(&a[1], nodes, 32);
+		trs_patch patches[32];
+		int n = vessel_trajectory(h, (int)a[0].i, &a[1], 32, 1e9, patches);
+		for (int k = 0; k + 1 < n; k++)
+			if (patches[k].end == TRS_PATCH_END_NODE && patches[k + 1].node == a[2].i && a[2].i < nn) {
+				trs_v3 v = trs_node_vector(&patches[k].orbit, &nodes[a[2].i]);
+				out[0] = v.x, out[1] = v.y, out[2] = v.z;
+			}
+	}
+	ret_doubles(r, out, 3);
+}
+
+/* burn_time(id, dv) -> seconds at full throttle with the current stage
+ * (Tsiolkovsky with mass flow), or -1 if no lit engines. */
+static void m_burn_time(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->f = -1;
+	if (!ok_vessel(h, a[0].i) || !h->world->vessels[a[0].i].craft)
+		return;
+	trs_vessel *vs = &h->world->vessels[a[0].i];
+	trs_craft *c = vs->craft;
+	double mdot = 0, f = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, vs->fuel_group, i))
+			continue;
+		mdot += trs_engine_mdot(d);
+		f += d->thrust_vac;
+	}
+	if (mdot <= 0) {
+		/* nothing lit: estimate with the next stage's engines */
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (c->parts[i].stage == vs->next_stage && d->propellant != TRS_PROP_NONE) {
+				mdot += trs_engine_mdot(d);
+				f += d->thrust_vac;
+			}
+		}
+	}
+	if (mdot <= 0)
+		return;
+	double ve = f / mdot;
+	r->f = vs->mass * (1 - exp(-a[1].f / ve)) / mdot;
+}
+
 #define S TRS_T_STRING
 #define I TRS_T_INT
 #define F TRS_T_FLOAT
@@ -625,5 +801,9 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "terrain_lod", m_terrain_lod, A, 4, { I, A, I, F }, { "body", "eye", "max_level", "split" } },
 	{ "terrain_patch", m_terrain_patch, A, 3, { I, A, I }, { "body", "patch", "res" } },
 	{ "sas_direction", m_sas_direction, A, 2, { I, S }, { "id", "mode" } },
+	{ "trajectory", m_trajectory, S, 4, { I, A, I, F }, { "id", "nodes", "max_patches", "horizon" } },
+	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
+	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },
+	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
 };
 const int TRS_SIM_FLIGHT_METHOD_COUNT = sizeof(TRS_SIM_FLIGHT_METHODS) / sizeof(TRS_SIM_FLIGHT_METHODS[0]);

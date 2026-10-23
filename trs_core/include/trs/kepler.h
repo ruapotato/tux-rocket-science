@@ -71,6 +71,15 @@ double trs_orbit_next_inbound_crossing(const trs_orbit *o, double t, double radi
 /* Speed at periapsis: the maximum speed anywhere on the conic. */
 double trs_orbit_max_speed(const trs_orbit *o);
 
+/* Perifocal basis: P toward periapsis (or the node/x for circular), Q 90 deg
+ * ahead in the orbit plane. */
+void trs_orbit_basis(const trs_orbit *o, trs_v3 *P, trs_v3 *Q);
+/* Position relative to the central body at true anomaly nu. */
+trs_v3 trs_orbit_position_at_true(const trs_orbit *o, double nu);
+/* First time >= t at which the orbit reaches true anomaly nu (INFINITY if
+ * an open orbit never does). */
+double trs_orbit_time_at_true(const trs_orbit *o, double t, double nu);
+
 /* Wraps an angle to [0, 2pi). */
 double trs_wrap_tau(double x);
 

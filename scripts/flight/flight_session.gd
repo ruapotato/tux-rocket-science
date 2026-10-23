@@ -38,6 +38,8 @@ var warp_kind := "physics"  # "physics" or "rails"
 var warp_index := 0
 var ticks := 0
 var events: Array[Dictionary] = []
+## Maneuver nodes: [[t, prograde, normal, radial], ...] in time order
+var nodes: Array = []
 var _accum := 0.0
 var _telemetry: Dictionary = {}
 var _telemetry_tick := -1
@@ -59,6 +61,7 @@ func launch(craft_text: String, body := "floe") -> bool:
 	warp_kind = "physics"
 	warp_index = 0
 	events.clear()
+	nodes.clear()
 	_telemetry_tick = -1
 	if active < 0:
 		push_error("launch failed: " + core.last_error())
@@ -269,6 +272,56 @@ func telemetry() -> Dictionary:
 		_telemetry = JSON.parse_string(core.telemetry(active)) if active >= 0 else {"alive": false}
 		_telemetry_tick = ticks
 	return _telemetry
+
+
+## Warps on rails to absolute time t (or until something interrupts).
+## Returns "" on arrival or the reason it stopped.
+func warp_to(t_target: float) -> String:
+	var reason := rails_refusal()
+	if reason != "":
+		return reason
+	_begin_rails()
+	var stopped := ""
+	for guard in 100000:
+		var now := time()
+		if now >= t_target - 1e-6:
+			break
+		var ev: Dictionary = JSON.parse_string(core.warp(minf(t_target - now, 21600.0), active))
+		if ev.event == "refused":
+			stopped = "refused"
+			break
+		if ev.event == "atmosphere" or ev.event == "surface":
+			stopped = ev.event
+			break
+	_end_rails_now()
+	warp_kind = "physics"
+	warp_index = 0
+	_collect_events()
+	_telemetry_tick = -1
+	return stopped
+
+
+func _end_rails_now() -> void:
+	warp_kind = "rails"
+	_end_rails()
+
+
+## nodes: [[t, prograde, normal, radial], ...]
+static func pack_nodes(nodes: Array) -> PackedFloat64Array:
+	var f := PackedFloat64Array()
+	for n in nodes:
+		for x in n:
+			f.append(float(x))
+	return f
+
+
+func trajectory(nodes: Array = [], patches := 6, horizon := 2.0e6) -> Array:
+	return JSON.parse_string(core.trajectory(active, pack_nodes(nodes), patches, horizon))
+
+
+func node_vector(nodes: Array, index: int) -> Vector3:
+	var v: PackedFloat64Array = core.node_vector(active, pack_nodes(nodes), index)
+	return Vector3(v[0], v[1], v[2])  # sim axes
 
 
 func predict(patches := 4, horizon := 4.0e6) -> Array:

@@ -298,3 +298,38 @@ double trs_orbit_next_inbound_crossing(const trs_orbit *o, double t, double radi
 double trs_orbit_max_speed(const trs_orbit *o) {
 	return sqrt(o->mu * (2.0 / o->rp - o->alpha));
 }
+
+void trs_orbit_basis(const trs_orbit *o, trs_v3 *P, trs_v3 *Q) {
+	trs_v3 hn = v3_norm(o->h);
+	trs_v3 p;
+	if (o->e > 1e-11) {
+		p = v3_scale(o->evec, 1.0 / o->e);
+	} else {
+		trs_v3 node = v3(-o->h.y, o->h.x, 0);
+		p = v3_len(node) > 1e-11 * v3_len(o->h) ? v3_norm(node) : v3(1, 0, 0);
+	}
+	*P = p;
+	*Q = v3_cross(hn, p);
+}
+
+trs_v3 trs_orbit_position_at_true(const trs_orbit *o, double nu) {
+	trs_v3 P, Q;
+	trs_orbit_basis(o, &P, &Q);
+	double r = o->p / (1 + o->e * cos(nu));
+	return v3_add(v3_scale(P, r * cos(nu)), v3_scale(Q, r * sin(nu)));
+}
+
+double trs_orbit_time_at_true(const trs_orbit *o, double t, double nu) {
+	if (o->alpha <= 0) {
+		double lim = acos(-1.0 / o->e);
+		if (fabs(nu) >= lim)
+			return INFINITY;
+	}
+	double M = mean_from_true(o, nu);
+	double Mt = trs_orbit_mean_anomaly_at(o, t);
+	if (o->alpha > 0) {
+		double dM = trs_wrap_tau(M - Mt);
+		return t + dM / o->n;
+	}
+	return M >= Mt ? t + (M - Mt) / o->n : INFINITY;
+}

@@ -39,6 +39,8 @@ var _sun: DirectionalLight3D
 var _throttle := 0.0
 var _launched := false
 var _flicker := 0.0
+var _map: MapView
+var _sas_maneuver := false
 
 
 func _ready() -> void:
@@ -118,6 +120,13 @@ func _build() -> void:
 	var ui := CanvasLayer.new()
 	ui.layer = 5
 	add_child(ui)
+	var map_layer := CanvasLayer.new()
+	map_layer.layer = 3
+	add_child(map_layer)
+	_map = MapView.new()
+	map_layer.add_child(_map)
+	_map.setup(session)
+	_map.visible = false
 	hud = FlightHUD.new()
 	ui.add_child(hud)
 	hud.sas_pressed.connect(_on_sas)
@@ -163,6 +172,13 @@ func _key(k: InputEventKey) -> void:
 			hud.toast("Legs " + ("down" if _legs_down else "up"), 1.5)
 		KEY_V:
 			hud.speed_mode = "orbit" if hud.speed_mode == "surface" else "surface"
+		KEY_M:
+			_map.visible = not _map.visible
+			if _map.visible:
+				_map.focus_body = int(session.telemetry().get("body_index", 1))
+		KEY_TAB:
+			if _map.visible:
+				_map.cycle_focus()
 		KEY_PERIOD:
 			_change_warp(1)
 		KEY_COMMA:
@@ -214,8 +230,26 @@ func _cycle_vessel(dir: int) -> void:
 
 
 func _on_sas(mode: String) -> void:
+	_sas_maneuver = mode == "maneuver"
+	if _sas_maneuver:
+		if session.nodes.is_empty():
+			_sas_maneuver = false
+			hud.toast("No maneuver node", 1.5)
+		return
 	if not session.set_sas(mode):
 		hud.toast("SAS mode unavailable", 1.5)
+
+
+## Direction (sim axes) and size of the first upcoming node's burn.
+func _node_burn() -> Dictionary:
+	if session.nodes.is_empty():
+		return {}
+	var v: PackedFloat64Array = session.core.node_vector(session.active, FlightSession.pack_nodes(session.nodes), 0)
+	var vec := Vector3(v[0], v[1], v[2])
+	if vec.length() < 1e-6:
+		return {}
+	var nd: Array = session.nodes[0]
+	return {"vec": vec, "dv": vec.length(), "t": nd[0]}
 
 
 func _on_menu(action: String) -> void:
@@ -269,6 +303,12 @@ func _controls(delta: float) -> void:
 	var yaw := float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A))
 	var roll := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
 	session.set_input(pitch, yaw, roll)
+	if _sas_maneuver:
+		var nb := _node_burn()
+		if nb.is_empty():
+			_sas_maneuver = false
+		else:
+			session.set_sas("target", PackedFloat64Array([nb.vec.x, nb.vec.y, nb.vec.z]))
 
 
 func _clear_views() -> void:
@@ -349,7 +389,18 @@ func _render(delta: float) -> void:
 	for m in modes:
 		var d: PackedFloat64Array = core.sas_direction(origin, m)
 		markers.append([Frame.vec(d, 0), m.replace("surface_", "")])
+	var nb := _node_burn()
+	if not nb.is_empty():
+		markers.append([Frame.vec_arr([nb.vec.x, nb.vec.y, nb.vec.z]), "maneuver"])
+		var bt: float = core.burn_time(origin, nb.dv)
+		hud.set_node_text("NODE in %s · Δv %.1f m/s · burn %s" % [FlightHUD.fmt_time(nb.t - session.time()), nb.dv,
+			FlightHUD.fmt_time(bt) if bt >= 0 else "—"])
+	else:
+		hud.set_node_text("")
 	hud.navball.update_attitude(up, north, east, nose, q_top, markers)
+	hud.maneuver_active = _sas_maneuver
+	if _map.visible:
+		_map.refresh()
 	var warp := ""
 	if session.warp_index > 0:
 		warp = "WARP %s%dx" % ["" if session.warp_kind == "rails" else "physics ",

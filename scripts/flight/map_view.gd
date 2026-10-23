@@ -1,0 +1,467 @@
+# Tux Rocket Science
+# Copyright (C) 2026 Tux Rocket Science contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+## Map view: the system at 1/SCALE in its own world, with the vessel's
+## predicted patched-conic trajectory (from trs_core), apsis and SOI markers,
+## and maneuver nodes you place by clicking the path and edit by dragging
+## the prograde / normal / radial handles.
+class_name MapView
+extends Control
+
+const SCALE := 1.0e-5
+const HANDLE_RATE := 0.6  # m/s per pixel dragged (grows with distance)
+const COLORS := [Color(0.35, 0.85, 1.0), Color(1.0, 0.62, 0.2), Color(0.6, 1.0, 0.45), Color(1.0, 0.45, 0.8), Color(0.9, 0.9, 0.4)]
+
+var session: FlightSession
+var focus_body := 1
+var _vp: SubViewport
+var _cam: Camera3D
+var _yaw := 0.6
+var _pitch := 0.9
+var _dist := 30.0
+var _bodies := []
+var _lines: MeshInstance3D
+var _imesh: ImmediateMesh
+var _vessel_icon: MeshInstance3D
+var _markers := []  # [{pos: Vector3 map world, label, color}]
+var _samples := []  # [{pos (map), t, patch}] for picking
+var _patches: Array = []
+var _drag := {}     # {node, axis, start_mouse, start_value}
+var _hover_handle := {}
+var _orbiting := false
+var _panel: RichTextLabel
+var _warp_btn: Button
+var _del_btn: Button
+var selected_node := -1
+var _overlay: Control
+
+
+func setup(s: FlightSession) -> void:
+	session = s
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var svc := SubViewportContainer.new()
+	svc.stretch = true
+	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(svc)
+	_vp = SubViewport.new()
+	_vp.own_world_3d = true
+	_vp.msaa_3d = Viewport.MSAA_4X
+	svc.add_child(_vp)
+	var we := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.015, 0.02, 0.04)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.35, 0.38, 0.45)
+	env.glow_enabled = true
+	we.environment = env
+	_vp.add_child(we)
+	var sun := DirectionalLight3D.new()
+	sun.name = "Sun"
+	_vp.add_child(sun)
+	_cam = Camera3D.new()
+	_cam.near = 0.01
+	_cam.far = 1.0e5
+	_vp.add_child(_cam)
+	var core := session.core
+	for i in core.body_count():
+		var info: Dictionary = JSON.parse_string(core.body_info(i))
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 1.0
+		sm.height = 2.0
+		mi.mesh = sm
+		var m := StandardMaterial3D.new()
+		match info.id:
+			"austra":
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				m.albedo_color = Color(1.0, 0.85, 0.55)
+			"floe":
+				m.albedo_color = Color(0.78, 0.88, 1.0)
+			"krill":
+				m.albedo_color = Color(0.6, 0.58, 0.56)
+		mi.material_override = m
+		_vp.add_child(mi)
+		var orbit_line := MeshInstance3D.new()
+		var om := ImmediateMesh.new()
+		orbit_line.mesh = om
+		var lm := StandardMaterial3D.new()
+		lm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		lm.albedo_color = Color(0.55, 0.55, 0.65, 0.6)
+		lm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		orbit_line.material_override = lm
+		_vp.add_child(orbit_line)
+		_bodies.append({"node": mi, "info": info, "orbit": orbit_line, "orbit_mesh": om})
+	_imesh = ImmediateMesh.new()
+	_lines = MeshInstance3D.new()
+	_lines.mesh = _imesh
+	var lmat := StandardMaterial3D.new()
+	lmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lmat.vertex_color_use_as_albedo = true
+	_lines.material_override = lmat
+	_vp.add_child(_lines)
+	_vessel_icon = MeshInstance3D.new()
+	var vm := SphereMesh.new()
+	vm.radius = 0.04
+	vm.height = 0.08
+	_vessel_icon.mesh = vm
+	var vmat := StandardMaterial3D.new()
+	vmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	vmat.albedo_color = Color(1.0, 1.0, 1.0)
+	vmat.no_depth_test = true
+	_vessel_icon.material_override = vmat
+	_vp.add_child(_vessel_icon)
+
+	_overlay = Control.new()
+	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overlay.draw.connect(_draw_overlay)
+	add_child(_overlay)
+	var p := PanelContainer.new()
+	p.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	p.offset_left = -300
+	p.offset_right = -10
+	p.offset_top = -120
+	p.offset_bottom = 120
+	add_child(p)
+	var v := VBoxContainer.new()
+	p.add_child(v)
+	_panel = RichTextLabel.new()
+	_panel.bbcode_enabled = true
+	_panel.fit_content = true
+	_panel.custom_minimum_size = Vector2(270, 0)
+	v.add_child(_panel)
+	_warp_btn = Button.new()
+	_warp_btn.text = "Warp to node"
+	_warp_btn.focus_mode = Control.FOCUS_NONE
+	_warp_btn.pressed.connect(_warp_to_node)
+	v.add_child(_warp_btn)
+	_del_btn = Button.new()
+	_del_btn.text = "Delete node"
+	_del_btn.focus_mode = Control.FOCUS_NONE
+	_del_btn.pressed.connect(func(): _delete_node(selected_node))
+	v.add_child(_del_btn)
+	var help := Label.new()
+	help.text = "M back to flight · click the path to add a node · drag handles · right-drag orbit · wheel zoom · Tab focus"
+	help.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	help.offset_top = 82
+	help.offset_bottom = 100
+	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	help.add_theme_font_size_override("font_size", 13)
+	help.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
+	help.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(help)
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+# ---- coordinates ---------------------------------------------------------------
+
+## Positions (Godot axes, metres) of every body relative to the focus body.
+func _body_offsets() -> Array:
+	var feed: PackedFloat64Array = session.core.body_render(session.active)
+	var f := Frame.vec(feed, focus_body * 5)
+	var out := []
+	for i in _bodies.size():
+		out.append(Frame.vec(feed, i * 5) - f)
+	return out
+
+
+func refresh() -> void:
+	if session.active < 0:
+		return
+	var t := session.telemetry()
+	var offs := _body_offsets()
+	# camera around the focus body
+	_cam.position = Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw)) * _dist
+	_cam.look_at(Vector3.ZERO, Vector3.UP)
+	var sun: DirectionalLight3D = _vp.get_node("Sun")
+	var sd := (offs[0] as Vector3).normalized()
+	if sd.length() > 0.5:
+		sun.look_at(-sd, Vector3.UP if absf(sd.y) < 0.99 else Vector3.RIGHT)
+	for i in _bodies.size():
+		var b: Dictionary = _bodies[i]
+		var r: float = b.info.radius
+		var pos: Vector3 = offs[i] * SCALE
+		var k := 1.0
+		if pos.length() > 5.0e4:
+			k = 5.0e4 / pos.length()
+		b.node.transform = Transform3D(Basis().scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), pos * k)
+		_draw_body_orbit(i, offs)
+	# vessel trajectory with nodes
+	var nodes := FlightSession.pack_nodes(session.nodes)
+	_patches = JSON.parse_string(session.core.trajectory(session.active, nodes, 8, 3.0e6))
+	var pts: PackedFloat64Array = session.core.trajectory_points(session.active, nodes, 8, 3.0e6, 256)
+	_imesh.clear_surfaces()
+	_samples.clear()
+	_markers.clear()
+	var n := pts.size() / 5
+	if n > 1:
+		_imesh.surface_begin(Mesh.PRIMITIVE_LINES)
+		var prev := Vector3.ZERO
+		var prev_patch := -1
+		for k in n:
+			var o := k * 5
+			var pi := int(pts[o])
+			var p: Dictionary = _patches[pi]
+			var world: Vector3 = (offs[int(p.body_index)] + Frame.vec(pts, o + 2)) * SCALE
+			_samples.append({"pos": world, "t": pts[o + 1], "patch": pi})
+			if pi == prev_patch:
+				# current orbit cyan, after a node orange, later patches green/pink/yellow
+				var col: Color = COLORS[0] if pi == 0 else (COLORS[1] if int(p.node) >= 0 else COLORS[2 + (pi % 3)])
+				_imesh.surface_set_color(col)
+				_imesh.surface_add_vertex(prev)
+				_imesh.surface_add_vertex(world)
+			prev = world
+			prev_patch = pi
+		_imesh.surface_end()
+	# apses and SOI transitions, at exact positions from trs_core
+	for pi in _patches.size():
+		var p: Dictionary = _patches[pi]
+		var bo: Vector3 = offs[int(p.body_index)]
+		for kind in ["ap", "pe"]:
+			if not p.has(kind + "_pos"):
+				continue
+			_markers.append({"pos": (bo + Frame.vec_arr(p[kind + "_pos"])) * SCALE,
+				"label": "%s %s" % ["Ap" if kind == "ap" else "Pe", FlightHUD.fmt_dist(p[kind + "_alt"])], "color": Color(0.75, 0.9, 1.0)})
+		var endp: Vector3 = (bo + Frame.vec_arr(p.end_pos)) * SCALE
+		if p.end == "soi_enter" or p.end == "soi_exit":
+			var nxt: String = _patches[pi + 1].body.capitalize() if pi + 1 < _patches.size() else "?"
+			_markers.append({"pos": endp, "label": ("Encounter " if p.end == "soi_enter" else "Escape to ") + nxt, "color": COLORS[2]})
+		elif p.end == "atmosphere" or p.end == "surface":
+			_markers.append({"pos": endp, "label": "Impact" if p.end == "surface" else "Atmosphere", "color": Color(1, 0.4, 0.3)})
+	# the vessel itself
+	var vrel := Frame.vec(session.core.vessel_render(session.active, session.active), 1)
+	var feed: PackedFloat64Array = session.core.body_render(session.active)
+	var vpos := -Frame.vec(feed, focus_body * 5)  # active vessel is the render origin
+	_vessel_icon.position = (vpos + vrel) * SCALE
+	_vessel_icon.scale = Vector3.ONE * _dist / 30.0
+	_update_panel(t)
+	_overlay.queue_redraw()
+
+
+func _sample_at(patch: int, t: float) -> Dictionary:
+	var best := {}
+	var bd := INF
+	for s in _samples:
+		if s.patch != patch:
+			continue
+		var d := absf(s.t - t)
+		if d < bd:
+			bd = d
+			best = s
+	return best
+
+
+func _draw_body_orbit(i: int, offs: Array) -> void:
+	var b: Dictionary = _bodies[i]
+	var om: ImmediateMesh = b.orbit_mesh
+	om.clear_surfaces()
+	var parent := int(b.info.parent)
+	if parent < 0 or not b.info.has("sma") or i == focus_body:
+		return
+	var r: float = b.info.sma
+	if parent != focus_body and i != 0:
+		pass
+	var c: Vector3 = offs[parent] * SCALE
+	if c.length() > 5.0e4:
+		return
+	om.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for k in 129:
+		var a := TAU * k / 128.0
+		om.surface_add_vertex(c + Vector3(cos(a), 0, -sin(a)) * r * SCALE)
+	om.surface_end()
+
+
+func _update_panel(t: Dictionary) -> void:
+	var txt := "[b]%s[/b] · focus [color=#8fd0ff]%s[/color]\n" % [t.get("name", ""), _bodies[focus_body].info.name]
+	if session.nodes.is_empty():
+		txt += "[color=#9fb4cc]No maneuver nodes. Click the orbit line to add one.[/color]"
+		_warp_btn.disabled = true
+		_del_btn.disabled = true
+	else:
+		if selected_node < 0 or selected_node >= session.nodes.size():
+			selected_node = 0
+		var nd: Array = session.nodes[selected_node]
+		var dv := Vector3(nd[1], nd[2], nd[3]).length()
+		var bt: float = session.core.burn_time(session.active, dv)
+		txt += "[color=#ff9a3a][b]Node %d[/b][/color] in %s\nΔv [b]%.1f m/s[/b]  (pro %.1f · nrm %.1f · rad %.1f)\nBurn time %s\n" % [
+			selected_node + 1, FlightHUD.fmt_time(nd[0] - t.t), dv, nd[1], nd[2], nd[3], FlightHUD.fmt_time(bt) if bt >= 0 else "no engine"]
+		for p in _patches:
+			if int(p.node) == selected_node:
+				txt += "After: Pe %s, Ap %s" % [FlightHUD.fmt_dist(p.pe_alt), "escape" if p.ap_alt == null else FlightHUD.fmt_dist(p.ap_alt)]
+		for p in _patches:
+			if p.body == "krill" and t.body != "krill":
+				txt += "\n[color=#99ff77]Krill encounter: Pe %s[/color]" % FlightHUD.fmt_dist(p.pe_alt)
+				break
+		_warp_btn.disabled = false
+		_del_btn.disabled = false
+	_panel.text = txt
+
+
+# ---- nodes -----------------------------------------------------------------------
+
+func _node_screen(i: int) -> Dictionary:
+	var nd: Array = session.nodes[i]
+	var offs := _body_offsets()
+	for pi in _patches.size():
+		var p: Dictionary = _patches[pi]
+		if int(p.node) == i:
+			var w: Vector3 = (offs[int(p.body_index)] + Frame.vec_arr(p.start_pos)) * SCALE
+			if _cam.is_position_behind(w):
+				return {}
+			return {"pos": _cam.unproject_position(w), "world": w}
+	return {}
+
+
+## Screen-space handle directions for node i: prograde/normal/radial axes.
+func _handles(i: int) -> Array:
+	var ns := _node_screen(i)
+	if ns.is_empty():
+		return []
+	var nd: Array = session.nodes[i]
+	var v: PackedFloat64Array = session.core.node_vector(session.active, FlightSession.pack_nodes([[nd[0], 1.0, 0.0, 0.0]]), 0)
+	var pro := Frame.vec(v, 0).normalized()
+	var vn: PackedFloat64Array = session.core.node_vector(session.active, FlightSession.pack_nodes([[nd[0], 0.0, 1.0, 0.0]]), 0)
+	var nrm := Frame.vec(vn, 0).normalized()
+	var vr: PackedFloat64Array = session.core.node_vector(session.active, FlightSession.pack_nodes([[nd[0], 0.0, 0.0, 1.0]]), 0)
+	var rad := Frame.vec(vr, 0).normalized()
+	var out := []
+	var base: Vector3 = ns.world
+	for h in [[pro, 1, 1.0, Color(1, 0.9, 0.2)], [-pro, 1, -1.0, Color(1, 0.9, 0.2)], [nrm, 2, 1.0, Color(0.85, 0.4, 1)],
+			[-nrm, 2, -1.0, Color(0.85, 0.4, 1)], [rad, 3, 1.0, Color(0.3, 0.95, 1)], [-rad, 3, -1.0, Color(0.3, 0.95, 1)]]:
+		var tip: Vector3 = base + h[0] * _dist * 0.06
+		if _cam.is_position_behind(tip):
+			continue
+		var sp := _cam.unproject_position(tip)
+		var d: Vector2 = (sp - ns.pos)
+		if d.length() < 1.0:
+			continue
+		out.append({"pos": ns.pos + d.normalized() * 46.0, "axis": h[1], "sign": h[2], "color": h[3], "dir": d.normalized()})
+	return out
+
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		match mb.button_index:
+			MOUSE_BUTTON_RIGHT:
+				_orbiting = mb.pressed
+			MOUSE_BUTTON_WHEEL_UP:
+				_dist = maxf(0.3, _dist * 0.88)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				_dist = minf(4.0e4, _dist * 1.12)
+			MOUSE_BUTTON_LEFT:
+				if mb.pressed:
+					_press(mb.position)
+				else:
+					_drag = {}
+		accept_event()
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if _orbiting:
+			_yaw -= mm.relative.x * 0.008
+			_pitch = clampf(_pitch + mm.relative.y * 0.006, -1.5, 1.5)
+		elif not _drag.is_empty():
+			var along: float = mm.relative.dot(_drag.dir) * _drag.sign
+			var nd: Array = session.nodes[_drag.node]
+			var rate := HANDLE_RATE * (1.0 + absf(nd[_drag.axis]) * 0.01)
+			nd[_drag.axis] = nd[_drag.axis] + along * rate * (0.1 if Input.is_key_pressed(KEY_SHIFT) else 1.0)
+		accept_event()
+
+
+func _press(pos: Vector2) -> void:
+	# handles first
+	for i in session.nodes.size():
+		for h in _handles(i):
+			if (h.pos as Vector2).distance_to(pos) < 14.0:
+				selected_node = i
+				_drag = {"node": i, "axis": h.axis, "sign": h.sign, "dir": h.dir}
+				return
+		var ns := _node_screen(i)
+		if not ns.is_empty() and (ns.pos as Vector2).distance_to(pos) < 14.0:
+			selected_node = i
+			return
+	# otherwise add a node at the nearest point on the path
+	var best := {}
+	var bd := 12.0
+	var now := session.time()
+	for s in _samples:
+		if _cam.is_position_behind(s.pos) or s.t <= now + 1.0:
+			continue
+		var d := _cam.unproject_position(s.pos).distance_to(pos)
+		if d < bd:
+			bd = d
+			best = s
+	if not best.is_empty():
+		session.nodes.append([best.t, 0.0, 0.0, 0.0])
+		session.nodes.sort_custom(func(a, b): return a[0] < b[0])
+		for i in session.nodes.size():
+			if session.nodes[i][0] == best.t:
+				selected_node = i
+
+
+func _delete_node(i: int) -> void:
+	if i >= 0 and i < session.nodes.size():
+		session.nodes.remove_at(i)
+		selected_node = -1
+
+
+func _warp_to_node() -> void:
+	if session.nodes.is_empty():
+		return
+	var nd: Array = session.nodes[maxi(selected_node, 0)]
+	var dv := Vector3(nd[1], nd[2], nd[3]).length()
+	var bt: float = maxf(session.core.burn_time(session.active, dv), 0.0)
+	var reason := session.warp_to(nd[0] - bt * 0.5 - 30.0)
+	if reason != "" and get_parent().has_method("toast"):
+		get_parent().toast("Warp stopped: " + reason)
+
+
+func cycle_focus() -> void:
+	focus_body = (focus_body + 1) % _bodies.size()
+	if focus_body == 0:
+		focus_body = 1
+	_dist = 30.0 if focus_body == 1 else 8.0
+
+
+func _draw_overlay() -> void:
+	var ov := _overlay
+	var font := get_theme_default_font()
+	for m in _markers:
+		if _cam.is_position_behind(m.pos):
+			continue
+		var p := _cam.unproject_position(m.pos)
+		ov.draw_circle(p, 4.0, m.color)
+		ov.draw_string(font, p + Vector2(8, -6), m.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, m.color)
+	for i in session.nodes.size():
+		var ns := _node_screen(i)
+		if ns.is_empty():
+			continue
+		var c: Vector2 = ns.pos
+		ov.draw_arc(c, 10, 0, TAU, 24, Color(0.35, 0.6, 1.0), 3.0, true)
+		ov.draw_circle(c, 4, Color(0.35, 0.6, 1.0) if i != selected_node else Color(1, 0.6, 0.2))
+		if i == selected_node:
+			for h in _handles(i):
+				ov.draw_line(c, h.pos, Color(h.color, 0.6), 2.0)
+				ov.draw_circle(h.pos, 8.0, h.color)
+	for b in _bodies:
+		var p3: Vector3 = b.node.position
+		if _cam.is_position_behind(p3):
+			continue
+		var p := _cam.unproject_position(p3)
+		ov.draw_string(font, p + Vector2(10, 18), b.info.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0, 0.85))

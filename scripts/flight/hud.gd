@@ -24,11 +24,12 @@ signal menu_action(action: String)
 
 const SAS_BUTTONS := [
 	["stability", "SAS"], ["prograde", "PRO"], ["retrograde", "RET"], ["normal", "NRM"],
-	["antinormal", "ANT"], ["radial_out", "RAD+"], ["radial_in", "RAD-"],
+	["antinormal", "ANT"], ["radial_out", "RAD+"], ["radial_in", "RAD-"], ["maneuver", "MNV"],
 ]
 
 var navball: Navball
 var speed_mode := "surface"  # or "orbit"
+var maneuver_active := false
 var _clock: Label
 var _status: Label
 var _left: RichTextLabel
@@ -44,6 +45,7 @@ var _menu: PanelContainer
 var _t: Dictionary = {}
 var _warp_text := ""
 var portrait_slot: Control
+var _node_label: Label
 
 
 func _ready() -> void:
@@ -120,6 +122,17 @@ func _ready() -> void:
 	portrait_slot.offset_bottom = -10
 	portrait_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(portrait_slot)
+
+	_node_label = Label.new()
+	_node_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_node_label.offset_top = -330
+	_node_label.offset_bottom = -306
+	_node_label.offset_left = -300
+	_node_label.offset_right = 300
+	_node_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_node_label.add_theme_color_override("font_color", Color(0.45, 0.7, 1.0))
+	_node_label.add_theme_font_size_override("font_size", 15)
+	add_child(_node_label)
 
 	_toast = Label.new()
 	_toast.set_anchors_preset(Control.PRESET_CENTER)
@@ -231,6 +244,10 @@ func toast(msg: String, secs := 3.0) -> void:
 	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.8)
 
 
+func set_node_text(s: String) -> void:
+	_node_label.text = s
+
+
 func set_warp_text(s: String) -> void:
 	_warp_text = s
 
@@ -293,7 +310,7 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	_gmeter.set_meta("max", 8.0)
 	_gmeter.queue_redraw()
 	for k in _sas_buttons:
-		_sas_buttons[k].set_pressed_no_signal(t.sas == k)
+		_sas_buttons[k].set_pressed_no_signal(t.sas == k or (k == "maneuver" and maneuver_active))
 	_update_fuel(t)
 
 

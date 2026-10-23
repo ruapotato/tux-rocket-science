@@ -28,7 +28,8 @@ var api: ControlAPI
 var target_ap := 84000.0
 var target_pe := 78500.0
 var turn_start := 800.0   # m AGL
-var turn_end := 48000.0   # m, nose horizontal by here
+var turn_end := 42000.0   # m, nose horizontal by here
+var keep_stage := 2  # stages below this are never fired during ascent
 var phase := "liftoff"
 var log := PackedStringArray()
 var max_q := 0.0
@@ -70,7 +71,7 @@ func step(dt: float) -> bool:
 		var stages: Array = t.get("stages", [])
 		var spent: bool = stages.is_empty() or stages[0].dv_vac < 0.5
 		# never drop the crew pod's decoupler while climbing (keep it for reentry)
-		var pod_drop: bool = t.next_stage <= 1
+		var pod_drop: bool = t.next_stage < keep_stage
 		if spent and not pod_drop:
 			api.handle({"cmd": "stage"})
 			_note(t, "stage -> %d" % (t.next_stage - 1))
@@ -87,7 +88,11 @@ func step(dt: float) -> bool:
 			var h: float = t.altitude_terrain
 			var p := 0.0
 			if h > turn_start:
-				p = clampf(pow((h - turn_start) / (turn_end - turn_start), 0.55), 0.0, 1.0) * deg_to_rad(88.0)
+				p = clampf(pow((h - turn_start) / (turn_end - turn_start), 0.5), 0.0, 1.0) * deg_to_rad(88.0)
+			# apoapsis feedback: once the apoapsis is close, build horizontal speed
+			if ap > target_ap * 0.6:
+				var k := clampf((ap - target_ap * 0.6) / (target_ap * 0.4), 0.0, 1.0)
+				p = maxf(p, lerpf(deg_to_rad(65.0), deg_to_rad(88.0), k))
 			# in thick air don't stray far from the airflow
 			if t.dynamic_pressure > 4000.0 and t.surface_speed > 60.0:
 				var sv := v3(t.surface_velocity).normalized()
@@ -106,15 +111,18 @@ func step(dt: float) -> bool:
 			api.handle({"cmd": "throttle", "value": 0.3 if ap < target_ap - 500.0 and t.in_atmosphere else 0.0})
 			if not t.in_atmosphere:
 				var burn := _circ_burn_time(t)
-				if orb.t_to_ap != null and orb.t_to_ap < burn * 0.5 + 2.0:
+				var falling: bool = t.vertical_speed < 0.0
+				if orb.t_to_ap != null and (orb.t_to_ap < burn * 0.5 + 2.0 or falling):
 					_note(t, "circularization burn (%.0f s est.)" % burn)
 					phase = "circularize"
 		"circularize":
-			# hold the horizon, thrust prograde in the orbital plane
+			# thrust horizontally, pitching up just enough to stop sinking
 			var up := v3(t.up)
 			var vel := v3(t.velocity)
 			var horiz := (vel - up * vel.dot(up)).normalized()
-			api.handle({"cmd": "sas", "mode": "target", "target": [horiz.x, horiz.y, horiz.z]})
+			var lift := clampf(-t.vertical_speed * 0.02 + (target_pe - t.altitude) * 2e-5, -0.15, 0.7)
+			var dir := (horiz * cos(lift) + up * sin(lift)).normalized()
+			api.handle({"cmd": "sas", "mode": "target", "target": [dir.x, dir.y, dir.z]})
 			api.handle({"cmd": "throttle", "value": 1.0 if orb.pe_alt < target_pe - 3000.0 else 0.25})
 			if orb.pe_alt >= target_pe:
 				api.handle({"cmd": "throttle", "value": 0.0})
