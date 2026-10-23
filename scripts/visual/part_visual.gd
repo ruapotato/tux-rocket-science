@@ -212,6 +212,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_pylon(root, sh)
 		"fin":
 			_fin(root, sh)
+		"shield":
+			_shield(root, sh)
 		"leg":
 			_leg(root, d)
 			pose_leg(root, d, opts.get("legs", 0.0))
@@ -301,6 +303,24 @@ static func _capsule(root: Node3D, sh: Dictionary, crew: int, decals: bool) -> v
 	if decals:
 		var y2 := -h * 0.12
 		_decal(root, Basis(Vector3.UP, PI / 2) * Vector3(0, y2, lerpf(rb, rt, (y2 + h * 0.5) / h)), Basis(Vector3.UP, PI / 2) * Vector3(0, 0, 1), 0.42)
+
+
+## Ablative heat shield: a squat dish with a domed, charred face below.
+static func _shield(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	var abl := hull(Color(0.3, 0.22, 0.16), {"panels": 20.0, "ring_spacing": 0.0, "grime": 1.0, "roughness_base": 0.9})
+	_cyl(root, r, r * 0.97, h * 0.55, h * 0.225, mat("graphite", GRAPHITE, 0.4, 0.5), 64)
+	_cyl(root, r * 0.985, r, h * 0.45, -h * 0.275, abl, 64)
+	var dome := SphereMesh.new()
+	dome.radius = r * 0.985
+	dome.height = h * 0.9
+	dome.is_hemisphere = true
+	dome.radial_segments = 64
+	dome.rings = 8
+	# the hemisphere opens upward: flip it so the dome bulges down
+	_mesh(root, dome, abl, Transform3D(Basis(Vector3.RIGHT, PI), Vector3(0, -h * 0.5, 0)))
+	_ring(root, r * 1.0, -h * 0.05, 0.025, mat("steel", STEEL, 0.75, 0.3))
 
 
 static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary, opts: Dictionary) -> void:

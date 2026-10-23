@@ -33,6 +33,8 @@ var keep_stage := 1  # stages below this are never fired during ascent
 var phase := "liftoff"
 var log := PackedStringArray()
 var max_q := 0.0
+var max_heat := 0.0  # hottest part against its limit, 0..1
+var hot_part := ""
 var _stage_cooldown := 0.0
 var _last_stage_t := -100.0
 
@@ -63,6 +65,9 @@ func step(dt: float) -> bool:
 		phase = "lost"
 		return true
 	max_q = maxf(max_q, t.get("dynamic_pressure", 0.0))
+	if t.get("heat_frac", 0.0) > max_heat:
+		max_heat = t.heat_frac
+		hot_part = t.heat_part
 	var orb: Dictionary = t.orbit
 	var ap: float = orb.ap_alt if orb.ap_alt != null else 1e12
 	_stage_cooldown -= dt

@@ -48,6 +48,8 @@ var _life := PackedFloat32Array()
 var _s0 := PackedFloat32Array()
 var _s1 := PackedFloat32Array()
 var _a := PackedFloat32Array()
+var _soot := PackedFloat32Array()  # 0 exhaust (white) .. 1 burning propellant (black)
+var _rise := PackedFloat32Array()  # buoyant climb, m/s
 var _mat: ShaderMaterial
 var _carry := {}  # nozzle key -> distance not yet covered by a puff
 
@@ -81,6 +83,8 @@ func clear() -> void:
 	_s0.clear()
 	_s1.clear()
 	_a.clear()
+	_soot.clear()
+	_rise.clear()
 	_carry.clear()
 	multimesh.visible_instance_count = 0
 
@@ -102,7 +106,7 @@ func step(delta: float, nozzles: Array, air_vel: Vector3, air: float, light: flo
 		if age >= _life[i]:
 			continue
 		var v: Vector3 = _vel[i] * exp(-delta * 1.2)
-		var p: Vector3 = _pos[i] + (v - air_vel) * delta
+		var p: Vector3 = _pos[i] + (v + up * _rise[i] - air_vel) * delta
 		var above := p.dot(up) + agl - _s0[i] * 0.8
 		if above < 0.0:
 			# ground: push it back up and turn the downward rush sideways
@@ -119,6 +123,8 @@ func step(delta: float, nozzles: Array, air_vel: Vector3, air: float, light: flo
 		_s0[k] = _s0[i]
 		_s1[k] = _s1[i]
 		_a[k] = _a[i]
+		_soot[k] = _soot[i]
+		_rise[k] = _rise[i]
 		k += 1
 	_resize(k)
 	# lay new puffs along the stretch of air each nozzle swept this frame
@@ -157,6 +163,10 @@ func step(delta: float, nozzles: Array, air_vel: Vector3, air: float, light: flo
 		var a: float = _a[i] * smoothstep(0.0, 0.04, t) * pow(1.0 - t, 1.3)
 		# fresh exhaust is warm-tinted, aged smoke a cool grey
 		var col := Color(0.95, 0.88, 0.8).lerp(Color(0.82, 0.83, 0.86), clampf(t * 3.0, 0.0, 1.0))
+		if _soot[i] > 0.0:
+			# burning propellant: orange-lit black that greys as it thins
+			var sc := Color(0.55, 0.25, 0.08).lerp(Color(0.09, 0.08, 0.075), clampf(_age[i] / 0.6, 0.0, 1.0)).lerp(Color(0.38, 0.37, 0.37), t)
+			col = col.lerp(sc, _soot[i])
 		col.a = a
 		mm.set_instance_color(i, col)
 	mm.visible_instance_count = m
@@ -170,6 +180,8 @@ func _resize(k: int) -> void:
 	_s0.resize(k)
 	_s1.resize(k)
 	_a.resize(k)
+	_soot.resize(k)
+	_rise.resize(k)
 
 
 func _drop_oldest() -> void:
@@ -180,6 +192,28 @@ func _drop_oldest() -> void:
 	_s0.remove_at(0)
 	_s1.remove_at(0)
 	_a.remove_at(0)
+	_soot.remove_at(0)
+	_rise.remove_at(0)
+
+
+## A blast's smoke: a dark, rising cloud of `size` (m, the fireball radius)
+## at render-space `at`, with propellant soot. Lives with the exhaust smoke
+## so it drifts with the air the same way.
+func burst(at: Vector3, size: float, up := Vector3.UP) -> void:
+	var n := int(clampf(size * 14.0, 30.0, 160.0))
+	for k in n:
+		if _pos.size() >= MAX_PUFFS:
+			_drop_oldest()
+		var d := Vector3(randf_range(-1, 1), randf_range(-0.3, 1), randf_range(-1, 1))
+		_pos.append(at + d * size * 0.7)
+		_vel.append(d.normalized() * randf_range(2.0, 7.0) * sqrt(size))
+		_age.append(0.0)
+		_life.append(randf_range(14.0, 24.0))
+		_s0.append(size * randf_range(0.6, 1.0))
+		_s1.append(size * randf_range(3.0, 5.5))
+		_a.append(randf_range(0.55, 0.85))
+		_soot.append(1.0)
+		_rise.append(randf_range(1.5, 4.0) * sqrt(size) * 0.5)
 
 
 ## Shifts every puff (the floating origin jumped to another vessel).

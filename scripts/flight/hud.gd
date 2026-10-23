@@ -41,6 +41,7 @@ var _stages: RichTextLabel
 var _fuel: Control
 var _throttle: Control
 var _gmeter: Control
+var _heat: Control
 var _sas_buttons := {}
 var _toast: Label
 var _toast_tween: Tween
@@ -117,6 +118,7 @@ func _ready() -> void:
 	navball = Navball.new()
 	row.add_child(navball)
 	_gmeter = _gauge(row, "G")
+	_heat = _gauge(row, "HEAT")
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 20)
 	bottom.add_child(spacer)
@@ -247,6 +249,10 @@ func _gauge(parent: Node, title: String) -> Control:
 	g.set_meta("value", 0.0)
 	g.set_meta("max", 1.0)
 	g.draw.connect(func(): _draw_gauge(g))
+	if title == "HEAT":
+		g.mouse_filter = Control.MOUSE_FILTER_PASS
+		parent.add_child(g)
+		return g
 	if title == "THR":
 		g.tooltip_text = "Throttle: drag here, or Shift / Ctrl, Z full, X cut"
 		g.mouse_default_cursor_shape = Control.CURSOR_VSIZE
@@ -254,8 +260,8 @@ func _gauge(parent: Node, title: String) -> Control:
 			var press: bool = e is InputEventMouseButton and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and e.pressed
 			var drag: bool = e is InputEventMouseMotion and ((e as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
 			if press or drag:
-				var h := g.size.y - 24
-				throttle_set.emit(clampf(1.0 - (e.position.y - 6.0) / (h - 4.0), 0.0, 1.0))
+				var h := g.size.y - 40
+				throttle_set.emit(clampf(1.0 - (e.position.y - 22.0) / (h - 4.0), 0.0, 1.0))
 				g.accept_event())
 	else:
 		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -264,18 +270,28 @@ func _gauge(parent: Node, title: String) -> Control:
 
 
 func _draw_gauge(g: Control) -> void:
-	var h := g.size.y - 24
+	var top := 16.0
+	var h := g.size.y - 24 - top
 	var v: float = clampf(g.get_meta("value") / g.get_meta("max"), 0.0, 1.0)
-	g.draw_rect(Rect2(6, 4, 22, h), Color(0.05, 0.07, 0.11, 0.9))
-	var col := PartVisual.ORANGE if g.get_meta("title") == "THR" else Color(0.4, 0.95, 0.5).lerp(Color(1, 0.3, 0.2), v)
-	g.draw_rect(Rect2(8, 6 + (h - 4) * (1 - v), 18, (h - 4) * v), col)
-	g.draw_rect(Rect2(6, 4, 22, h), Color(0.32, 0.5, 0.72), false, 1.5)
-	var label: String = g.get_meta("title")
-	if label == "THR":
-		label = "%d%%" % roundi(v * 100.0)
-	elif label == "G":
+	var title: String = g.get_meta("title")
+	var font := get_theme_default_font()
+	var ttw := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	g.draw_rect(Rect2(g.size.x * 0.5 - ttw * 0.5 - 3, 1, ttw + 6, 13), Color(0.05, 0.07, 0.11, 0.85))
+	g.draw_string(font, Vector2(0, 11), title, HORIZONTAL_ALIGNMENT_CENTER, g.size.x, 10, Color(0.7, 0.78, 0.88))
+	g.draw_rect(Rect2(6, top + 4, 22, h), Color(0.05, 0.07, 0.11, 0.9))
+	var col := PartVisual.ORANGE if title == "THR" else Color(0.4, 0.95, 0.5).lerp(Color(1, 0.3, 0.2), v)
+	if title == "HEAT":
+		col = Color(0.45, 0.5, 0.6).lerp(Color(1.0, 0.55, 0.1), smoothstep(0.3, 0.6, v)).lerp(Color(1, 0.15, 0.1), smoothstep(0.75, 0.95, v))
+		if v > 0.85 and fmod(Time.get_ticks_msec() / 1000.0, 0.5) < 0.25:
+			col = Color(1, 0.9, 0.8)
+	g.draw_rect(Rect2(8, top + 6 + (h - 4) * (1 - v), 18, (h - 4) * v), col)
+	g.draw_rect(Rect2(6, top + 4, 22, h), Color(0.32, 0.5, 0.72), false, 1.5)
+	var label := "%d%%" % roundi(v * 100.0)
+	if title == "G":
 		label = "%.1fg" % float(g.get_meta("value"))
-	g.draw_string(get_theme_default_font(), Vector2(0, g.size.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, g.size.x, 12, Color(0.8, 0.85, 0.95))
+	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+	g.draw_rect(Rect2(g.size.x * 0.5 - tw * 0.5 - 4, g.size.y - 18, tw + 8, 17), Color(0.05, 0.07, 0.11, 0.85))
+	g.draw_string(font, Vector2(0, g.size.y - 5), label, HORIZONTAL_ALIGNMENT_CENTER, g.size.x, 12, Color(0.85, 0.9, 0.97))
 
 
 func _build_menu() -> void:
@@ -515,6 +531,11 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	_gmeter.set_meta("value", t.g_force)
 	_gmeter.set_meta("max", 8.0)
 	_gmeter.queue_redraw()
+	var hf: float = t.get("heat_frac", 0.0)
+	_heat.set_meta("value", hf)
+	_heat.tooltip_text = "Skin heating: how much of its heat headroom the hottest part has used.\n%s at %.0f K, fails at %.0f K" % [
+		Sim.part(t.heat_part).get("name", t.heat_part), t.heat_temp, t.heat_limit] if t.has("heat_part") else "Skin heating"
+	_heat.queue_redraw()
 	for k in _sas_buttons:
 		_sas_buttons[k].set_pressed_no_signal(t.sas == k or (k == "maneuver" and maneuver_active))
 	_update_fuel(t)

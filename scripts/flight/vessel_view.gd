@@ -20,7 +20,7 @@
 class_name VesselView
 extends Node3D
 
-const RPP := 11
+const RPP := 13
 
 var core: TrsSim
 var vessel_id := -1
@@ -28,6 +28,7 @@ var _parts := {}   # uid -> {node, part, plume, canopy, legs, shroud}
 var _shrouds := {}
 var _last_count := -1
 var _dt := 1.0 / 60.0
+var anchor := Vector3.ZERO  # render position of the first part, to track origin jumps
 
 
 func setup(c: TrsSim, id: int) -> void:
@@ -87,6 +88,50 @@ void fragment() {
 """
 
 static var _plume_shader: Shader
+
+## Incandescence for hot skins: added over a part's own surfaces, coloured
+## by an approximate blackbody ramp of its skin temperature.
+const HEAT_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, shadows_disabled;
+instance uniform float temp_k = 288.0;
+void fragment() {
+	float t = clamp((temp_k - 750.0) / 1800.0, 0.0, 1.0);
+	vec3 c = mix(vec3(0.55, 0.04, 0.0), vec3(1.0, 0.35, 0.05), smoothstep(0.0, 0.35, t));
+	c = mix(c, vec3(1.0, 0.85, 0.6), smoothstep(0.35, 1.0, t));
+	float on = smoothstep(750.0, 1100.0, temp_k);
+	float rim = 0.6 + 0.4 * pow(1.0 - abs(dot(NORMAL, VIEW)), 2.0);
+	ALBEDO = c * on * rim * (0.6 + 2.4 * t);
+}
+"""
+static var _heat_mat: ShaderMaterial
+
+
+static func heat_material() -> ShaderMaterial:
+	if _heat_mat == null:
+		var sh := Shader.new()
+		sh.code = HEAT_SHADER
+		_heat_mat = ShaderMaterial.new()
+		_heat_mat.shader = sh
+	return _heat_mat
+
+
+## Sets a part's glow from its skin temperature (K).
+func _update_heat(e: Dictionary, temp: float) -> void:
+	var glowing := temp > 760.0
+	if not glowing and not e.get("hot", false):
+		return
+	if absf(temp - float(e.get("temp", 0.0))) < 4.0 and glowing == e.get("hot", false):
+		return
+	e.temp = temp
+	e.hot = glowing
+	for mi in (e.node as Node3D).find_children("*", "MeshInstance3D", true, false):
+		if (e.plume and (e.plume as Node).is_ancestor_of(mi)) or (e.canopy and (e.canopy as Node).is_ancestor_of(mi)):
+			continue  # the exhaust and the canopy are not hull
+		var g := mi as GeometryInstance3D
+		g.material_overlay = heat_material() if glowing else null
+		if glowing:
+			g.set_instance_shader_parameter("temp_k", temp)
 
 
 ## Nozzle exit radius and where it sits below the part centre.
@@ -216,11 +261,14 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 		var e: Dictionary = _parts[uid]
 		var node: Node3D = e.node
 		node.transform = Transform3D(Frame.local_basis(feed, o + 4), Frame.vec(feed, o + 1))
+		if k == 0:
+			anchor = node.position
 		node.visible = true
 		if e.plume:
 			_update_plume(e.plume, feed[o + 8], pressure, flicker)
 		if e.canopy:
 			_update_canopy(e.canopy, int(feed[o + 9]))
+		_update_heat(e, feed[o + 11])
 		if Sim.part(e.part).has("leg"):
 			var target := feed[o + 10]
 			var kk: float = move_toward(e.legs, target, _dt / 1.4)

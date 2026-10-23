@@ -236,6 +236,11 @@ static const char *situation(const trs_world *w, int id, const trs_orbit *o) {
 }
 
 /* telemetry(id) -> JSON: everything the HUD and the autopilots read. */
+static double heat_share(const trs_craft *c, int i) {
+	const trs_part_def *d = trs_craft_def(c, i);
+	return (c->parts[i].temp - TRS_T_AMBIENT) / (d->max_temp - TRS_T_AMBIENT);
+}
+
 static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
@@ -431,6 +436,19 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "chutes", trs_json_new_num(chutes));
 		trs_json_set(j, "chutes_stowed", trs_json_new_num(chutes_stowed));
 		trs_json_set(j, "chutes_open", trs_json_new_num(chutes_open));
+		/* hottest part, as the share of its headroom used: 0 at rest
+		 * (ambient), 1 at its limit, where it fails */
+		int hot = 0;
+		double hot_f = -1e9;
+		for (int i = 0; i < c->count; i++) {
+			double f = heat_share(c, i);
+			if (f > hot_f)
+				hot = i, hot_f = f;
+		}
+		trs_json_set(j, "heat_part", trs_json_new_str(trs_craft_def(c, hot)->id));
+		trs_json_set(j, "heat_temp", trs_json_new_num(c->parts[hot].temp));
+		trs_json_set(j, "heat_limit", trs_json_new_num(trs_craft_def(c, hot)->max_temp));
+		trs_json_set(j, "heat_frac", trs_json_new_num(hot_f));
 	}
 	ret_json(r, j);
 }
@@ -445,10 +463,11 @@ static trs_v3 rel_to_origin(const trs_world *w, int id, int origin) {
 	return v3_sub(r, ro);
 }
 
-#define RPP 11
+#define RPP 13
 
 /* vessel_render(id, origin_id) -> per part: uid, pos(3) rel. origin CoM,
- * quat(4), thrust fraction, chute state, legs: RPP doubles each. */
+ * quat(4), thrust fraction, chute state, legs, skin temperature (K) and the
+ * share of its heat headroom used (0 ambient .. 1 failing): RPP doubles each. */
 static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	if (!ok_vessel(h, a[0].i) || !ok_vessel(h, a[1].i) || !h->world->vessels[a[0].i].craft) {
@@ -476,6 +495,8 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		o[8] = thr;
 		o[9] = p->chute;
 		o[10] = p->legs_deployed;
+		o[11] = p->temp;
+		o[12] = heat_share(c, i);
 	}
 	ret_doubles(r, d, (int64_t)c->count * RPP);
 	free(d);

@@ -125,6 +125,7 @@ typedef struct {
 	trs_m3 inertia;   /* about cm, vessel-local */
 	int *fuel_group;
 	double *face_top, *face_bottom; /* exposed axial area per part */
+	double *wake_top, *wake_bottom; /* side-heating factor with the flow from that end (1 = in the open) */
 	int ncontact;
 	trs_v3 *contact_pt;  /* vessel-local contact points */
 	int *contact_part;
@@ -155,6 +156,9 @@ typedef struct {
 
 #define TRS_MAX_VESSELS 64
 #define TRS_MAX_PENDING 64
+/* pending_speed / event speed codes for causes other than impact */
+#define TRS_DESTROY_BLAST (-1.0)
+#define TRS_DESTROY_OVERHEAT (-2.0)
 
 typedef struct {
 	trs_system sys;

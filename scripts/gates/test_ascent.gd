@@ -58,7 +58,8 @@ func run(_runner: Node) -> Dictionary:
 	api.handle({"cmd": "warp", "kind": "rails", "index": 0})
 	var t2: Dictionary = api.handle({"cmd": "query"}).telemetry
 	ok = ok and w.ok and t2.situation == "orbiting" and absf(t2.orbit.pe_alt - orb.pe_alt) < 1.0
-	ap.log.append("final: %s, Pe %.2f km, Ap %.2f km, inc %.2f deg, %.0f m/s dv left, max Q %.1f kPa" % [
-		tf.situation, orb.pe_alt / 1000.0, orb.ap_alt / 1000.0, orb.inc_deg, tf.dv_total, ap.max_q / 1000.0])
+	ok = ok and ap.max_heat < 0.8  # a clean ascent never comes near a heat limit
+	ap.log.append("final: %s, Pe %.2f km, Ap %.2f km, inc %.2f deg, %.0f m/s dv left, max Q %.1f kPa, peak heat %.0f%% of a part's heat headroom (%s)" % [
+		tf.situation, orb.pe_alt / 1000.0, orb.ap_alt / 1000.0, orb.inc_deg, tf.dv_total, ap.max_q / 1000.0, 100.0 * ap.max_heat, ap.hot_part])
 	ap.log.append("after %.0f s on rails: Pe %.2f km (%s)" % [t2.t - tw0, t2.orbit.pe_alt / 1000.0, t2.situation])
 	return {"status": "PASS" if ok else "FAIL", "log": "\n".join(ap.log)}

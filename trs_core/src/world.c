@@ -53,12 +53,15 @@ static void vessel_release(trs_vessel *vs) {
 	free(vs->fuel_group);
 	free(vs->face_top);
 	free(vs->face_bottom);
+	free(vs->wake_top);
+	free(vs->wake_bottom);
 	free(vs->contact_pt);
 	free(vs->contact_part);
 	free(vs->contact_leg);
 	vs->craft = NULL;
 	vs->fuel_group = NULL;
 	vs->face_top = vs->face_bottom = NULL;
+	vs->wake_top = vs->wake_bottom = NULL;
 	vs->contact_pt = NULL;
 	vs->contact_part = NULL;
 	vs->contact_leg = NULL;

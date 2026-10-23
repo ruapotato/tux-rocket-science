@@ -593,3 +593,157 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* ---- heating -------------------------------------------------------------------- */
+
+/* Pod (+ stowed chute, + optional heat shield underneath) entering Floe's
+ * atmosphere at 70 km with speed v (m/s) and flight path angle gamma (deg,
+ * negative = descending), shield-first, free to weathervane. Runs until
+ * 3 km above the datum or the pod is lost; reports each part's peak. */
+static void entry_run(const trs_system *sys, const trs_part_catalog *cat, int shield, double v, double gamma,
+		int *pod_lost, double *peak_pod, double *peak_shield, double *peak_frac) {
+	int floe = trs_system_find(sys, "floe");
+	const trs_body *F = &sys->bodies[floe];
+	trs_craft c;
+	trs_craft_init(&c, cat);
+	int pod = trs_craft_add(&c, trs_catalog_find(cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	trs_craft_add(&c, trs_catalog_find(cat, "parachute"), pod, "bottom", "top", v3(0, 0.675, 0), quat_identity(), -1, 0);
+	if (shield)
+		trs_craft_add(&c, trs_catalog_find(cat, "heat_shield"), pod, "top", "bottom", v3(0, -0.58, 0), quat_identity(), -1, 0);
+	trs_world *w = malloc(sizeof(trs_world));
+	trs_world_init(w, sys, 0);
+	double g = gamma * TRS_PI / 180;
+	trs_v3 r = v3(F->radius + 70000, 0, 0);
+	trs_v3 vel = v3(v * sin(g), v * cos(g), 0);
+	/* shield first: the nose (+Y) points back along the velocity */
+	int id = trs_world_add_craft(w, &c, floe, r, vel, quat_from_to(v3(0, 1, 0), v3_scale(v3_norm(vel), -1)));
+	trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+	w->vessels[id].sas = TRS_SAS_OFF;
+	*pod_lost = 0;
+	*peak_pod = *peak_shield = *peak_frac = 0;
+	for (int s = 0; s < 50 * 1500 && !*pod_lost; s++) {
+		trs_world_step_physics(w);
+		trs_vessel *vs = &w->vessels[id];
+		for (int e = 0; e < w->nevents; e++)
+			*pod_lost |= w->events[e].kind == TRS_WEV_PART_DESTROYED && !strcmp(w->events[e].part, "pod_1");
+		w->nevents = 0;
+		if (*pod_lost || !vs->alive)
+			break;
+		for (int i = 0; i < vs->craft->count; i++) {
+			const trs_part_def *d = trs_craft_def(vs->craft, i);
+			double T = vs->craft->parts[i].temp;
+			if (!strcmp(d->id, "pod_1"))
+				*peak_pod = fmax(*peak_pod, T);
+			if (!strcmp(d->id, "heat_shield"))
+				*peak_shield = fmax(*peak_shield, T);
+			*peak_frac = fmax(*peak_frac, T / d->max_temp);
+		}
+		if (vs->altitude < 3000)
+			break;
+	}
+	trs_world_free(w);
+	free(w);
+	trs_craft_free(&c);
+}
+
+trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	const trs_body *F = &sys.bodies[floe];
+	int failed = 0;
+
+	/* 1. Every tick of a fast, low dive, the pod's temperature change equals
+	 *    the heating law evaluated independently from the same state. */
+	{
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		const trs_part_def *pd = &cat.defs[trs_catalog_find(&cat, "pod_1")];
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_at(w, &c, floe, 30000, 1800);
+		trs_vessel *vs = &w->vessels[id];
+		vs->q = quat_from_to(v3(0, 1, 0), v3(1, 0, 0)); /* shield (bottom) down, into the flow */
+		double worst = 0, peak = 0;
+		trs_world_step_physics(w); /* the first tick fills the density cache */
+		for (int s = 0; s < 50 * 20; s++) {
+			double T0 = vs->craft->parts[0].temp;
+			trs_world_step_physics(w);
+			/* heat() uses the tick-start density and the end-of-tick motion */
+			double rho_used = vs->density;
+			trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(F), vs->r));
+			double sp = v3_len(vair);
+			double cs = v3_dot(v3_norm(vair), quat_rotate(vs->q, v3(0, 1, 0)));
+			/* a lone pod: both end faces fully exposed */
+			double f = fmax(fabs(cs), 0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs)));
+			double hc = 2 * 1005.0 * 1.7415e-4 * sqrt(rho_used / pd->radius) * sp;
+			double t_rec = TRS_T_AMBIENT + sp * sp / (2 * 1005.0);
+			double q = f * hc * (t_rec - T0) - pd->emissivity * 5.670374419e-8 * (pow(T0, 4) - pow(TRS_T_AMBIENT, 4));
+			double want = T0 + q * (1.0 / 50.0) / pd->skin_heat;
+			double T1 = vs->craft->parts[0].temp;
+			worst = fmax(worst, fabs(T1 - want) / fmax(fabs(want - T0), 1e-3));
+			peak = fmax(peak, T1);
+			if (vs->altitude < 8000)
+				break;
+		}
+		int ok = worst < 1e-9;
+		failed += !ok;
+		trs_log_printf(log, "%s pod diving from 30 km at 1.8 km/s: dT per tick vs heating law rel err %.1e (peak %.0f K)\n",
+				ok ? "ok  " : "FAIL", worst, peak);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 2. Under a parachute nothing heats: below the recovery temperature. */
+	{
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&c, trs_catalog_find(&cat, "parachute"), pod, "bottom", "top", v3(0, 0.675, 0), quat_identity(), 0, 0);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_at(w, &c, floe, 3000, 150);
+		trs_vessel_deploy_chutes(w, id);
+		trs_vessel *vs = &w->vessels[id];
+		double peak = 0;
+		for (int s = 0; s < 50 * 60; s++) {
+			trs_world_step_physics(w);
+			peak = fmax(peak, vs->craft->parts[0].temp);
+		}
+		double bound = TRS_T_AMBIENT + 150.0 * 150.0 / (2 * 1005.0);
+		int ok = peak <= bound;
+		failed += !ok;
+		trs_log_printf(log, "%s chute descent from 3 km at 150 m/s: pod peaks %.2f K, recovery bound %.2f K\n",
+				ok ? "ok  " : "FAIL", peak, bound);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 3. Entries: a shallow return from low orbit is survivable bare; a steep,
+	 *    fast return from Krill burns up a bare pod and is survived behind a
+	 *    heat shield. */
+	{
+		struct { const char *what; int shield; double v, gamma; int want_lost; } cases[] = {
+			{ "low-orbit return, bare pod   ", 0, 2300, -1.5, 0 },
+			{ "Krill return, bare pod       ", 0, 3200, -14.0, 1 },
+			{ "Krill return, with heat shield", 1, 3200, -14.0, 0 },
+		};
+		for (int k = 0; k < 3; k++) {
+			int lost;
+			double pp, ps, pf;
+			entry_run(&sys, &cat, cases[k].shield, cases[k].v, cases[k].gamma, &lost, &pp, &ps, &pf);
+			int ok = lost == cases[k].want_lost;
+			failed += !ok;
+			trs_log_printf(log, "%s %s %.1f km/s at %+.1f deg: pod %s, peaks pod %.0f K%s, hottest part %.0f%% of limit\n",
+					ok ? "ok  " : "FAIL", cases[k].what, cases[k].v / 1000, cases[k].gamma, lost ? "LOST" : "survives",
+					pp, "", 100 * pf);
+			if (cases[k].shield)
+				trs_log_printf(log, "     shield peaked at %.0f K\n", ps);
+		}
+	}
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

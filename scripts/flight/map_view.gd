@@ -99,7 +99,10 @@ func setup(s: FlightSession) -> void:
 				m.albedo_color = Color(0.78, 0.88, 1.0)
 			"krill":
 				m.albedo_color = Color(0.6, 0.58, 0.56)
-		mi.material_override = m
+		# real baked surfaces (shared cache with scaled space) for the planets
+		mi.material_override = m if info.id == "austra" else PlanetBake.planet_material(core, i)
+		sm.radial_segments = 96
+		sm.rings = 48
 		_vp.add_child(mi)
 		var orbit_line := MeshInstance3D.new()
 		var om := ImmediateMesh.new()
@@ -213,7 +216,7 @@ func refresh() -> void:
 		var k := 1.0
 		if pos.length() > 5.0e4:
 			k = 5.0e4 / pos.length()
-		b.node.transform = Transform3D(Basis().scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), pos * k)
+		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), pos * k)
 		_draw_body_orbit(i, offs)
 	# vessel trajectory with nodes
 	var nodes := FlightSession.pack_nodes(session.nodes)
@@ -471,7 +474,10 @@ func _draw_overlay() -> void:
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.006)
 		ov.draw_arc(vp, 9.0 + 3.0 * pulse, 0, TAU, 24, Color(1, 1, 1, 0.8), 2.0, true)
 		ov.draw_circle(vp, 3.5, Color(1, 1, 1))
-		ov.draw_string(font, vp + Vector2(14, 5), str(session.telemetry().get("name", "vessel")), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.9))
+		# name on the left: Ap / Pe / node labels go to the right of their marks
+		var vname := str(session.telemetry().get("name", "vessel"))
+		var vw := font.get_string_size(vname, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		ov.draw_string(font, vp + Vector2(-14 - vw, 5), vname, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.9))
 	for m in _markers:
 		if _cam.is_position_behind(m.pos):
 			continue

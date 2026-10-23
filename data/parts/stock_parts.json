@@ -11,6 +11,7 @@
       "crew": 1,
       "torque": 5000,
       "crash_tolerance": 14,
+      "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.0 },
       "nodes": [
@@ -28,6 +29,7 @@
       "crew": 3,
       "torque": 12000,
       "crash_tolerance": 14,
+      "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.6 },
       "nodes": [
@@ -44,6 +46,7 @@
       "mass": 125,
       "fuel_liquid": 1000,
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 850, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
       "shape": { "type": "cylinder", "radius": 0.625, "height": 0.9375 },
       "nodes": [
@@ -60,6 +63,7 @@
       "mass": 250,
       "fuel_liquid": 2000,
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 850, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
       "shape": { "type": "cylinder", "radius": 0.625, "height": 1.875 },
       "nodes": [
@@ -76,6 +80,7 @@
       "mass": 500,
       "fuel_liquid": 4000,
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 850, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
       "shape": { "type": "cylinder", "radius": 0.625, "height": 3.75 },
       "nodes": [
@@ -92,6 +97,7 @@
       "mass": 1250,
       "engine": { "propellant": "liquid", "thrust_vac": 215000, "isp_vac": 310, "isp_sl": 280, "gimbal_deg": 3 },
       "crash_tolerance": 7,
+      "thermal": { "max_temp": 1600, "skin_heat": 10000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
       "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.55, "height": 1.2 },
       "nodes": [
@@ -108,6 +114,7 @@
       "mass": 500,
       "engine": { "propellant": "liquid", "thrust_vac": 60000, "isp_vac": 345, "isp_sl": 85, "gimbal_deg": 2 },
       "crash_tolerance": 7,
+      "thermal": { "max_temp": 1500, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
       "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.6, "height": 1.0 },
       "nodes": [
@@ -124,6 +131,7 @@
       "mass": 180,
       "engine": { "propellant": "liquid", "thrust_vac": 20000, "isp_vac": 315, "isp_sl": 260, "gimbal_deg": 4 },
       "crash_tolerance": 7,
+      "thermal": { "max_temp": 1600, "skin_heat": 9000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
       "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.3, "height": 0.5 },
       "nodes": [
@@ -141,6 +149,7 @@
       "fuel_solid": 6000,
       "engine": { "propellant": "solid", "thrust_vac": 197000, "isp_vac": 195, "isp_sl": 170, "gimbal_deg": 0 },
       "crash_tolerance": 7,
+      "thermal": { "max_temp": 1300, "skin_heat": 9000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.3, "cd_bottom": 0.9, "cd_side": 1.0 },
       "shape": { "type": "booster", "radius": 0.625, "height": 5.0 },
       "nodes": [
@@ -157,6 +166,7 @@
       "mass": 50,
       "decoupler": { "kind": "stack", "impulse": 400 },
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
       "shape": { "type": "cylinder", "radius": 0.625, "height": 0.2 },
       "nodes": [
@@ -173,12 +183,29 @@
       "mass": 50,
       "decoupler": { "kind": "radial", "impulse": 250 },
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 1000, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.5, "cd_bottom": 0.5, "cd_side": 0.5 },
       "shape": { "type": "pylon", "radius": 0.15, "height": 0.6, "depth": 0.3 },
       "nodes": [
         { "name": "outer", "pos": [0, 0, 0.15], "dir": [0, 0, 1], "radius": 0.2 }
       ],
       "surface_attach": true
+    },
+    {
+      "id": "heat_shield",
+      "name": "Toastmaster Heat Shield",
+      "category": "utility",
+      "description": "A thick ablative dish. Goes on the bottom, faces the fire, keeps the penguin cool.",
+      "mass": 180,
+      "crash_tolerance": 12,
+      "thermal": { "max_temp": 3000, "skin_heat": 15000, "emissivity": 0.9 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 1.2, "cd_side": 0.9 },
+      "shape": { "type": "shield", "radius": 0.66, "height": 0.16 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.08, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.08, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
     },
     {
       "id": "fin",
@@ -188,6 +215,7 @@
       "mass": 50,
       "aero": { "cd_top": 0.1, "cd_bottom": 0.1, "cd_side": 1.2, "area_side": 0.7, "area_axial": 0.04 },
       "crash_tolerance": 12,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
       "shape": { "type": "fin", "span": 0.8, "root": 1.0, "tip": 0.4, "thickness": 0.05 },
       "nodes": [],
       "surface_attach": true
@@ -200,6 +228,7 @@
       "mass": 100,
       "parachute": { "semi_cda": 25, "full_cda": 480, "min_pressure": 4000, "full_altitude": 1000, "max_speed": 300 },
       "crash_tolerance": 12,
+      "thermal": { "max_temp": 700, "skin_heat": 6000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.4, "cd_bottom": 0.8, "cd_side": 0.8 },
       "shape": { "type": "cone", "radius_bottom": 0.3, "radius_top": 0.15, "height": 0.35 },
       "nodes": [
@@ -216,6 +245,7 @@
       "leg": { "length": 1.6, "spring": 60000, "damper": 9000, "max_load_speed": 12,
                "hinge": [0, 0.1, 0.14], "deploy_angle_deg": 22, "stowed_fraction": 0.34, "foot_radius": 0.2 },
       "crash_tolerance": 12,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.3, "cd_bottom": 0.3, "cd_side": 0.6, "area_side": 0.25, "area_axial": 0.05 },
       "shape": { "type": "leg", "length": 1.6, "radius": 0.08 },
       "nodes": [],
@@ -229,6 +259,7 @@
       "mass": 80,
       "aero": { "cd_top": 0.12, "cd_bottom": 0.8, "cd_side": 0.8, "cop": -0.3 },
       "crash_tolerance": 10,
+      "thermal": { "max_temp": 1300, "skin_heat": 10000, "emissivity": 0.8 },
       "shape": { "type": "cone", "radius_bottom": 0.625, "radius_top": 0.0, "height": 1.1 },
       "nodes": [
         { "name": "bottom", "pos": [0, -0.55, 0], "dir": [0, -1, 0], "radius": 0.625 }
@@ -243,6 +274,7 @@
       "mass": 100,
       "torque": 6000,
       "crash_tolerance": 8,
+      "thermal": { "max_temp": 900, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
       "shape": { "type": "cylinder", "radius": 0.625, "height": 0.4 },
       "nodes": [

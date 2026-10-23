@@ -65,6 +65,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	p->stage = stage;
 	p->sym = sym;
 	p->fuel = fuel_capacity(&c->cat->defs[def]);
+	p->temp = TRS_T_AMBIENT;
 	return c->count++;
 }
 

@@ -122,11 +122,12 @@ def hopper():
 
 
 def orbiter():
-    c = Craft("Orbiter", "Two stages to orbit around Floe if you fly a clean gravity turn; P for the chute home.")
+    c = Craft("Orbiter", "Two stages to orbit around Floe if you fly a clean gravity turn; shield first on the way home, then P for the chute.")
     pod = c.add("pod_1")
     c.above(pod, "parachute")
     rw = c.below(pod, "reaction_wheel")
-    dec1 = c.below(rw, "decoupler_stack", stage=0)
+    hs = c.below(rw, "heat_shield")
+    dec1 = c.below(hs, "decoupler_stack", stage=0)
     t2 = c.below(dec1, "tank_s")
     e2 = c.below(t2, "engine_vac", stage=1)
     dec2 = c.below(e2, "decoupler_stack", stage=1)

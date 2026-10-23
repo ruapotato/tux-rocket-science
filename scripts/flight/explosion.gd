@@ -132,7 +132,12 @@ func _ready() -> void:
 	_light.shadow_enabled = false
 	add_child(_light)
 	add_child(_sparks())
-	add_child(_smoke())
+	# the lingering cloud is laid into the scene's SmokeTrail (burst()), which
+	# drifts with the air in sim time; this is just the first dark billow
+	var sm := _smoke()
+	sm.amount = int(clampf(size * 4.0, 12.0, 40.0))
+	sm.lifetime = 4.0
+	add_child(sm)
 	for k in int(clampf(size * 2.0, 6.0, 22.0)):
 		_add_debris()
 

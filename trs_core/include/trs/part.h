@@ -30,6 +30,7 @@
 #define TRS_G0 9.80665
 #define TRS_P_REF 101325.0 /* pressure at which isp_sl is quoted */
 #define TRS_MAX_NODES 6
+#define TRS_T_AMBIENT 288.15 /* K: skin temperature at rest, and what skins radiate toward */
 
 typedef enum { TRS_PROP_NONE = 0, TRS_PROP_LIQUID, TRS_PROP_SOLID } trs_propellant;
 typedef enum { TRS_DECOUPLER_NONE = 0, TRS_DECOUPLER_STACK, TRS_DECOUPLER_RADIAL } trs_decoupler_kind;
@@ -74,6 +75,11 @@ typedef struct {
 	double cd_top, cd_bottom, cd_side, area_axial, area_side;
 	double cop;    /* cross-flow centre of pressure along the axis, fraction of height from the part centre */
 	int plate;     /* flat plate (fins): cross-flow force only along the plate normal (local X) */
+
+	/* thermal: the hottest skin element (see heat() in vessel_physics.c) */
+	double max_temp;    /* K: the part fails above this */
+	double skin_heat;   /* J/(m^2 K): heat capacity per unit skin area */
+	double emissivity;
 
 	/* geometry used for mass properties and default areas */
 	double radius, height;

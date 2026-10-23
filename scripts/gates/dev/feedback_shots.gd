@@ -42,6 +42,8 @@ func run(runner: Node) -> Dictionary:
 		await _hangar(tree)
 	if only == "" or only == "map":
 		await _map(tree)
+	if only == "" or only == "heat":
+		await _heat(tree)
 	return {"status": "PASS", "log": "\n".join(_log)}
 
 
@@ -176,6 +178,41 @@ func _map(tree: SceneTree) -> void:
 	scene._map.focus_on_vessel()
 	await _frames(tree, 30)
 	await _shot(scene, "map_vessel")
+
+
+## The Orbiter's capsule coming home fast, shield first, glowing.
+func _heat(tree: SceneTree) -> void:
+	var scene := await _flight(tree, "orbiter")
+	var s: FlightSession = scene.session
+	# just the capsule: pod, chute, reaction wheel, heat shield
+	var craft: Dictionary = JSON.parse_string(Sim.pending_craft_text)
+	craft.parts = craft.parts.slice(0, 4)
+	var t := s.telemetry()
+	var up := Vector3(t.up[0], t.up[1], t.up[2])
+	var east := Vector3(t.east[0], t.east[1], t.east[2])
+	var p := Vector3(t.position[0], t.position[1], t.position[2]) + up * 62000.0
+	var v := east * 3100.0 - up * 700.0
+	s.core.vessel_remove(s.active)
+	s.active = s.core.flight_spawn_state(JSON.stringify(craft), "floe", PackedFloat64Array([p.x, p.y, p.z, v.x, v.y, v.z]))
+	s.set_sas("retrograde")
+	scene._clear_views()
+	scene._launched = true
+	scene._cam_dist = 14.0
+	scene._cam_pitch = 0.15
+	scene._cam_yaw = 2.0
+	for i in 6000:
+		s.step_ticks(1)
+		await tree.process_frame
+		var tt := s.telemetry()
+		if tt.get("heat_temp", 0.0) > 900.0 or tt.altitude < 12000.0 or not tt.alive:
+			break
+	await _frames(tree, 4)
+	var tt := s.telemetry()
+	_log.append("heat: %s at %.0f K (%.0f%%), alt %.0f m, %.0f m/s" % [tt.get("heat_part", "?"), tt.get("heat_temp", 0.0), 100.0 * tt.get("heat_frac", 0.0), tt.altitude, tt.surface_speed])
+	var feed: PackedFloat64Array = s.core.vessel_render(s.active, s.active)
+	for k in feed.size() / VesselView.RPP:
+		_log.append("  part %d: %.0f K (%.0f%% of headroom)" % [k, feed[k * VesselView.RPP + 11], 100.0 * feed[k * VesselView.RPP + 12]])
+	await _shot(scene, "reentry_heat")
 
 
 func _frames(tree: SceneTree, n: int) -> void:

@@ -390,11 +390,16 @@ func return_home() -> bool:
 	api.handle({"cmd": "sas", "mode": "surface_retrograde"})
 	var chute_armed := false
 	var max_g := 0.0
+	var max_heat := 0.0
+	var hot_part := ""
 	for i in 50 * 3600:
 		t = tel()
 		if not t.alive:
 			return false
 		max_g = maxf(max_g, t.g_force)
+		if t.get("heat_frac", 0.0) > max_heat:
+			max_heat = t.heat_frac
+			hot_part = t.heat_part
 		if not chute_armed and t.altitude < 30000.0:
 			api.handle({"cmd": "chute"})  # arms the chute; it opens once slow enough
 			chute_armed = true
@@ -404,8 +409,8 @@ func return_home() -> bool:
 		step(5)
 	t = tel()
 	landed_home = t.landed and t.body == "floe" and t.get("crew_capacity", 0) > 0
-	note("splashdown on the ice: landed %s, peak %.1f g, worst contact %.1f m/s, %d parts" % [
-		t.landed, max_g, t.get("max_impact", 0.0), t.parts])
+	note("splashdown on the ice: landed %s, peak %.1f g, peak heat %.0f%% (%s), worst contact %.1f m/s, %d parts" % [
+		t.landed, max_g, 100.0 * max_heat, hot_part, t.get("max_impact", 0.0), t.parts])
 	return landed_home
 
 

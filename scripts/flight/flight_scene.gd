@@ -417,6 +417,7 @@ func _on_menu(action: String) -> void:
 			_launched = false
 			_recorded = false
 			_throttle = 0.0
+			_wreck_set = false
 			_mission = {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
 			_assign_crew()
 			hud.toast("Reverted to launch. The penguins pretend nothing happened.", 2.5)
@@ -432,7 +433,7 @@ func _on_sim_event(e: Dictionary) -> void:
 	match e.kind:
 		"part_destroyed":
 			_react("boom", 3.5)
-			var how: String = "in the blast" if float(e.speed) < 0.0 else "at %.0f m/s" % float(e.speed)
+			var how: String = "by overheating" if float(e.speed) <= -2.0 else "in the blast" if float(e.speed) < 0.0 else "at %.0f m/s" % float(e.speed)
 			if Sim.part(e.part).get("crew", 0) > 0:
 				_crew_lost(Sim.part(e.part).name, how)
 			elif not _mission.pod_lost:
@@ -542,6 +543,9 @@ func _render(delta: float) -> void:
 	_flicker = randf()
 	# vessels
 	var vessels: Array = JSON.parse_string(core.vessel_list())
+	var prev_anchor := {}
+	for id in _views:
+		prev_anchor[id] = _views[id].anchor
 	var alive := {}
 	for v in vessels:
 		var id := int(v.id)
@@ -568,9 +572,14 @@ func _render(delta: float) -> void:
 	var east := Frame.vec_arr(t.east)
 	# positive pitch puts the camera above the vessel, looking down at it
 	var horiz := north * cos(_cam_yaw) + east * sin(_cam_yaw)
-	_cam.position = (-horiz * cos(_cam_pitch) + up * sin(_cam_pitch)) * _cam_dist
-	_cam.look_at(Vector3.ZERO, up)
-	_update_booms(delta, -Frame.vec_arr(t.surface_velocity) * delta)
+	var drift := -Frame.vec_arr(t.surface_velocity) * delta
+	var focus := Vector3.ZERO
+	if _wreck_set:
+		_wreck += drift
+		focus = _wreck
+	_cam.position = focus + (-horiz * cos(_cam_pitch) + up * sin(_cam_pitch)) * _cam_dist
+	_cam.look_at(focus, up)
+	_update_booms(delta, drift)
 	_update_failure(delta)
 
 	# bodies: sun direction, terrain for the current body
@@ -651,13 +660,27 @@ func _render(delta: float) -> void:
 		_smoke = SmokeTrail.new()
 		add_child(_smoke)
 	if origin != _smoke_origin:
-		_smoke.clear()
+		# the floating origin moved to another vessel: carry what hangs in
+		# the air across by how far that vessel's render position jumped
+		if prev_anchor.has(origin) and _views.has(origin):
+			var jump: Vector3 = _views[origin].anchor - prev_anchor[origin]
+			_smoke.shift(jump)
+			for b in _booms:
+				if is_instance_valid(b):
+					b.position += jump
+			_wreck += jump
+		else:
+			_smoke.clear()
 		_smoke_origin = origin
 	var nozzles := []
 	for id in _views:
 		nozzles.append_array(_views[id].nozzles())
 	var day_light := clampf(up.dot(sun_dir) * 3.0 + 0.35, 0.12, 1.0)
-	_smoke.step(delta, nozzles, Frame.vec_arr(t.surface_velocity), t.pressure / 101325.0, day_light, up, t.altitude_terrain)
+	# smoke lives in sim time: under physics warp the rocket covers more air
+	# per frame, and the trail must still be laid down continuously
+	var sim_dt := clampf(session.time() - _smoke_t, 0.0, 0.5)
+	_smoke_t = session.time()
+	_smoke.step(sim_dt, nozzles, Frame.vec_arr(t.surface_velocity), t.pressure / 101325.0, day_light, up, t.altitude_terrain)
 	if _reentry == null:
 		_reentry = ReentryFX.new()
 		add_child(_reentry)
@@ -669,6 +692,13 @@ func _render(delta: float) -> void:
 	if int(t.get("chutes_stowed", 0)) > 0 and _launched and t.in_atmosphere and not t.landed \
 			and t.vertical_speed < -20.0 and t.altitude_terrain < 12000.0:
 		hint = "Falling with the parachute packed: press P to deploy it"
+	var hf: float = t.get("heat_frac", 0.0)
+	if hf > 0.8 and not t.landed:
+		hint = "%s at %.0f K of %.0f K: overheating! Turn the heat shield (or the strongest end) into the flow, or climb" % [
+			Sim.part(t.heat_part).get("name", "A part"), t.heat_temp, t.heat_limit]
+		if hf > 0.9 and session.time() - _heat_alarm_t > 1.2:
+			_heat_alarm_t = session.time()
+			Sfx.play("alarm", 0.6)
 	hud.set_hint(hint)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
@@ -704,18 +734,26 @@ func _explode_vanished(gone: Dictionary) -> void:
 
 func _explosion(at: Vector3, part_id: String) -> void:
 	var d: Dictionary = Sim.part(part_id)
+	if int(d.get("crew", 0)) > 0 and not _wreck_set:
+		# the camera stays with where the crew was lost, not with debris
+		_wreck = at
+		_wreck_set = true
 	# propellant makes the bang: a full tank is a bomb, a fin is a pop
 	var mass: float = d.get("mass", 100.0) + d.get("fuel_liquid", 0.0) + d.get("fuel_solid", 0.0)
 	var size := clampf(1.2 * pow(mass / 100.0, 1.0 / 3.0), 1.5, 9.0)
 	for b in _booms:
 		if is_instance_valid(b) and b.young() and b.position.distance_to(at) < b.size * 1.6:
 			b.merge(size)
+			if _smoke:
+				_smoke.burst(at, size * 0.7, _last_up)
 			return
 	var up := Frame.vec_arr(session.telemetry().get("up", [0.0, 0.0, 1.0])) if session.telemetry().get("alive", false) else _last_up
 	var ex := Explosion.new(size, up)
 	ex.position = at
 	add_child(ex)
 	_booms.append(ex)
+	if _smoke:
+		_smoke.burst(at, size, up)
 	var dist := at.distance_to(_cam.position if _cam else Vector3.ZERO)
 	_shake = maxf(_shake, clampf(size * 6.0 / (dist + 8.0), 0.0, 2.5))
 	Sfx.play("boom", clampf(size / 5.0 * 30.0 / (dist * 0.05 + 30.0), 0.3, 1.8))
@@ -769,6 +807,10 @@ func _update_failure(delta: float) -> void:
 
 var _last_up := Vector3.UP
 var _fail_in := 0.0
+var _heat_alarm_t := -100.0
+var _smoke_t := 0.0
+var _wreck := Vector3.ZERO
+var _wreck_set := false
 var _fail_text: Array = []
 var _booms: Array[Explosion] = []
 var _shake := 0.0

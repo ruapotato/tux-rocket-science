@@ -100,10 +100,14 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	free(vs->fuel_group);
 	free(vs->face_top);
 	free(vs->face_bottom);
+	free(vs->wake_top);
+	free(vs->wake_bottom);
 	int n = c->count ? c->count : 1;
 	vs->fuel_group = malloc(sizeof(int) * (size_t)n);
 	vs->face_top = malloc(sizeof(double) * (size_t)n);
 	vs->face_bottom = malloc(sizeof(double) * (size_t)n);
+	vs->wake_top = malloc(sizeof(double) * (size_t)n);
+	vs->wake_bottom = malloc(sizeof(double) * (size_t)n);
 	trs_craft_fuel_groups(c, vs->fuel_group);
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
@@ -116,6 +120,10 @@ void trs_vessel_refresh(trs_world *w, int id) {
 		/* parts with no node on a face (nosecone tip, chute) keep it exposed */
 		vs->face_top[i] = top;
 		vs->face_bottom[i] = bottom;
+		/* a part right behind a wider one sits in its wake: side heating
+		 * scales with the share of the frontal area it would present */
+		vs->wake_top[i] = nt >= 0 ? fmin(1, d->area_axial / fmax(trs_craft_def(c, nt)->area_axial, 1e-6)) : 1;
+		vs->wake_bottom[i] = nb >= 0 ? fmin(1, d->area_axial / fmax(trs_craft_def(c, nb)->area_axial, 1e-6)) : 1;
 	}
 	trs_craft_mass_props(c, &vs->mass, &vs->cm, &vs->inertia);
 	build_contacts(vs);
@@ -537,6 +545,58 @@ static void update_chutes(const trs_world *w, trs_vessel *vs) {
 	}
 }
 
+/* ---- heating ------------------------------------------------------------------- */
+
+#define SIGMA_SB 5.670374419e-8
+#define SG_K 1.7415e-4 /* Sutton-Graves constant, SI (air) */
+#define CP_AIR 1005.0  /* J/(kg K) */
+
+/* Each part's temperature is that of its hottest skin element, per unit
+ * area: C dT/dt = f h (T_rec - T) - e sigma (T^4 - T_amb^4).
+ * The film coefficient h = 2 cp K sqrt(rho / r_nose) v is chosen so a cold
+ * wall sees exactly the Sutton-Graves stagnation flux K sqrt(rho/r) v^3;
+ * heating stops at the recovery temperature T_rec = T_amb + v^2 / (2 cp), so
+ * subsonic flight never heats anything. f is the element's exposure: its
+ * leading end face (scaled by how much of it is uncovered and how squarely
+ * it meets the flow) or its side (5% of stagnation head-on, more at angle of
+ * attack, less in the wake of a wider part just upstream). No conduction
+ * between parts. Over max_temp the part fails. */
+static void heat(const trs_world *w, trs_vessel *vs, double h) {
+	trs_craft *c = vs->craft;
+	const trs_body *b = &w->sys.bodies[vs->body];
+	double rho = vs->density;
+	trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
+	double sp = v3_len(vair);
+	trs_v3 dl = sp > 1e-9 ? quat_rotate(quat_conj(vs->q), v3_scale(vair, 1.0 / sp)) : v3(0, 0, 0);
+	double t_rec = TRS_T_AMBIENT + sp * sp / (2 * CP_AIR);
+	for (int i = 0; i < c->count; i++) {
+		trs_part *p = &c->parts[i];
+		const trs_part_def *d = trs_craft_def(c, i);
+		double q = 0;
+		if (rho > 0 && sp > 1) {
+			double cs = v3_dot(dl, part_axis(p));
+			double exposed = (cs > 0 ? vs->face_top[i] : vs->face_bottom[i]) / fmax(d->area_axial, 1e-6);
+			double wake = cs > 0 ? vs->wake_top[i] : vs->wake_bottom[i];
+			double f = fmax(clampd(exposed, 0, 1) * fabs(cs), (0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs))) * wake);
+			double hc = 2 * CP_AIR * SG_K * sqrt(rho / fmax(d->radius, 0.05)) * sp;
+			q = f * hc * (t_rec - p->temp);
+		}
+		double t4 = p->temp * p->temp * p->temp * p->temp;
+		double a4 = TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT;
+		q -= d->emissivity * SIGMA_SB * (t4 - a4);
+		p->temp += q * h / d->skin_heat;
+		if (p->temp > d->max_temp) {
+			int seen = 0;
+			for (int k = 0; k < vs->npending; k++)
+				seen |= vs->pending_uid[k] == p->uid;
+			if (!seen && vs->npending < TRS_MAX_PENDING) {
+				vs->pending_uid[vs->npending] = p->uid;
+				vs->pending_speed[vs->npending++] = TRS_DESTROY_OVERHEAT;
+			}
+		}
+	}
+}
+
 /* ---- the tick ------------------------------------------------------------------- */
 
 void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
@@ -613,6 +673,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 			trs_world_push_event(w, (trs_world_event){ TRS_WEV_LIFTOFF, t + h, (int)(vs - w->vessels), vs->body, -1, "", 0 });
 		vs->landed = 0;
 	}
+	heat(w, vs, h);
 	/* queue every over-tolerance part, by uid (indices shift as parts go) */
 	for (int q = 0; q < rep.ncrash && vs->npending < TRS_MAX_PENDING; q++) {
 		vs->pending_uid[vs->npending] = vs->craft->parts[rep.crash_part[q]].uid;
@@ -805,7 +866,7 @@ static void blast(trs_world *w, int body, trs_v3 at, double fuel, int skip_uid) 
 				seen |= o->pending_uid[q] == pk->uid;
 			if (!seen) {
 				o->pending_uid[o->npending] = pk->uid;
-				o->pending_speed[o->npending++] = -1; /* blast, not impact */
+				o->pending_speed[o->npending++] = TRS_DESTROY_BLAST;
 			}
 		}
 	}
