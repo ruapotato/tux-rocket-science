@@ -32,7 +32,10 @@ add_library(trs_core_lib STATIC ${TRS_CORE_SRC})
 target_include_directories(trs_core_lib PUBLIC ${CMAKE_SOURCE_DIR}/trs_core/include)
 target_compile_options(trs_core_lib PRIVATE ${TRS_WARN})
 set_target_properties(trs_core_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(NOT WIN32)
+if(WIN32)
+  # mingw's own printf/strtod: correctly rounded, so JSON round-trips exactly
+  target_compile_definitions(trs_core_lib PUBLIC __USE_MINGW_ANSI_STDIO=1)
+else()
   target_link_libraries(trs_core_lib PUBLIC m)
 endif()
 

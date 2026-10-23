@@ -82,10 +82,15 @@ static trs_gate_status gate_pending(trs_log *log, const char *data_dir) {
 	return TRS_GATE_PENDING;
 }
 
+trs_gate_status trs_gate_kepler(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_mode_switch(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_patched_conics(trs_log *log, const char *data_dir);
+
 static const trs_gate_def GATES[] = {
 	{ "test-smoke", "M0", gate_smoke },
-	{ "test-kepler", "M1", gate_pending },
-	{ "test-mode-switch", "M1", gate_pending },
+	{ "test-kepler", "M1", trs_gate_kepler },
+	{ "test-mode-switch", "M1", trs_gate_mode_switch },
+	{ "test-patched-conics", "M1", trs_gate_patched_conics },
 	{ "test-deltav", "M2", gate_pending },
 	{ "test-staging", "M2", gate_pending },
 	{ "test-craft-roundtrip", "M3", NULL },

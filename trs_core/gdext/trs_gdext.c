@@ -21,6 +21,7 @@
 /* GDExtension entry point. Exposes the simulation to GDScript as `TrsSim`.
  * Godot nodes are views: everything authoritative stays in here. */
 #include "binder.h"
+#include "sim.h"
 #include "trs/trs_core.h"
 
 #include <stdlib.h>
@@ -32,16 +33,14 @@
 #define TRS_EXPORT __attribute__((visibility("default")))
 #endif
 
-typedef struct {
-	int unused;
-} trs_sim_handle;
-
 static void *sim_create(void) {
 	return calloc(1, sizeof(trs_sim_handle));
 }
 
 static void sim_destroy(void *self) {
-	free(self);
+	trs_sim_handle *h = self;
+	free(h->world);
+	free(h);
 }
 
 /* JSON string escaping into a malloc()ed buffer (quotes included). */
@@ -134,15 +133,20 @@ static const trs_method_def SIM_METHODS[] = {
 	{ "echo_f64", m_echo_f64, TRS_T_F64ARR, 1, { TRS_T_F64ARR }, { "values" } },
 };
 
-static const trs_class_def SIM_CLASS = {
-	"TrsSim", "RefCounted", sim_create, sim_destroy, SIM_METHODS, sizeof(SIM_METHODS) / sizeof(SIM_METHODS[0]),
-};
-
 static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	(void)ud;
 	if (level != GDEXTENSION_INITIALIZATION_SCENE)
 		return;
-	trs_binder_register(&SIM_CLASS);
+	/* One method table per API area, merged into the single TrsSim class. */
+	static trs_method_def all[64];
+	int n = 0;
+	for (size_t i = 0; i < sizeof(SIM_METHODS) / sizeof(SIM_METHODS[0]); i++)
+		all[n++] = SIM_METHODS[i];
+	for (int i = 0; i < TRS_SIM_WORLD_METHOD_COUNT; i++)
+		all[n++] = TRS_SIM_WORLD_METHODS[i];
+	static trs_class_def sim_class;
+	sim_class = (trs_class_def){ "TrsSim", "RefCounted", sim_create, sim_destroy, all, n };
+	trs_binder_register(&sim_class);
 }
 
 static void deinitialize(void *ud, GDExtensionInitializationLevel level) {

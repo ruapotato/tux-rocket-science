@@ -1,0 +1,40 @@
+{
+  "name": "Austra system",
+  "bodies": [
+    {
+      "id": "austra",
+      "name": "Austra",
+      "kind": "star",
+      "mu": 1.2e18,
+      "radius": 250000000,
+      "rotation_period": 432000
+    },
+    {
+      "id": "floe",
+      "name": "Floe",
+      "kind": "planet",
+      "parent": "austra",
+      "mu": 3.528e12,
+      "radius": 600000,
+      "rotation_period": 19800,
+      "orbit": { "a": 14000000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 0 },
+      "atmosphere": {
+        "height": 70000,
+        "sea_level_pressure": 101325,
+        "sea_level_density": 1.225,
+        "scale_height": 5800
+      },
+      "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68 }
+    },
+    {
+      "id": "krill",
+      "name": "Krill",
+      "kind": "moon",
+      "parent": "floe",
+      "mu": 62920000000,
+      "radius": 220000,
+      "tidally_locked": true,
+      "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 }
+    }
+  ]
+}

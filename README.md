@@ -39,6 +39,7 @@ tools/run_gates.sh                     # build, then run every gate
 ./build/linux/trs_tests --all          # native gates only, no Godot
 godot --headless -- --test-kepler      # a single gate through the engine
 godot --headless -- --all-gates --strict   # also treat PENDING gates as failures
+WINE_GODOT=…/Godot_v4.7.2-stable_win64_console.exe tools/run_gates.sh   # + Windows build under wine64
 ```
 
 The first time you run a fresh checkout, run `godot --headless --import` once so

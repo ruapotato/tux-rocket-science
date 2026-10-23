@@ -44,3 +44,14 @@ if [[ ! -d .godot ]]; then
   "$GODOT" --headless --import >/dev/null 2>&1 || true
 fi
 "$GODOT" --headless -- --all-gates $STRICT_FLAG
+
+# Optional: WINE_GODOT=/path/to/Godot_win64_console.exe also runs the Windows
+# build under wine64 (cross-compiled with mingw-w64).
+if [[ -n "${WINE_GODOT:-}" ]]; then
+  echo "== windows build + gates (wine64)"
+  cmake -S . -B build/windows -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake >/dev/null
+  cmake --build build/windows
+  WINE="${WINE:-$(command -v wine64 || echo /usr/lib/wine/wine64)}"
+  WINEDEBUG=-all "$WINE" build/windows/trs_tests.exe --data data --all $STRICT_FLAG
+  WINEDEBUG=-all "$WINE" "$WINE_GODOT" --headless -- --all-gates $STRICT_FLAG
+fi
