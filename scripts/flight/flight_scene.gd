@@ -32,6 +32,7 @@ var _cam_pitch := 0.08
 var _cam_dist := 30.0
 var _orbiting := false
 var _terrain: TerrainView
+var _clouds: MeshInstance3D  # real-scale cloud deck, drawn over the near terrain
 var _scaled: ScaledSpace
 var _views := {}  # vessel id -> VesselView
 var _env: Environment
@@ -171,6 +172,18 @@ func _build() -> void:
 	_cam.far = 3.0e6
 	_cam.fov = 60
 	add_child(_cam)
+
+	_clouds = MeshInstance3D.new()
+	var cm := SphereMesh.new()
+	cm.radius = 1.0
+	cm.height = 2.0
+	cm.radial_segments = 256
+	cm.rings = 128
+	_clouds.mesh = cm
+	_clouds.material_override = PlanetBake.cloud_material()
+	_clouds.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_clouds.visible = false
+	add_child(_clouds)
 
 	_terrain = TerrainView.new()
 	_terrain.setup(session.core)
@@ -455,6 +468,20 @@ func _render(delta: float) -> void:
 	var body_rel := Frame.vec(bodies, bi * 5)
 	var eye: PackedFloat64Array = core.to_body_fixed(bi, origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
 	_terrain.refresh(eye, body_rel, bodies[bi * 5 + 3])
+	# cloud deck 7 km up on bodies that have weather; from below it would be
+	# an overcast we don't model yet, so it shows once you're above it
+	var deck: float = 7000.0
+	var has_clouds: bool = t.body == "floe"
+	var above: float = t.altitude - deck
+	_clouds.visible = has_clouds and above > 2000.0
+	_terrain.set_cloud_shadows(has_clouds, Frame.spin(bodies[bi * 5 + 3]).inverse() * sun_dir, deck / bodies[bi * 5 + 4])
+	if _clouds.visible:
+		var R: float = bodies[bi * 5 + 4]
+		var spin := Frame.spin(bodies[bi * 5 + 3])
+		var op := clampf((above - 2000.0) / 15000.0, 0.0, 1.0)
+		_clouds.transform = Transform3D(spin.scaled(Vector3.ONE * (R + deck)), body_rel)
+		(_clouds.material_override as ShaderMaterial).set_shader_parameter("opacity", op)
+
 
 	# sky: atmosphere density fades to space; the sky shader handles day/night
 	var density := 0.0

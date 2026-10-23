@@ -165,6 +165,14 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Vector3, rot: float) -> vo
 		_site_node.transform = Transform3D(basis * LaunchSite.site_basis(_site_pos), body_rel + basis * _site_pos)
 
 
+func set_cloud_shadows(on: bool, sun_cloud_obj: Vector3, offset: float) -> void:
+	if _material == null:
+		return
+	_material.set_shader_parameter("has_clouds", 1.0 if on else 0.0)
+	_material.set_shader_parameter("sun_cloud", sun_cloud_obj)
+	_material.set_shader_parameter("cloud_offset", offset)
+
+
 static func _parse(key: String) -> Array:
 	var p := key.split("/")
 	return [int(p[0]), int(p[1]), int(p[2]), int(p[3])]

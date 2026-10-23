@@ -21,9 +21,9 @@
 class_name PlanetBake
 extends RefCounted
 
-const W := 1024
-const H := 512
-const VERSION := 5
+const W := 2048
+const H := 1024
+const VERSION := 6
 
 const PLANET_SHADER := """
 shader_type spatial;
@@ -53,33 +53,71 @@ void fragment() {
 
 const CLOUD_SHADER := """
 shader_type spatial;
-render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap;
-uniform float coverage = 0.6;
+render_mode blend_mix, depth_draw_never, cull_back;
+uniform float coverage = 0.5;
 uniform float opacity = 1.0;
+uniform float shadow_mode = 0.0;   // 1 = draw this deck's shadow on the ground
+uniform vec3 sun_obj = vec3(1.0, 0.0, 0.0);  // sun direction in object space
+uniform float shadow_offset = 0.0016;        // deck height above ground / radius
 varying vec3 objp;
-float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+varying vec3 up_v;
+float hash(vec3 p) {
+	uint h = uint(int(floor(p.x))) * 73856093u ^ uint(int(floor(p.y))) * 19349663u ^ uint(int(floor(p.z))) * 83492791u;
+	h = (h ^ (h >> 13u)) * 1274126177u;
+	h ^= h >> 16u;
+	return float(h & 16777215u) / 16777216.0;
+}
 float vn(vec3 p) {
 	vec3 i = floor(p), f = fract(p);
 	vec3 u = f * f * (3.0 - 2.0 * f);
 	return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), u.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), u.x), u.y),
 		mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), u.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), u.x), u.y), u.z);
 }
-void vertex() {
+mat3 drift() {
 	float a = TIME * 0.004;
-	objp = mat3(vec3(cos(a), 0.0, -sin(a)), vec3(0.0, 1.0, 0.0), vec3(sin(a), 0.0, cos(a))) * VERTEX;
+	return mat3(vec3(cos(a), 0.0, -sin(a)), vec3(0.0, 1.0, 0.0), vec3(sin(a), 0.0, cos(a)));
+}
+float clouds(vec3 d) {
+	vec3 q = d * vec3(7.0, 15.0, 7.0);
+	// domain warp for swirls
+	q += vec3(vn(q * 0.5), vn(q * 0.5 + 7.3), vn(q * 0.5 + 3.1)) * 1.6;
+	float n = 0.0, amp = 0.5;
+	for (int o = 0; o < 7; o++) { n += vn(q) * amp; q *= 2.11; amp *= 0.5; }
+	float band = 0.5 + 0.5 * sin(d.y * 13.0 + n * 3.0);
+	return n * 0.85 + band * 0.2;
+}
+void vertex() {
+	objp = VERTEX;
+	up_v = normalize((MODELVIEW_MATRIX * vec4(VERTEX, 0.0)).xyz);
 }
 void fragment() {
 	vec3 d = normalize(objp);
-	// stretched along latitude: storm bands, then fbm for billows
-	vec3 q = d * vec3(4.0, 9.0, 4.0);
-	float n = 0.0, amp = 0.5;
-	for (int o = 0; o < 6; o++) { n += vn(q) * amp; q *= 2.13; amp *= 0.5; }
-	float band = 0.5 + 0.5 * sin(d.y * 11.0 + n * 3.0);
-	float c = smoothstep(coverage, coverage + 0.18, n * 0.8 + band * 0.25);
-	ALBEDO = vec3(0.97, 0.98, 1.0);
-	ALPHA = c * 0.88 * opacity;
+	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+	float edge = smoothstep(0.03, 0.3, facing);
+	if (shadow_mode > 0.5) {
+		// project toward the sun up to the deck and test the cloud there
+		vec3 s = normalize(sun_obj);
+		float sun_h = dot(s, d);
+		vec3 tang = s - d * sun_h;
+		vec3 dd = normalize(d + tang * shadow_offset / max(sun_h, 0.15));
+		float c = smoothstep(coverage, coverage + 0.08, clouds(drift() * dd));
+		ALBEDO = vec3(0.0);
+		ALPHA = c * 0.45 * opacity * edge * smoothstep(0.0, 0.15, sun_h);
+	} else {
+		float v = clouds(drift() * d);
+		float c = smoothstep(coverage, coverage + 0.08, v);
+		// thick cores bright, thin edges and bases a little grey-blue
+		float thick = smoothstep(coverage + 0.05, coverage + 0.35, v);
+		ALBEDO = mix(vec3(0.72, 0.76, 0.84), vec3(1.0), thick);
+		ALPHA = c * 0.92 * opacity * edge;
+	}
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;
+}
+void light() {
+	float shadow = smoothstep(-0.05, 0.06, dot(up_v, LIGHT));
+	float ndl = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 1.0);
+	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * ndl * shadow / PI;
 }
 """
 

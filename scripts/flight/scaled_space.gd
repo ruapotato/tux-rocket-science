@@ -69,6 +69,8 @@ func setup(c: TrsSim) -> void:
 	var we := WorldEnvironment.new()
 	_env = Environment.new()
 	_env.background_mode = Environment.BG_SKY
+	# the sky is a backdrop, not a light source: no mirrored sky on planets
+	_env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	var sky := Sky.new()
 	_sky_mat = ShaderMaterial.new()
 	var ssh := Shader.new()
@@ -77,7 +79,7 @@ func setup(c: TrsSim) -> void:
 	sky.sky_material = _sky_mat
 	_env.sky = sky
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	_env.ambient_light_color = Color(0.08, 0.09, 0.12)
+	_env.ambient_light_color = Color(0.03, 0.035, 0.05)
 	_env.glow_enabled = true
 	_env.glow_intensity = 1.2
 	_env.glow_bloom = 0.25
@@ -111,7 +113,7 @@ func setup(c: TrsSim) -> void:
 				m.emission = Color(1.0, 0.85, 0.6)
 				m.emission_energy_multiplier = 6.0
 			"floe":
-				atmo = _atmosphere(Color(0.45, 0.7, 1.0), info.radius + info.atmosphere_height)
+				atmo = Atmosphere.make(info.radius, info.atmosphere_height, info.get("scale_height", 5800.0))
 			"krill":
 				pass
 			_:
@@ -251,6 +253,9 @@ func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vect
 		if b.atmo:
 			b.atmo.position = pos * k
 			b.atmo.scale = Vector3.ONE * float(b.atmo.get_meta("radius")) * SCALE * k
+			Atmosphere.set_sun(b.atmo, sun_dir)
+			# deep inside the air the sky shader takes over
+			Atmosphere.set_intensity(b.atmo, 1.0 - smoothstep(0.25, 0.7, density))
 		if b.clouds:
 			# clouds are for looking down on: fade them out once below the deck
 			var op := 1.0 - smoothstep(0.42, 0.62, density)

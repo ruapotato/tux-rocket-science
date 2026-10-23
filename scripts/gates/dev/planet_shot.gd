@@ -32,13 +32,24 @@ func run(runner: Node) -> Dictionary:
 	var body := OS.get_environment("BODY") if OS.get_environment("BODY") != "" else "floe"
 	s.spawn_in_orbit(text, body, float(OS.get_environment("ALT")) if OS.get_environment("ALT") != "" else 1500000.0)
 	s.core.vessel_set_mode(s.active, "rails")
-	s.warp_to(s.time() + s.telemetry().orbit.period * 0.5)
+	s.warp_to(s.time() + s.telemetry().orbit.period * (float(OS.get_environment("PHASE")) if OS.get_environment("PHASE") != "" else 0.5))
 	flight._clear_views()
 	flight._cam_dist = 30.0
-	flight._cam_pitch = 1.38
-	flight._cam_yaw = 0.0
+	flight._cam_pitch = float(OS.get_environment("PITCH")) if OS.get_environment("PITCH") != "" else 1.38
+	flight._cam_yaw = float(OS.get_environment("YAW")) if OS.get_environment("YAW") != "" else 0.0
+	flight.hud.visible = OS.get_environment("NOHUD") == ""
+	for v in flight._views.values():
+		v.visible = OS.get_environment("NOHUD") == ""
 	for i in 60:
 		await tree.process_frame
+	if OS.get_environment("NO_TERRAIN") != "":
+		flight._terrain.visible = false
+	if OS.get_environment("NO_ATMO") != "":
+		for b in flight._scaled._bodies:
+			if b.atmo:
+				b.atmo.visible = false
+	for i in 3:
+		await tree.process_frame
 	await RenderingServer.frame_post_draw
-	tree.root.get_texture().get_image().save_png("user://dev_shots/planet_%s.png" % body)
+	tree.root.get_texture().get_image().save_png("user://dev_shots/planet_%s%s.png" % [body, OS.get_environment("TAG")])
 	return {"status": "PASS", "log": "ok"}

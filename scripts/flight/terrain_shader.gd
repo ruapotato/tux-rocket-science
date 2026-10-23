@@ -30,7 +30,7 @@ const PERIOD := 2048.0
 
 const CODE := """
 shader_type spatial;
-render_mode cull_back, diffuse_lambert_wrap;
+render_mode cull_back;
 
 uniform int kind = 0;            // 0 = ice world, 1 = airless regolith
 uniform vec4 c_low : source_color;
@@ -42,6 +42,10 @@ instance uniform vec3 detail_origin = vec3(0.0);
 uniform sampler2D baked_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D baked_normal : filter_linear_mipmap, repeat_enable;
 uniform float has_bake = 0.0;
+uniform float has_clouds = 0.0;
+uniform float cloud_coverage = 0.5;
+uniform float cloud_offset = 0.0117;  // deck height / radius
+uniform vec3 sun_cloud = vec3(1.0, 0.0, 0.0);  // sun in the cloud sphere's object frame
 
 varying vec3 lp;        // metres, relative to the patch's snapped origin
 varying vec3 up_view;
@@ -49,6 +53,7 @@ varying float hgt;
 varying float big;      // large-scale variation baked per vertex
 varying float surf;     // 0 on LOD skirts
 varying vec3 dir_obj;   // body-fixed unit direction (object space = sim axes)
+varying float cloud_shade;  // 1 = clear sky to the sun, lower under a cloud
 
 const float PERIOD = 2048.0;
 
@@ -69,6 +74,28 @@ float vnoise(vec3 p, float f) {
 	float n001 = hash3(mod(i + vec3(0,0,1), per)).x, n101 = hash3(mod(i + vec3(1,0,1), per)).x;
 	float n011 = hash3(mod(i + vec3(0,1,1), per)).x, n111 = hash3(mod(i + vec3(1,1,1), per)).x;
 	return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y), mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
+}
+
+float c_hash(vec3 p) {
+	uint h = uint(int(floor(p.x))) * 73856093u ^ uint(int(floor(p.y))) * 19349663u ^ uint(int(floor(p.z))) * 83492791u;
+	h = (h ^ (h >> 13u)) * 1274126177u;
+	h ^= h >> 16u;
+	return float(h & 16777215u) / 16777216.0;
+}
+float c_vn(vec3 p) {
+	vec3 i = floor(p), f = fract(p);
+	vec3 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(c_hash(i), c_hash(i + vec3(1,0,0)), u.x), mix(c_hash(i + vec3(0,1,0)), c_hash(i + vec3(1,1,0)), u.x), u.y),
+		mix(mix(c_hash(i + vec3(0,0,1)), c_hash(i + vec3(1,0,1)), u.x), mix(c_hash(i + vec3(0,1,1)), c_hash(i + vec3(1,1,1)), u.x), u.y), u.z);
+}
+// must match PlanetBake.CLOUD_SHADER's clouds()
+float c_field(vec3 d) {
+	vec3 q = d * vec3(7.0, 15.0, 7.0);
+	q += vec3(c_vn(q * 0.5), c_vn(q * 0.5 + 7.3), c_vn(q * 0.5 + 3.1)) * 1.6;
+	float n = 0.0, amp = 0.5;
+	for (int o = 0; o < 7; o++) { n += c_vn(q) * amp; q *= 2.11; amp *= 0.5; }
+	float band = 0.5 + 0.5 * sin(d.y * 13.0 + n * 3.0);
+	return n * 0.85 + band * 0.2;
 }
 
 void vertex() {
@@ -156,9 +183,35 @@ void fragment() {
 			EMISSION *= 1.0 - fb;
 		}
 	}
+	cloud_shade = 1.0;
+	if (has_clouds > 0.5) {
+		vec3 s = normalize(dir_obj);
+		vec3 g = vec3(s.x, s.z, -s.y);               // sim body-fixed -> cloud sphere object
+		vec3 sn = normalize(sun_cloud);
+		float sh = dot(sn, g);
+		vec3 dd = normalize(g + (sn - g * sh) * cloud_offset / max(sh, 0.15));
+		float a = TIME * 0.004;
+		mat3 drift = mat3(vec3(cos(a), 0.0, -sin(a)), vec3(0.0, 1.0, 0.0), vec3(sin(a), 0.0, cos(a)));
+		float c = smoothstep(cloud_coverage, cloud_coverage + 0.08, c_field(drift * dd));
+		cloud_shade = 1.0 - 0.55 * c;
+	}
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = spec;
+}
+
+// Directional sunlight with the planet's own shadow: a directional light has
+// no idea the planet is in the way, so terrain past the terminator would be
+// lit straight through the world. Fade by the sun's height at this spot.
+void light() {
+	float sun_h = dot(up_view, LIGHT);
+	float planet_shadow = smoothstep(-0.06, 0.04, sun_h);
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	float wrap = clamp((dot(NORMAL, LIGHT) + 0.2) / 1.2, 0.0, 1.0);
+	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * mix(ndl, wrap, 0.35) * planet_shadow * cloud_shade / PI;
+	vec3 h = normalize(LIGHT + VIEW);
+	float shin = mix(8.0, 96.0, 1.0 - ROUGHNESS);
+	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * pow(clamp(dot(NORMAL, h), 0.0, 1.0), shin) * ndl * planet_shadow * cloud_shade * 0.08 * (1.0 - ROUGHNESS);
 }
 """
 

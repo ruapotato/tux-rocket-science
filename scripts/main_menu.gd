@@ -23,6 +23,8 @@ var _floe: MeshInstance3D
 var _krill: MeshInstance3D
 var _t := 0.0
 var _corps: PanelContainer
+var _atmo: MeshInstance3D
+var _sun_node: DirectionalLight3D
 
 
 func _ready() -> void:
@@ -96,7 +98,8 @@ func _build_space() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.08, 0.09, 0.12)
 	env.glow_enabled = true
-	env.glow_intensity = 0.4
+	env.glow_intensity = 0.25
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.glow_hdr_threshold = 1.4
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	we.environment = env
@@ -117,25 +120,32 @@ func _build_space() -> void:
 	sm.radial_segments = 128
 	sm.rings = 64
 	_floe.mesh = sm
-	var fm := StandardMaterial3D.new()
-	fm.albedo_texture = ScaledSpace._floe_texture()
-	fm.roughness = 0.55
-	_floe.material_override = fm
+	_floe.material_override = PlanetBake.planet_material(Sim.core, Sim.core.body_find("floe"))
+	var clouds := MeshInstance3D.new()
+	var cmesh := SphereMesh.new()
+	cmesh.radius = 4.2 * (607.0 / 600.0)
+	cmesh.height = cmesh.radius * 2.0
+	cmesh.radial_segments = 128
+	cmesh.rings = 64
+	clouds.mesh = cmesh
+	clouds.material_override = PlanetBake.cloud_material()
+	_floe.add_child(clouds)
 	_floe.position = Vector3(4.5, -1.6, 0)
 	vp.add_child(_floe)
-	var atmo := ScaledSpace._atmosphere(Color(0.45, 0.7, 1.0), 1.0)
-	atmo.scale = Vector3.ONE * 4.55
+	var atmo := Atmosphere.make(600000.0, 70000.0, 5800.0)
+	atmo.scale = Vector3.ONE * 4.2 * (670.0 / 600.0)
 	atmo.position = _floe.position
+	Atmosphere.set_sun(atmo, sun.global_transform.basis.z if sun.is_inside_tree() else Vector3(0.6, 0.3, 0.75).normalized())
 	vp.add_child(atmo)
+	Atmosphere.set_intensity(atmo, 0.75)
+	_atmo = atmo
+	_sun_node = sun
 	_krill = MeshInstance3D.new()
 	var km := SphereMesh.new()
 	km.radius = 0.7
 	km.height = 1.4
 	_krill.mesh = km
-	var kmat := StandardMaterial3D.new()
-	kmat.albedo_texture = ScaledSpace._krill_texture()
-	kmat.roughness = 0.95
-	_krill.material_override = kmat
+	_krill.material_override = PlanetBake.planet_material(Sim.core, Sim.core.body_find("krill"))
 	vp.add_child(_krill)
 	var stars := ScaledSpace._starfield()
 	stars.scale = Vector3.ONE * 0.012
@@ -148,6 +158,7 @@ func _process(delta: float) -> void:
 		_floe.rotation.y = _t * 0.05
 		_krill.position = _floe.position + Vector3(cos(_t * 0.12) * 8.0, 1.4 + sin(_t * 0.12) * 0.6, sin(_t * 0.12) * 5.0)
 		_krill.rotation.y = _t * 0.12
+		Atmosphere.set_sun(_atmo, _sun_node.global_transform.basis.z)
 
 
 func _hangar() -> void:

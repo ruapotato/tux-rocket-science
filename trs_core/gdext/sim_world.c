@@ -103,6 +103,7 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "soi", trs_json_new_num(isfinite(b->soi) ? b->soi : -1));
 	trs_json_set(j, "rotation_period", trs_json_new_num(b->rotation_period));
 	trs_json_set(j, "atmosphere_height", trs_json_new_num(b->atm.height));
+	trs_json_set(j, "scale_height", trs_json_new_num(b->atm.scale_height));
 	trs_json_set(j, "surface_gravity", trs_json_new_num(b->mu / (b->radius * b->radius)));
 	if (b->has_site) {
 		trs_json *site = trs_json_new(TRS_JSON_OBJECT);
