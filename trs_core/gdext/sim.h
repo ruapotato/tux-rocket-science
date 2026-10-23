@@ -23,14 +23,21 @@
 #define TRS_GDEXT_SIM_H
 
 #include "binder.h"
+#include "trs/part.h"
 #include "trs/world.h"
+
+#include <stdio.h>
 
 typedef struct {
 	trs_world *world; /* NULL until load_system() succeeds */
+	trs_part_catalog catalog;
+	int catalog_loaded;
 	char err[256];
 } trs_sim_handle;
 
 extern const trs_method_def TRS_SIM_WORLD_METHODS[];
 extern const int TRS_SIM_WORLD_METHOD_COUNT;
+extern const trs_method_def TRS_SIM_CRAFT_METHODS[];
+extern const int TRS_SIM_CRAFT_METHOD_COUNT;
 
 #endif

@@ -35,13 +35,31 @@ func _ready() -> void:
 			_strict = true
 		elif a == "--all-gates":
 			all = true
-		elif a.begins_with("--test-") or a == "--screens":
+		elif a.begins_with("--test-") or a.begins_with("--dev-") or a == "--screens":
 			wanted.append(a.substr(2))
 	if wanted.is_empty() and not all:
 		return  # normal game launch
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().paused = true  # keep the main scene inert while gates run
-	_run(wanted, all)
+	_arm_watchdog()
+	_run.call_deferred(wanted, all)  # let the tree finish setting up first
+
+
+## A gate that errors mid-await would otherwise hang the runner forever.
+func _arm_watchdog() -> void:
+	var limit := 1800.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--gate-timeout="):
+			limit = float(a.get_slice("=", 1))
+	var t := Timer.new()
+	t.process_mode = Node.PROCESS_MODE_ALWAYS
+	t.one_shot = true
+	t.wait_time = limit
+	t.timeout.connect(func():
+		printerr("gate runner watchdog: no result after %.0f s, failing" % limit)
+		get_tree().quit(3))
+	add_child(t)
+	t.start()
 
 
 func _run(wanted: Array[String], all: bool) -> void:
@@ -58,6 +76,8 @@ func _run(wanted: Array[String], all: bool) -> void:
 		known[g.gate] = g
 	var failed := 0
 	for name in wanted:
+		if name.begins_with("dev-"):
+			known[name] = {"gate": name, "milestone": "dev", "native": false}
 		if not known.has(name):
 			printerr("unknown gate --", name)
 			failed += 1
@@ -82,9 +102,16 @@ func _run(wanted: Array[String], all: bool) -> void:
 
 func _run_scripted(name: String, milestone: String) -> Dictionary:
 	var path := SCRIPTED_DIR + name.replace("-", "_") + ".gd"
+	if name.begins_with("dev-"):
+		path = SCRIPTED_DIR + "dev/" + name.substr(4).replace("-", "_") + ".gd"
 	if not ResourceLoader.exists(path):
 		return {"status": "PENDING", "milestone": milestone, "log": "not implemented yet"}
-	var gate: Object = load(path).new()
-	var res: Dictionary = await gate.run(self)
+	var script: GDScript = load(path)
+	if script == null or not script.can_instantiate():
+		return {"status": "FAIL", "milestone": milestone, "log": "gate script failed to load: " + path}
+	var gate: Object = script.new()
+	var res: Variant = await gate.run(self)
+	if typeof(res) != TYPE_DICTIONARY or not res.has("status"):
+		return {"status": "FAIL", "milestone": milestone, "log": "gate returned no result (script error?)"}
 	res["milestone"] = milestone
 	return res

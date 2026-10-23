@@ -12,6 +12,7 @@ config/features=PackedStringArray("4.7")
 
 [autoload]
 
+Sim="*res://scripts/sim/sim.gd"
 GateRunner="*res://scripts/boot/gate_runner.gd"
 
 [display]

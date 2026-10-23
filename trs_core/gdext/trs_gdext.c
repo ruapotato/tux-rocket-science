@@ -39,7 +39,12 @@ static void *sim_create(void) {
 
 static void sim_destroy(void *self) {
 	trs_sim_handle *h = self;
-	free(h->world);
+	if (h->world) {
+		trs_world_free(h->world);
+		free(h->world);
+	}
+	if (h->catalog_loaded)
+		trs_catalog_free(&h->catalog);
 	free(h);
 }
 
@@ -144,6 +149,8 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 		all[n++] = SIM_METHODS[i];
 	for (int i = 0; i < TRS_SIM_WORLD_METHOD_COUNT; i++)
 		all[n++] = TRS_SIM_WORLD_METHODS[i];
+	for (int i = 0; i < TRS_SIM_CRAFT_METHOD_COUNT; i++)
+		all[n++] = TRS_SIM_CRAFT_METHODS[i];
 	static trs_class_def sim_class;
 	sim_class = (trs_class_def){ "TrsSim", "RefCounted", sim_create, sim_destroy, all, n };
 	trs_binder_register(&sim_class);

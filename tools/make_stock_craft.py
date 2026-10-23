@@ -161,3 +161,12 @@ if __name__ == "__main__":
     hopper()
     orbiter()
     lander()
+    # Rewrite in canonical form: the exact bytes the game itself saves.
+    import glob
+    import subprocess
+    tool = os.path.join(ROOT, "build", "linux", "trs_tests")
+    files = sorted(glob.glob(os.path.join(ROOT, "data", "craft", "*.craft.json")))
+    if os.path.exists(tool):
+        subprocess.run([tool, "--data", os.path.join(ROOT, "data"), "--normalize-craft", *files], check=True)
+    else:
+        print("note: build trs_tests to normalize the craft files")

@@ -22,8 +22,43 @@
  * Exit code 0 when no gate failed. With --strict, PENDING also fails. */
 #include "trs/trs_core.h"
 
+#include "trs/craft.h"
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* trs_tests --data DIR --normalize-craft FILE...: rewrite craft files in
+ * canonical form (the exact bytes the game saves). */
+static int normalize(const char *data_dir, int argc, char **argv, int first) {
+	char path[1024], err[256];
+	trs_part_catalog cat;
+	snprintf(path, sizeof path, "%s/parts/stock_parts.json", data_dir);
+	if (!trs_catalog_load(&cat, path, err, sizeof err)) {
+		fprintf(stderr, "%s\n", err);
+		return 1;
+	}
+	for (int i = first; i < argc; i++) {
+		trs_json *j = trs_json_load_file(argv[i], err, sizeof err);
+		trs_craft c;
+		if (!j || !trs_craft_from_json(&c, &cat, j, err, sizeof err)) {
+			fprintf(stderr, "%s: %s\n", argv[i], err);
+			return 1;
+		}
+		trs_json *o = trs_craft_to_json(&c);
+		char *text = trs_json_write(o);
+		FILE *f = fopen(argv[i], "wb");
+		fwrite(text, 1, strlen(text), f);
+		fclose(f);
+		printf("normalized %s\n", argv[i]);
+		free(text);
+		trs_json_free(o);
+		trs_json_free(j);
+		trs_craft_free(&c);
+	}
+	trs_catalog_free(&cat);
+	return 0;
+}
 
 static int run_one(const trs_gate_def *g, const char *data_dir, int strict) {
 	if (!g->fn) {
@@ -50,6 +85,8 @@ int main(int argc, char **argv) {
 			strict = 1;
 		else if (!strcmp(argv[i], "--all"))
 			all = 1;
+		else if (!strcmp(argv[i], "--normalize-craft"))
+			return normalize(data_dir, argc, argv, i + 1);
 	}
 	printf("trs_core %s gate runner (data: %s)\n", trs_version_string(), data_dir);
 	size_t n;
