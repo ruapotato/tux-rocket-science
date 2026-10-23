@@ -243,7 +243,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _key(k: InputEventKey) -> void:
 	if hud.menu_visible() and k.keycode != KEY_ESCAPE:
 		return
+	if k.keycode != KEY_F1:
+		hud.hide_help()
 	match k.keycode:
+		KEY_F1:
+			hud.toggle_help()
 		KEY_ESCAPE:
 			hud.show_menu(not hud.menu_visible())
 		KEY_SPACE:
@@ -284,6 +288,7 @@ var _legs_down := false
 func _stage() -> void:
 	var created := session.stage()
 	_react("stage", 2.0)
+	Sfx.play("stage" if not created.is_empty() else "ignite")
 	if not _launched:
 		_launched = true
 		mission_start = session.time()
@@ -364,6 +369,7 @@ func _on_sim_event(e: Dictionary) -> void:
 	match e.kind:
 		"part_destroyed":
 			_react("boom", 3.5)
+			Sfx.play("boom", clampf(float(e.speed) / 30.0, 0.4, 1.5))
 			if Sim.part(e.part).get("crew", 0) > 0:
 				_mission.pod_lost = true
 				hud.toast("PASA, we have a problem. (%s lost at %.0f m/s)" % [Sim.part(e.part).name, e.speed], 5.0)
@@ -377,6 +383,7 @@ func _on_sim_event(e: Dictionary) -> void:
 		"landed":
 			if e.vessel == session.active and _launched:
 				_react("landed", 5.0)
+				Sfx.play("touchdown")
 				var t := session.telemetry()
 				if t.get("body", "") == "krill":
 					_mission.krill_landings += 1
@@ -525,11 +532,13 @@ func _render(delta: float) -> void:
 	_mission.max_g = maxf(_mission.max_g, t.g_force)
 	if t.situation == "orbiting" and not _was_orbiting and _launched:
 		_mission.orbits += 1
+		Sfx.play("chime")
 		_react("orbit", 4.0)
 		hud.toast("Orbit achieved! The crew presses their beaks to the window.", 4.0)
 	_was_orbiting = t.situation == "orbiting"
 	for p in _portraits:
 		p.update_state(t, t.get("spin", 0.0), delta)
+	_update_audio(t)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
 		_map.refresh()
@@ -588,3 +597,29 @@ func _explosion(at: Vector3) -> void:
 	tw.tween_property(m, "albedo_color:a", 0.0, 0.7)
 	tw.tween_property(light, "light_energy", 0.0, 0.7)
 	tw.chain().tween_callback(root.queue_free)
+
+
+var _chutes_open := 0
+
+
+func _update_audio(t: Dictionary) -> void:
+	if hud.menu_visible():
+		Sfx.silence_beds()
+		return
+	var tmax: float = t.get("thrust_max", 0.0)
+	var frac: float = t.get("thrust", 0.0) / tmax if tmax > 0.0 else 0.0
+	var solid_frac := 0.0
+	if t.get("solid", 0.0) > 0.0 and frac > 0.0:
+		solid_frac = 0.6
+	# the rumble is about thrust, scaled by how big the engines are
+	var size := clampf(tmax / 400000.0, 0.35, 1.0)
+	Sfx.set_flight(frac * size, solid_frac, t.pressure / 101325.0, t.dynamic_pressure / 1000.0)
+	# a canopy opening is the moment the drag-feed shows a new chute state
+	var open := 0
+	var feed: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
+	for k in feed.size() / VesselView.RPP:
+		if int(feed[k * VesselView.RPP + 9]) >= 2:
+			open += 1
+	if open > _chutes_open:
+		Sfx.play("chute")
+	_chutes_open = open

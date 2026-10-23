@@ -17,6 +17,10 @@ orbit, plan a burn to the moon, land, and come home.
 | Flight | **Z/X** full/cut throttle · **Shift/Ctrl** throttle · **WASDQE** attitude · **T** SAS · **Space** stage · **,/.** warp · **G** legs · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
 | Map | click the trajectory to add a maneuver node, drag its handles (Shift = fine) · **Tab** focus body · **Warp to node** · **MNV** SAS points at the burn |
 
+Press **F1** in flight for the controls (shown automatically the first time). All sound is
+synthesized live (engine rumble that thins out in vacuum, wind, pyros, parachutes); the volume
+is in the pause menu.
+
 Penguins are persistent (`user://crew.json`): they react live to G-force, spin, freefall and danger,
 remember their records, and spend a flight in the infirmary if a landing goes badly. Nobody dies at PASA.
 

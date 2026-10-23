@@ -148,6 +148,7 @@ func _ready() -> void:
 	add_child(_toast)
 
 	_build_menu()
+	_build_help()
 
 
 func _label(parent: Node, size: int, col: Color) -> Label:
@@ -206,8 +207,8 @@ func _build_menu() -> void:
 	_menu.set_anchors_preset(Control.PRESET_CENTER)
 	_menu.offset_left = -170
 	_menu.offset_right = 170
-	_menu.offset_top = -150
-	_menu.offset_bottom = 150
+	_menu.offset_top = -170
+	_menu.offset_bottom = 170
 	_menu.visible = false
 	add_child(_menu)
 	var v := VBoxContainer.new()
@@ -224,6 +225,78 @@ func _build_menu() -> void:
 		b.custom_minimum_size = Vector2(0, 42)
 		b.pressed.connect(func(): menu_action.emit(item[1]))
 		v.add_child(b)
+	var vol_row := HBoxContainer.new()
+	var vl := Label.new()
+	vl.text = "Sound"
+	vol_row.add_child(vl)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.05
+	slider.value = 0.0 if Sfx.muted else Sfx.master_volume
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.value_changed.connect(func(x: float):
+		Sfx.master_volume = x
+		Sfx.muted = x <= 0.0
+		Sfx.save_settings())
+	vol_row.add_child(slider)
+	v.add_child(vol_row)
+
+
+var _help: PanelContainer
+
+const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86a6]F1 to toggle[/color]
+
+[b]Z[/b] full throttle   [b]X[/b] cut   [b]Shift / Ctrl[/b] throttle up / down
+[b]Space[/b] stage (first press releases the clamps)
+[b]W S[/b] pitch   [b]A D[/b] yaw   [b]Q E[/b] roll   [b]T[/b] SAS on/off
+SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
+[b]G[/b] landing legs   [b]V[/b] surface / orbital speed
+
+[b]M[/b] map view: click your orbit to add a maneuver node, drag its handles
+[b]Tab[/b] (in map) change focus body   [b]Warp to node[/b] in the node panel
+[b]. ,[/b] faster / slower time warp   [b]/[/b] stop warp
+   (on-rails warp is refused under thrust or in the atmosphere)
+[b][ ][/b] switch vessel   [b]Esc[/b] pause: revert, sound, main menu
+Right-drag to orbit the camera, wheel to zoom.
+
+[color=#9fb4cc]Getting to orbit: climb straight up, start leaning east past ~1 km,
+be nearly horizontal by ~40 km, cut the engine when the apoapsis is ~80 km,
+then burn prograde at apoapsis until the periapsis clears 70 km.[/color]"""
+
+
+func _build_help() -> void:
+	_help = PanelContainer.new()
+	_help.set_anchors_preset(Control.PRESET_CENTER)
+	_help.offset_left = -330
+	_help.offset_right = 330
+	_help.offset_top = -230
+	_help.offset_bottom = 230
+	_help.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t := RichTextLabel.new()
+	t.bbcode_enabled = true
+	t.fit_content = true
+	t.scroll_active = false
+	t.custom_minimum_size = Vector2(640, 0)
+	t.text = HELP
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_help.add_child(t)
+	_help.visible = false
+	add_child(_help)
+	var cf := ConfigFile.new()
+	cf.load(Sfx.SETTINGS)
+	if not cf.get_value("ui", "seen_flight_help", false):
+		_help.visible = true
+		cf.set_value("ui", "seen_flight_help", true)
+		cf.save(Sfx.SETTINGS)
+
+
+func toggle_help() -> void:
+	_help.visible = not _help.visible
+
+
+func hide_help() -> void:
+	_help.visible = false
 
 
 func show_menu(on: bool) -> void:

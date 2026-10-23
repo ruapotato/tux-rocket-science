@@ -14,6 +14,7 @@ config/features=PackedStringArray("4.7")
 
 Sim="*res://scripts/sim/sim.gd"
 Crew="*res://scripts/crew/crew_roster.gd"
+Sfx="*res://scripts/audio/sfx.gd"
 GateRunner="*res://scripts/boot/gate_runner.gd"
 ControlSocket="*res://scripts/control/control_server.gd"
 
