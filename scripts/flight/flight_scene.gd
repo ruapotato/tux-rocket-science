@@ -539,6 +539,13 @@ func _render(delta: float) -> void:
 	for p in _portraits:
 		p.update_state(t, t.get("spin", 0.0), delta)
 	_update_audio(t)
+	if _reentry == null:
+		_reentry = ReentryFX.new()
+		add_child(_reentry)
+	if session.ticks % 50 == 1 or _craft_r <= 0.0:
+		_craft_r = maxf(1.5, _craft_height() * 0.5)
+	_reentry.update_fx(Frame.vec_arr(t.surface_velocity), t.density, _craft_r, delta)
+	Sfx.wind_level = maxf(Sfx.wind_level, _reentry.level)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
 		_map.refresh()
@@ -600,6 +607,8 @@ func _explosion(at: Vector3) -> void:
 
 
 var _chutes_open := 0
+var _reentry: ReentryFX
+var _craft_r := 5.0
 
 
 func _update_audio(t: Dictionary) -> void:

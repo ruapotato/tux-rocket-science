@@ -849,6 +849,23 @@ static void m_terrain_map(void *self, const trs_val *a, trs_val *r) {
 	free(d);
 }
 
+/* flight_spawn_state(craft, body, [rx,ry,rz,vx,vy,vz]) -> id, nose along v */
+static void m_flight_spawn_state(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = -1;
+	trs_craft c;
+	if (!h->world || a[2].arr.n < 6 || !craft_from_text(h, a[0].s, &c))
+		return;
+	int b = trs_system_find(&h->world->sys, a[1].s);
+	if (b >= 0) {
+		const double *d = a[2].arr.data;
+		trs_v3 pos = v3(d[0], d[1], d[2]), vel = v3(d[3], d[4], d[5]);
+		trs_quat q = quat_from_to(v3(0, 1, 0), v3_norm(vel));
+		r->i = trs_world_add_craft(h->world, &c, b, pos, vel, q);
+	}
+	trs_craft_free(&c);
+}
+
 #define S TRS_T_STRING
 #define I TRS_T_INT
 #define F TRS_T_FLOAT
@@ -882,6 +899,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },
 	{ "subsolar_point", m_subsolar_point, A, 1, { I }, { "body" } },
 	{ "subpoint", m_subpoint, A, 2, { I, I }, { "body", "target" } },
+	{ "flight_spawn_state", m_flight_spawn_state, I, 3, { S, S, A }, { "craft", "body", "state" } },
 	{ "terrain_map", m_terrain_map, A, 3, { I, I, I }, { "body", "w", "h" } },
 };
 const int TRS_SIM_FLIGHT_METHOD_COUNT = sizeof(TRS_SIM_FLIGHT_METHODS) / sizeof(TRS_SIM_FLIGHT_METHODS[0]);
