@@ -1,0 +1,254 @@
+{
+  "catalog": "PASA stock parts",
+  "units": "SI: kg, m, N, s, Pa; axes: +Y is the part's up/nose axis",
+  "parts": [
+    {
+      "id": "pod_1",
+      "name": "Pebble-1 Crew Pod",
+      "category": "pods",
+      "description": "One penguin, one window, one very brave decision.",
+      "mass": 840,
+      "crew": 1,
+      "torque": 5000,
+      "crash_tolerance": 14,
+      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9 },
+      "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.0 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.3 },
+        { "name": "bottom", "pos": [0, -0.5, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "pod_3",
+      "name": "Huddle-3 Crew Capsule",
+      "category": "pods",
+      "description": "Three penguins sharing body heat and one snack bag.",
+      "mass": 2100,
+      "crew": 3,
+      "torque": 12000,
+      "crash_tolerance": 14,
+      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9 },
+      "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.6 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.8, 0], "dir": [0, 1, 0], "radius": 0.3 },
+        { "name": "bottom", "pos": [0, -0.8, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "tank_s",
+      "name": "Icebox-S Propellant Tank",
+      "category": "tanks",
+      "description": "A lunchbox of liquid propellant.",
+      "mass": 125,
+      "fuel_liquid": 1000,
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 0.9375 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.46875, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.46875, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "tank_m",
+      "name": "Icebox-M Propellant Tank",
+      "category": "tanks",
+      "description": "The fridge-sized option.",
+      "mass": 250,
+      "fuel_liquid": 2000,
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 1.875 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.9375, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.9375, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "tank_l",
+      "name": "Icebox-L Propellant Tank",
+      "category": "tanks",
+      "description": "Walk-in freezer. Mostly propellant, partly ambition.",
+      "mass": 500,
+      "fuel_liquid": 4000,
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 3.75 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.875, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -1.875, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "engine_lifter",
+      "name": "Walrus LE-215 Lifter Engine",
+      "category": "engines",
+      "description": "Loud, heavy, and happiest at sea level.",
+      "mass": 1250,
+      "engine": { "propellant": "liquid", "thrust_vac": 215000, "isp_vac": 310, "isp_sl": 280, "gimbal_deg": 3 },
+      "crash_tolerance": 7,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.55, "height": 1.2 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.6, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.6, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "engine_vac",
+      "name": "Albatross VE-60 Vacuum Engine",
+      "category": "engines",
+      "description": "Huge bell, gentle push, glides forever. Sulks in air.",
+      "mass": 500,
+      "engine": { "propellant": "liquid", "thrust_vac": 60000, "isp_vac": 345, "isp_sl": 85, "gimbal_deg": 2 },
+      "crash_tolerance": 7,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.6, "height": 1.0 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.5, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "engine_small",
+      "name": "Puffling SE-20 Small Engine",
+      "category": "engines",
+      "description": "Small, efficient, and perfect for landers.",
+      "mass": 180,
+      "engine": { "propellant": "liquid", "thrust_vac": 20000, "isp_vac": 315, "isp_sl": 260, "gimbal_deg": 4 },
+      "crash_tolerance": 7,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "engine", "radius": 0.625, "radius_bell": 0.3, "height": 0.5 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.25, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.25, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "srb",
+      "name": "Narwhal Solid Booster",
+      "category": "engines",
+      "description": "Light it and hold on. There is no off switch.",
+      "mass": 750,
+      "fuel_solid": 6000,
+      "engine": { "propellant": "solid", "thrust_vac": 197000, "isp_vac": 195, "isp_sl": 170, "gimbal_deg": 0 },
+      "crash_tolerance": 7,
+      "aero": { "cd_top": 0.3, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "booster", "radius": 0.625, "height": 5.0 },
+      "nodes": [
+        { "name": "top", "pos": [0, 2.5, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -2.5, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "decoupler_stack",
+      "name": "Crack-1 Stack Decoupler",
+      "category": "structural",
+      "description": "Separates stages with a satisfying crack.",
+      "mass": 50,
+      "decoupler": { "kind": "stack", "impulse": 400 },
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 0.2 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.1, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.1, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "decoupler_radial",
+      "name": "Calving Radial Decoupler",
+      "category": "structural",
+      "description": "Lets boosters drift off like icebergs.",
+      "mass": 50,
+      "decoupler": { "kind": "radial", "impulse": 250 },
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.5, "cd_bottom": 0.5, "cd_side": 0.5 },
+      "shape": { "type": "pylon", "radius": 0.15, "height": 0.6, "depth": 0.3 },
+      "nodes": [
+        { "name": "outer", "pos": [0, 0, 0.15], "dir": [0, 0, 1], "radius": 0.2 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "fin",
+      "name": "Flipper Fin",
+      "category": "aero",
+      "description": "Keeps the pointy end forward.",
+      "mass": 50,
+      "aero": { "cd_top": 0.1, "cd_bottom": 0.1, "cd_side": 1.2, "area_side": 0.7, "area_axial": 0.04 },
+      "crash_tolerance": 12,
+      "shape": { "type": "fin", "span": 0.8, "root": 1.0, "tip": 0.4, "thickness": 0.05 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "parachute",
+      "name": "Featherfall Parachute",
+      "category": "utility",
+      "description": "Opens the sky's softest pillow.",
+      "mass": 100,
+      "parachute": { "semi_cda": 25, "full_cda": 480, "min_pressure": 4000, "full_altitude": 1000, "max_speed": 300 },
+      "crash_tolerance": 12,
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.8, "cd_side": 0.8 },
+      "shape": { "type": "cone", "radius_bottom": 0.3, "radius_top": 0.15, "height": 0.35 },
+      "nodes": [
+        { "name": "bottom", "pos": [0, -0.175, 0], "dir": [0, -1, 0], "radius": 0.3 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "landing_leg",
+      "name": "Waddle Landing Leg",
+      "category": "utility",
+      "description": "Short, sturdy, and always a little wobbly.",
+      "mass": 50,
+      "leg": { "length": 1.6, "spring": 60000, "damper": 9000, "max_load_speed": 12 },
+      "crash_tolerance": 12,
+      "aero": { "cd_top": 0.3, "cd_bottom": 0.3, "cd_side": 0.6, "area_side": 0.25, "area_axial": 0.05 },
+      "shape": { "type": "leg", "length": 1.6, "radius": 0.08 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "nosecone",
+      "name": "Beak Nosecone",
+      "category": "aero",
+      "description": "Sharp enough to part the air, too dull to hurt the air's feelings.",
+      "mass": 80,
+      "aero": { "cd_top": 0.12, "cd_bottom": 0.8, "cd_side": 0.8 },
+      "crash_tolerance": 10,
+      "shape": { "type": "cone", "radius_bottom": 0.625, "radius_top": 0.0, "height": 1.1 },
+      "nodes": [
+        { "name": "bottom", "pos": [0, -0.55, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "reaction_wheel",
+      "name": "Spin-Cycle Reaction Wheel",
+      "category": "control",
+      "description": "A washing machine for attitude.",
+      "mass": 100,
+      "torque": 6000,
+      "crash_tolerance": 8,
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 0.4 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.2, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.2, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    }
+  ]
+}

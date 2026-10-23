@@ -28,7 +28,9 @@
 #ifndef TRS_WORLD_H
 #define TRS_WORLD_H
 
+#include "trs/craft.h"
 #include "trs/kepler.h"
+#include "trs/quat.h"
 #include "trs/system.h"
 
 #define TRS_PHYSICS_HZ 50
@@ -62,15 +64,45 @@ typedef struct {
  * non-gravitational acceleration at the given state. M2 plugs vessels in. */
 typedef trs_v3 (*trs_accel_fn)(void *user, int body, double t, trs_v3 r, trs_v3 v);
 
+typedef enum {
+	TRS_SAS_OFF = 0,
+	TRS_SAS_STABILITY, /* hold the attitude captured when input is released */
+	TRS_SAS_TARGET,    /* point the nose (+Y) along sas_target (SOI frame) */
+} trs_sas_mode;
+
 typedef struct {
 	int alive;
 	int body;
 	trs_mode mode;
-	trs_v3 r, v;      /* authoritative in PHYSICS mode */
+	trs_v3 r, v;      /* centre of mass; authoritative in PHYSICS mode */
 	trs_orbit orbit;  /* authoritative in RAILS mode */
-	trs_accel_fn accel;
+	trs_accel_fn accel; /* optional extra force (tests); NULL normally */
 	void *accel_user;
 	int soi_changes;
+
+	/* Rigid assembly. NULL = point mass (used by orbit-only tests). */
+	trs_craft *craft;
+	trs_quat q;       /* vessel-local -> SOI frame */
+	trs_v3 w;         /* angular velocity, SOI frame, rad/s */
+	double throttle;  /* 0..1, liquid engines */
+	trs_v3 input;     /* pilot: pitch (about local X), yaw (local Z), roll (local Y), -1..1 */
+	trs_sas_mode sas;
+	trs_quat sas_hold;
+	trs_v3 sas_target;
+	int next_stage;   /* stage fired by the next trs_world_stage() */
+
+	/* Telemetry (true numbers for the HUD) */
+	trs_v3 sensed_accel; /* non-gravitational acceleration last tick, SOI frame */
+	double dv_expended;  /* integral of |thrust accel| dt */
+	double pressure, density, altitude;
+
+	/* Caches rebuilt when the assembly changes */
+	int dirty;
+	double mass;
+	trs_v3 cm;        /* vessel-local */
+	trs_m3 inertia;   /* about cm, vessel-local */
+	int *fuel_group;
+	double *face_top, *face_bottom; /* exposed axial area per part */
 } trs_vessel;
 
 #define TRS_MAX_VESSELS 64
@@ -83,8 +115,19 @@ typedef struct {
 } trs_world;
 
 void trs_world_init(trs_world *w, const trs_system *sys, double t0);
+void trs_world_free(trs_world *w);
 int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v);
 void trs_world_remove_vessel(trs_world *w, int id);
+/* Adds a vessel built from a craft (copied). Position/velocity are for the
+ * centre of mass; q orients the craft's local frame. Starts in PHYSICS. */
+int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, trs_v3 v, trs_quat q);
+/* Fires the vessel's next stage. New vessels created by decouplers are
+ * written to new_ids (up to max); returns how many. */
+int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
+/* Refreshes mass properties and caches after editing vessel->craft. */
+void trs_vessel_refresh(trs_world *w, int id);
+/* Linear and angular momentum (about the SOI body centre) of one vessel. */
+void trs_vessel_momentum(const trs_world *w, int id, trs_v3 *p, trs_v3 *L);
 
 /* Current state relative to the vessel's SOI body, whatever its mode. */
 void trs_vessel_state(const trs_world *w, int id, trs_v3 *r, trs_v3 *v);

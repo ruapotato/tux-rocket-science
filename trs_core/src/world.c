@@ -21,7 +21,10 @@
 #include "trs/world.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
+
+void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h);
 
 static void time_add(trs_world *w, double dt) {
 	double y = dt - w->t_comp;
@@ -39,6 +42,25 @@ void trs_world_init(trs_world *w, const trs_system *sys, double t0) {
 	memset(w, 0, sizeof(*w));
 	w->sys = *sys;
 	time_set(w, t0);
+}
+
+static void vessel_release(trs_vessel *vs) {
+	if (vs->craft) {
+		trs_craft_free(vs->craft);
+		free(vs->craft);
+	}
+	free(vs->fuel_group);
+	free(vs->face_top);
+	free(vs->face_bottom);
+	vs->craft = NULL;
+	vs->fuel_group = NULL;
+	vs->face_top = vs->face_bottom = NULL;
+}
+
+void trs_world_free(trs_world *w) {
+	for (int i = 0; i < w->nvessels; i++)
+		vessel_release(&w->vessels[i]);
+	w->nvessels = 0;
 }
 
 int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v) {
@@ -60,11 +82,29 @@ int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v) {
 	vs->mode = TRS_MODE_PHYSICS;
 	vs->r = r;
 	vs->v = v;
+	vs->q = quat_identity();
+	vs->mass = 1.0;
+	vs->next_stage = -1;
 	return id;
 }
 
 void trs_world_remove_vessel(trs_world *w, int id) {
+	vessel_release(&w->vessels[id]);
 	w->vessels[id].alive = 0;
+}
+
+int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, trs_v3 v, trs_quat q) {
+	int id = trs_world_add_vessel(w, body, r, v);
+	if (id < 0)
+		return id;
+	trs_vessel *vs = &w->vessels[id];
+	vs->craft = malloc(sizeof(trs_craft));
+	trs_craft_copy(vs->craft, c);
+	vs->q = q;
+	vs->sas_hold = q;
+	vs->next_stage = trs_craft_max_stage(c);
+	trs_vessel_refresh(w, id);
+	return id;
 }
 
 void trs_vessel_state(const trs_world *w, int id, trs_v3 *r, trs_v3 *v) {
@@ -267,7 +307,11 @@ void trs_world_step_physics(trs_world *w) {
 	double t = w->t;
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
-		if (vs->alive && vs->mode == TRS_MODE_PHYSICS)
+		if (!vs->alive || vs->mode != TRS_MODE_PHYSICS)
+			continue;
+		if (vs->craft)
+			trs_vessel_physics_tick(w, vs, t, h);
+		else
 			rk4(w, vs, t, h);
 	}
 	time_add(w, h);

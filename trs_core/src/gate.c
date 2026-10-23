@@ -76,23 +76,21 @@ static trs_gate_status gate_smoke(trs_log *log, const char *data_dir) {
 	return (sizeof(double) == 8 && c == 0.30000000000000004 && c != 0.3) ? TRS_GATE_PASS : TRS_GATE_FAIL;
 }
 
-static trs_gate_status gate_pending(trs_log *log, const char *data_dir) {
-	(void)data_dir;
-	trs_log_printf(log, "not implemented yet\n");
-	return TRS_GATE_PENDING;
-}
-
 trs_gate_status trs_gate_kepler(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_mode_switch(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_patched_conics(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_deltav(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_staging(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir);
 
 static const trs_gate_def GATES[] = {
 	{ "test-smoke", "M0", gate_smoke },
 	{ "test-kepler", "M1", trs_gate_kepler },
 	{ "test-mode-switch", "M1", trs_gate_mode_switch },
 	{ "test-patched-conics", "M1", trs_gate_patched_conics },
-	{ "test-deltav", "M2", gate_pending },
-	{ "test-staging", "M2", gate_pending },
+	{ "test-deltav", "M2", trs_gate_deltav },
+	{ "test-staging", "M2", trs_gate_staging },
+	{ "test-aero", "M2", trs_gate_aero },
 	{ "test-craft-roundtrip", "M3", NULL },
 	{ "test-ascent", "M4", NULL },
 	{ "test-moon", "M5", NULL },
