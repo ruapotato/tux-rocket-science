@@ -90,3 +90,58 @@ func _draw() -> void:
 	var txt := "PASA"
 	var tw2 := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	draw_string(font, c + Vector2(-tw2 * 0.5, R * 0.78), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1))
+
+
+static var _decal_tex: ImageTexture
+
+
+## A rasterized PASA badge (fish in a spaghetti orbit) for decals on hulls.
+## Pure per-pixel shape tests, so it needs no viewport and works headless.
+static func decal_texture(px := 256) -> ImageTexture:
+	if _decal_tex:
+		return _decal_tex
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var c := Vector2(px, px) * 0.5
+	var R := px * 0.48
+	var orange := Color(0.95, 0.52, 0.12)
+	var navy := Color(0.07, 0.11, 0.24)
+	var noodle := Color(0.99, 0.86, 0.45)
+	var fish := Color(0.55, 0.8, 0.98)
+	var belly := Color(0.85, 0.94, 1.0)
+	var ang := -0.5
+	for y in px:
+		for x in px:
+			var p := Vector2(x + 0.5, y + 0.5) - c
+			var d := p.length()
+			var col := Color(0, 0, 0, 0)
+			if d < R:
+				col = orange
+			if d < R * 0.9:
+				col = navy
+				# three noodle ellipses (distance to the curve, approximately)
+				for k in 3:
+					var q := p.rotated(-(-0.45 + k * 0.42))
+					var e := Vector2(q.x / (R * 0.74), q.y / (R * 0.3))
+					var off := absf(e.length() - 1.0) * R * 0.3
+					if off < px * 0.012:
+						col = noodle
+				# fish body (rotated ellipse), belly, tail, eye
+				var f := (p + Vector2(0, px * 0.02)).rotated(-ang)
+				var body := Vector2(f.x / (px * 0.2), f.y / (px * 0.085)).length()
+				var tail_x := -f.x - px * 0.18
+				var in_tail := tail_x > 0 and tail_x < px * 0.12 and absf(f.y) < tail_x * 0.75
+				if in_tail:
+					col = fish.darkened(0.2)
+				if body < 1.0:
+					col = belly if f.y > px * 0.012 and Vector2(f.x / (px * 0.17), (f.y - px * 0.012) / (px * 0.06)).length() < 1.0 else fish
+				if (f - Vector2(px * 0.12, -px * 0.025)).length() < px * 0.02:
+					col = Color(1, 1, 1)
+				if (f - Vector2(px * 0.125, -px * 0.025)).length() < px * 0.01:
+					col = Color(0.05, 0.05, 0.1)
+			# soft edge
+			if d > R - 1.5 and d < R + 0.5:
+				col.a = clampf(R + 0.5 - d, 0.0, 1.0)
+			img.set_pixel(x, y, col)
+	img.generate_mipmaps()
+	_decal_tex = ImageTexture.create_from_image(img)
+	return _decal_tex

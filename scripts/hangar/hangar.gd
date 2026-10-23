@@ -185,9 +185,10 @@ func _rebuild_craft() -> void:
 		c.queue_free()
 	_part_nodes.clear()
 	var min_y := 0.0
+	var shrouds := PartVisual.shroud_heights(model.parts)
 	for i in model.parts.size():
 		var p: Dictionary = model.parts[i]
-		var v := PartVisual.build(p.part)
+		var v := PartVisual.build(p.part, true, {"shroud": shrouds.get(i, 0.0), "legs": 0.0})
 		v.transform = PartVisual.xform(p.pos, p.rot)
 		v.get_node("Pick").set_meta("part_index", i)
 		_craft_root.add_child(v)

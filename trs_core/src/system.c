@@ -90,6 +90,18 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 			t->ridge = trs_json_num(tj, "ridge", 0);
 			t->crater_freq = trs_json_num(tj, "crater_freq", 0);
 			t->crater_depth = trs_json_num(tj, "crater_depth", 0);
+			t->mountain_amplitude = trs_json_num(tj, "mountain_amplitude", 0);
+			t->mountain_freq = trs_json_num(tj, "mountain_freq", 40);
+			t->mountain_coverage = trs_json_num(tj, "mountain_coverage", 0.3);
+			const trs_json *rg = trs_json_get(tj, "ranges");
+			for (size_t k = 0; rg && k < rg->count && t->nranges < 8; k++) {
+				const trs_json *r = trs_json_at(rg, k);
+				double la = trs_json_num(r, "lat_deg", 0) * DEG, lo = trs_json_num(r, "lon_deg", 0) * DEG;
+				t->range_dir[t->nranges] = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+				t->range_radius[t->nranges] = trs_json_num(r, "radius_km", 20) * 1000.0;
+				t->range_height[t->nranges] = trs_json_num(r, "height", 2000);
+				t->nranges++;
+			}
 		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {

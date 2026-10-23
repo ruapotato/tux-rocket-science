@@ -86,6 +86,9 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->leg_spring = trs_json_num(lg, "spring", 0);
 		d->leg_damper = trs_json_num(lg, "damper", 0);
 		d->leg_max_speed = trs_json_num(lg, "max_load_speed", 10);
+		d->leg_hinge = json_v3(trs_json_get(lg, "hinge"), v3(0, 0.1, 0.14));
+		d->leg_angle = trs_json_num(lg, "deploy_angle_deg", 20) * TRS_PI / 180.0;
+		d->leg_stowed_fraction = trs_json_num(lg, "stowed_fraction", 0.55);
 	}
 	const trs_json *sh = trs_json_get(j, "shape");
 	d->radius = trs_json_num(sh, "radius", trs_json_num(sh, "radius_bottom", 0.3));
@@ -167,4 +170,10 @@ double trs_engine_isp(const trs_part_def *d, double pressure) {
 
 double trs_engine_mdot(const trs_part_def *d) {
 	return d->thrust_vac / (d->isp_vac * TRS_G0);
+}
+
+trs_v3 trs_leg_foot(const trs_part_def *d, double k) {
+	double a = d->leg_angle * k;
+	double len = d->leg_length * (d->leg_stowed_fraction + (1 - d->leg_stowed_fraction) * k);
+	return v3_add(d->leg_hinge, v3(0, -len * cos(a), len * sin(a)));
 }

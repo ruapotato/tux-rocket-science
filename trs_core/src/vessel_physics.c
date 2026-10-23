@@ -63,13 +63,8 @@ static void build_contacts(trs_vessel *vs) {
 		trs_v3 local[16];
 		int m = 0, leg = 0;
 		if (d->is_leg) {
-			if (p->legs_deployed) {
-				double a = 20.0 * TRS_PI / 180.0;
-				local[m++] = v3(0, -d->leg_length * cos(a), d->leg_length * sin(a) + 0.08);
-				leg = 1;
-			} else {
-				local[m++] = v3(0, -0.3, 0.1);
-			}
+			local[m++] = trs_leg_foot(d, p->legs_deployed ? 1.0 : 0.0);
+			leg = p->legs_deployed;
 		} else if (!strcmp(d->category, "aero") && d->is_parachute == 0 && d->radius < 0.31 && d->height <= 1.0) {
 			/* fins: root ends and the tip */
 			local[m++] = v3(0, d->height * 0.5, 0);

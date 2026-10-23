@@ -37,6 +37,13 @@ typedef struct {
 	double ridge;       /* 0..1 blend of ridged noise */
 	double crater_freq; /* crater cells per radius (0 = none) */
 	double crater_depth; /* m */
+	double mountain_amplitude; /* m: ridged ranges, gated by a mask */
+	double mountain_freq;      /* ridge features per radius */
+	double mountain_coverage;  /* 0..1 fraction of the surface in ranges */
+	/* named mountain massifs placed by data (dir, radius m, height m) */
+	int nranges;
+	trs_v3 range_dir[8];
+	double range_radius[8], range_height[8];
 	/* flattened launch site */
 	int has_site;
 	trs_v3 site_dir;    /* body-fixed unit vector */

@@ -128,6 +128,46 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 		freq *= 2.0;
 	}
 	h = t->offset + t->amplitude * h / norm;
+	if (t->mountain_amplitude > 0) {
+		/* mask: where ranges are (low frequency), ridges: sharp crests */
+		double mask = noise3(d.x * 1.7, d.y * 1.7, d.z * 1.7, t->seed + 7001u) * 0.5 + 0.5;
+		mask += noise3(d.x * 4.1, d.y * 4.1, d.z * 4.1, t->seed + 7002u) * 0.25;
+		double lo = 1.0 - t->mountain_coverage;
+		double m = (mask - lo) / 0.18;
+		m = m < 0 ? 0 : m > 1 ? 1 : m;
+		m = m * m * (3 - 2 * m);
+		if (m > 0) {
+			double ridge = 0, a = 1, f = t->mountain_freq, wsum = 0, prev = 1;
+			for (int o = 0; o < 9; o++) {
+				double n = 1.0 - fabs(noise3(d.x * f, d.y * f, d.z * f, t->seed + 9000u + (unsigned)o * 37u));
+				n = n * n;
+				ridge += n * a * prev; /* weight by the previous octave: crisp peaks, smooth valleys */
+				wsum += a;
+				prev = n;
+				a *= 0.5;
+				f *= 2.07;
+			}
+			h += t->mountain_amplitude * m * ridge / wsum;
+		}
+	}
+	for (int r = 0; r < t->nranges; r++) {
+		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->range_dir[r]))));
+		double x = ang * body_radius / t->range_radius[r];
+		if (x < 2.5) {
+			double env = exp(-x * x * 1.6);
+			double ridge = 0, a = 1, f = t->mountain_freq > 0 ? t->mountain_freq * 1.3 : 50, wsum = 0, prev = 1;
+			for (int o = 0; o < 9; o++) {
+				double n = 1.0 - fabs(noise3(d.x * f, d.y * f, d.z * f, t->seed + 9500u + (unsigned)(r * 13 + o) * 41u));
+				n = n * n;
+				ridge += n * a * prev;
+				wsum += a;
+				prev = n;
+				a *= 0.5;
+				f *= 2.07;
+			}
+			h += t->range_height[r] * env * (0.35 + 0.65 * ridge / wsum);
+		}
+	}
 	if (t->crater_freq > 0) {
 		/* a cascade of ever smaller, shallower crater fields */
 		trs_terrain tt = *t;
@@ -201,10 +241,15 @@ static void lod_rec(lod_ctx *cx, trs_patch_id p) {
 		}
 		return;
 	}
-	/* cull patches on the far side of the horizon */
+	/* cull patches beyond the horizon, counting the tallest terrain that
+	 * could still poke up over it (otherwise distant peaks leave gaps) */
 	double eye_r = v3_len(cx->eye);
 	if (eye_r > cx->R) {
-		double horizon = sqrt(eye_r * eye_r - cx->R * cx->R) + size * 1.5 + cx->R * 0.05;
+		double hmax = cx->t->offset + cx->t->amplitude + cx->t->mountain_amplitude + 500.0;
+		for (int r = 0; r < cx->t->nranges; r++)
+			hmax += cx->t->range_height[r];
+		double rt = cx->R + hmax;
+		double horizon = sqrt(eye_r * eye_r - cx->R * cx->R) + sqrt(rt * rt - cx->R * cx->R) + size * 1.5;
 		if (dist > horizon && p.level > 0)
 			return;
 	}

@@ -21,8 +21,8 @@
 class_name TerrainView
 extends Node3D
 
-const RES := 17
-const MAX_LEVEL := 13
+const RES := 25
+const MAX_LEVEL := 14
 const SPLIT := 2.6
 const BUILD_PER_FRAME := 6
 
@@ -31,7 +31,9 @@ var body := -1
 var _style := {}
 var _patches := {}  # key -> {node, center: Vector3 (sim fixed, as doubles in array)}
 var _indices := PackedInt32Array()
-var _material: StandardMaterial3D
+var _material: ShaderMaterial
+var _edge_list: Array = []
+var _noise := FastNoiseLite.new()
 var _pending: Array = []
 var _site_node: Node3D
 var _site_pos := Vector3.ZERO
@@ -39,11 +41,8 @@ var _site_pos := Vector3.ZERO
 
 func setup(c: TrsSim) -> void:
 	core = c
-	_material = StandardMaterial3D.new()
-	_material.vertex_color_use_as_albedo = true
-	_material.vertex_color_is_srgb = true
-	_material.roughness = 0.8
-	_material.metallic_specular = 0.3
+	_noise.frequency = 1.0 / 18000.0
+	_noise.fractal_octaves = 3
 	_build_indices()
 
 
@@ -58,6 +57,8 @@ func set_body(b: int) -> void:
 	var info: Dictionary = JSON.parse_string(core.body_info(b))
 	_style = _styles().get(info.id, _styles()["default"])
 	_style["radius"] = info.radius
+	_material = TerrainShader.make(_style, PlanetBake.textures(core, b))
+	_noise.seed = hash(info.id)
 	if _site_node:
 		_site_node.queue_free()
 		_site_node = null
@@ -69,9 +70,12 @@ func set_body(b: int) -> void:
 
 static func _styles() -> Dictionary:
 	return {
-		"floe": {"low": Color(0.72, 0.8, 0.9), "high": Color(0.97, 0.98, 1.0), "slope": Color(0.45, 0.62, 0.8), "range": 900.0},
-		"krill": {"low": Color(0.26, 0.255, 0.27), "high": Color(0.5, 0.48, 0.46), "slope": Color(0.2, 0.19, 0.2), "range": 1800.0},
-		"default": {"low": Color(0.4, 0.4, 0.4), "high": Color(0.8, 0.8, 0.8), "slope": Color(0.3, 0.3, 0.3), "range": 1000.0},
+		"floe": {"kind": 0, "low": Color(0.70, 0.76, 0.85), "high": Color(0.86, 0.88, 0.92), "slope": Color(0.55, 0.72, 0.88),
+			"rock": Color(0.24, 0.24, 0.27), "range": 1600.0},
+		"krill": {"kind": 1, "low": Color(0.30, 0.295, 0.30), "high": Color(0.55, 0.53, 0.5), "slope": Color(0.22, 0.21, 0.22),
+			"rock": Color(0.17, 0.165, 0.17), "range": 1800.0},
+		"default": {"kind": 1, "low": Color(0.4, 0.4, 0.4), "high": Color(0.8, 0.8, 0.8), "slope": Color(0.3, 0.3, 0.3),
+			"rock": Color(0.2, 0.2, 0.2), "range": 1000.0},
 	}
 
 
@@ -90,6 +94,7 @@ func _build_indices() -> void:
 		for x in RES:
 			if x == 0 or y == 0 or x == RES - 1 or y == RES - 1:
 				edge.append(y * RES + x)
+	_edge_list = edge
 	var skirt_of := {}
 	for k in edge.size():
 		skirt_of[edge[k]] = RES * RES + k
@@ -218,36 +223,64 @@ func _build(id: Array) -> Dictionary:
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
+	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	var ups := PackedFloat32Array()
 	verts.resize(nv)
 	norms.resize(nv)
 	cols.resize(nv)
+	uv.resize(nv)
+	uv2.resize(nv)
+	ups.resize(nv * 4)
 	var R: float = _style.radius
-	var low: Color = _style.low
-	var high: Color = _style.high
-	var slope_c: Color = _style.slope
-	var hr: float = _style.range
+	# snapped local origin (doubles) keeps shader detail coordinates small
+	var ox := snappedf(data[0], 1024.0)
+	var oy := snappedf(data[1], 1024.0)
+	var oz := snappedf(data[2], 1024.0)
 	for k in nv:
 		var o := 3 + k * 3
-		var p := Vector3(data[o], data[o + 1], data[o + 2])
-		var n := Vector3(data[3 + nv * 3 + k * 3], data[4 + nv * 3 + k * 3], data[5 + nv * 3 + k * 3])
-		verts[k] = p
-		norms[k] = n
-		var world := (p + cen)
-		var up := world.normalized()
-		var h := world.length() - R
-		var c := low.lerp(high, clampf(h / hr * 0.5 + 0.5, 0.0, 1.0))
-		var flat := clampf((n.dot(up) - 0.82) / 0.16, 0.0, 1.0)
-		cols[k] = slope_c.lerp(c, flat)
+		var px: float = data[o]
+		var py: float = data[o + 1]
+		var pz: float = data[o + 2]
+		verts[k] = Vector3(px, py, pz)
+		norms[k] = Vector3(data[3 + nv * 3 + k * 3], data[4 + nv * 3 + k * 3], data[5 + nv * 3 + k * 3])
+		var wx: float = px + data[0]
+		var wy: float = py + data[1]
+		var wz: float = pz + data[2]
+		var wl := sqrt(wx * wx + wy * wy + wz * wz)
+		uv[k] = Vector2(wx - ox, wy - oy)
+		uv2[k] = Vector2(wz - oz, wl - R)
+		ups[k * 4] = wx / wl
+		ups[k * 4 + 1] = wy / wl
+		ups[k * 4 + 2] = wz / wl
+		ups[k * 4 + 3] = 0.0
+		var big := _noise.get_noise_3d(wx, wy, wz) * 0.5 + 0.5
+		cols[k] = Color(0.0 if k >= RES * RES else 1.0, 1, 1, big)  # r = 0 marks skirt vertices
+	# skirt vertices hang below the edge; shade them as the edge vertex they
+	# belong to, or their lowered height reads as a blue stripe at the horizon
+	for k in range(RES * RES, nv):
+		var src: int = _edge_list[k - RES * RES]
+		uv2[k] = Vector2(uv2[k].x, uv2[src].y)
+		cols[k] = Color(0.0, 1.0, 1.0, cols[src].a)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = norms
 	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_TEX_UV] = uv
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2
+	arrays[Mesh.ARRAY_CUSTOM0] = ups
 	arrays[Mesh.ARRAY_INDEX] = _indices
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {},
+		Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = _material
+	# terrain self-shadowing at grazing sun angles shows up as acne stripes;
+	# vessels and the pad still cast onto it
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.set_instance_shader_parameter("detail_origin", Vector3(fposmod(ox, TerrainShader.PERIOD),
+		fposmod(oy, TerrainShader.PERIOD), fposmod(oz, TerrainShader.PERIOD)))
 	add_child(mi)
 	return {"node": mi, "center": cen}

@@ -33,6 +33,32 @@ var cam: Camera3D
 var _bodies := []  # [{node, atmo, info}]
 var _env: Environment
 var _sun_light: DirectionalLight3D
+var _sky_mat: ShaderMaterial
+
+const SKY_SHADER := """
+shader_type sky;
+uniform vec3 up_dir = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_dir = vec3(0.0, 1.0, 0.0);
+uniform float density = 0.0;   // 1 at sea level, 0 in space
+uniform vec4 zenith : source_color = vec4(0.10, 0.30, 0.74, 1.0);
+uniform vec4 horizon : source_color = vec4(0.60, 0.76, 0.95, 1.0);
+void sky() {
+	float h = dot(EYEDIR, up_dir);
+	float sun_h = dot(sun_dir, up_dir);
+	float day = smoothstep(-0.18, 0.12, sun_h);
+	vec3 col = mix(horizon.rgb, zenith.rgb, pow(clamp(h, 0.0, 1.0), 0.45));
+	col = h < 0.0 ? horizon.rgb * 0.85 : col;
+	// warm band near the horizon when the sun is low
+	float low = 1.0 - smoothstep(0.0, 0.35, abs(sun_h));
+	float toward = pow(max(dot(normalize(EYEDIR - up_dir * h), normalize(sun_dir - up_dir * sun_h)), 0.0), 2.0);
+	col = mix(col, vec3(1.0, 0.55, 0.28), low * toward * (1.0 - smoothstep(0.0, 0.3, abs(h))) * 0.75);
+	col *= mix(0.03, 1.0, day);
+	float sd = dot(EYEDIR, sun_dir);
+	vec3 glow = vec3(1.0, 0.9, 0.75) * (pow(max(sd, 0.0), 300.0) * 1.5 + pow(max(sd, 0.0), 12.0) * 0.25 * density);
+	vec3 disk = vec3(1.0, 0.95, 0.85) * smoothstep(0.99985, 0.99995, sd) * 8.0;
+	COLOR = col * density + glow + disk;
+}
+"""
 
 
 func setup(c: TrsSim) -> void:
@@ -42,8 +68,14 @@ func setup(c: TrsSim) -> void:
 	render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var we := WorldEnvironment.new()
 	_env = Environment.new()
-	_env.background_mode = Environment.BG_COLOR
-	_env.background_color = Color(0.0, 0.0, 0.0)
+	_env.background_mode = Environment.BG_SKY
+	var sky := Sky.new()
+	_sky_mat = ShaderMaterial.new()
+	var ssh := Shader.new()
+	ssh.code = SKY_SHADER
+	_sky_mat.shader = ssh
+	sky.sky_material = _sky_mat
+	_env.sky = sky
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	_env.ambient_light_color = Color(0.08, 0.09, 0.12)
 	_env.glow_enabled = true
@@ -79,19 +111,28 @@ func setup(c: TrsSim) -> void:
 				m.emission = Color(1.0, 0.85, 0.6)
 				m.emission_energy_multiplier = 6.0
 			"floe":
-				m.albedo_texture = _floe_texture()
-				m.roughness = 0.6
 				atmo = _atmosphere(Color(0.45, 0.7, 1.0), info.radius + info.atmosphere_height)
 			"krill":
-				m.albedo_texture = _krill_texture()
-				m.roughness = 0.95
+				pass
 			_:
 				m.albedo_color = Color(0.6, 0.6, 0.6)
-		node.material_override = m
+		node.material_override = m if info.id == "austra" else PlanetBake.planet_material(core, i)
 		add_child(node)
 		if atmo:
 			add_child(atmo)
-		_bodies.append({"node": node, "atmo": atmo, "info": info})
+		var clouds: MeshInstance3D = null
+		if info.id == "floe":
+			clouds = MeshInstance3D.new()
+			var cm := SphereMesh.new()
+			cm.radius = 1.0
+			cm.height = 2.0
+			cm.radial_segments = 96
+			cm.rings = 48
+			clouds.mesh = cm
+			clouds.material_override = PlanetBake.cloud_material()
+			clouds.set_meta("radius", info.radius + 7000.0)
+			add_child(clouds)
+		_bodies.append({"node": node, "atmo": atmo, "clouds": clouds, "info": info})
 
 
 static func _atmosphere(col: Color, radius: float) -> MeshInstance3D:
@@ -190,7 +231,8 @@ static func _starfield() -> Node3D:
 
 ## Mirrors the main camera and places bodies around the scaled camera.
 ## sky: 0 = space, 1 = full daylight sky (inside an atmosphere).
-func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vector3, sky: Color) -> void:
+## density: 1 at the ground of an atmosphere, 0 in space. up: local up.
+func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vector3, density: float, up := Vector3.UP) -> void:
 	size = main_cam.get_viewport().size
 	cam.fov = main_cam.fov
 	cam.global_transform = Transform3D(main_cam.global_transform.basis, Vector3.ZERO)
@@ -209,7 +251,15 @@ func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vect
 		if b.atmo:
 			b.atmo.position = pos * k
 			b.atmo.scale = Vector3.ONE * float(b.atmo.get_meta("radius")) * SCALE * k
+		if b.clouds:
+			# clouds are for looking down on: fade them out once below the deck
+			var op := 1.0 - smoothstep(0.42, 0.62, density)
+			b.clouds.visible = op > 0.01
+			(b.clouds.material_override as ShaderMaterial).set_shader_parameter("opacity", op)
+			b.clouds.transform = Transform3D(Frame.spin(feed[o + 3]).scaled(Vector3.ONE * float(b.clouds.get_meta("radius")) * SCALE * k), pos * k)
 	_sun_light.global_transform = Transform3D(Basis.looking_at(-sun_dir, Vector3.UP if absf(sun_dir.y) < 0.99 else Vector3.RIGHT), Vector3.ZERO)
-	_env.background_color = sky
+	_sky_mat.set_shader_parameter("up_dir", up)
+	_sky_mat.set_shader_parameter("sun_dir", sun_dir)
+	_sky_mat.set_shader_parameter("density", density)
 	var stars: Node3D = get_node("Stars")
-	stars.visible = sky.v < 0.35
+	stars.visible = density < 0.25 or up.dot(sun_dir) < -0.15

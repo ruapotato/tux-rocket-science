@@ -140,7 +140,17 @@ func _build() -> void:
 	_env.ambient_light_energy = 0.45
 	# the canvas background is not a sky: never reflect it
 	_env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
-	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	_env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	_env.tonemap_exposure = 0.95
+	_env.ssao_enabled = true
+	_env.ssao_radius = 0.8
+	_env.ssao_intensity = 1.2
+	_env.ssao_detail = 0.3
+	_env.ssao_horizon = 0.12
+	_env.ssao_sharpness = 0.98
+	# only near contact shading: SSAO on distant grazing terrain makes stripes
+	_env.ssao_light_affect = 0.0
+	_env.ssao_ao_channel_affect = 0.0
 	_env.glow_enabled = true
 	_env.fog_enabled = true
 	_env.fog_light_color = SKY_DAY
@@ -415,7 +425,7 @@ func _render(delta: float) -> void:
 			vv.setup(core, id)
 			add_child(vv)
 			_views[id] = vv
-		_views[id].refresh(origin, t.pressure, _flicker)
+		_views[id].refresh(origin, t.pressure, _flicker, delta)
 	for id in _views.keys():
 		if not alive.has(id):
 			_views[id].refresh(origin, 0.0, 0.0)  # flushes its parts into `vanished`
@@ -446,21 +456,21 @@ func _render(delta: float) -> void:
 	var eye: PackedFloat64Array = core.to_body_fixed(bi, origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
 	_terrain.refresh(eye, body_rel, bodies[bi * 5 + 3])
 
-	# sky: atmosphere colour fading to space, dimmed on the night side
-	var sky := Color(0, 0, 0)
+	# sky: atmosphere density fades to space; the sky shader handles day/night
+	var density := 0.0
 	var atm_h: float = t.atmosphere_height
 	var day := clampf(up.dot(sun_dir) * 3.0 + 0.4, 0.0, 1.0)
 	if atm_h > 0.0 and t.altitude < atm_h:
-		var k := pow(1.0 - clampf(t.altitude / atm_h, 0.0, 1.0), 1.6)
-		sky = Color(0.01, 0.01, 0.03).lerp(SKY_DAY, k * day)
-		_env.fog_light_color = sky
-		_env.fog_density = 0.00006 * k
-		_env.ambient_light_energy = 0.12 + 0.35 * k * day
+		density = pow(1.0 - clampf(t.altitude / atm_h, 0.0, 1.0), 1.6)
+		_env.fog_light_color = Color(0.62, 0.76, 0.93).lerp(Color(0.02, 0.02, 0.05), 1.0 - day)
+		_env.fog_density = 0.000008 * density
+		_env.ambient_light_color = Color(0.55, 0.65, 0.85)
+		_env.ambient_light_energy = 0.1 + 0.4 * density * day
 	else:
 		_env.fog_density = 0.0
 		_env.ambient_light_energy = 0.08  # airless: hard shadows
-	_sun.light_energy = 0.15 + 1.2 * clampf(up.dot(sun_dir) * 4.0 + 0.6, 0.0, 1.0) if t.altitude < 20000.0 else 1.3
-	_scaled.sync(_cam, origin, _cam.position, sun_dir, sky)
+	_sun.light_energy = (0.15 + 1.2 * clampf(up.dot(sun_dir) * 4.0 + 0.6, 0.0, 1.0)) if t.altitude < 20000.0 else 1.3
+	_scaled.sync(_cam, origin, _cam.position, sun_dir, density, up)
 
 	# HUD
 	var nose := Frame.vec_arr(t.nose)

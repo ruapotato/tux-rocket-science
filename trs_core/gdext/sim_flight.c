@@ -438,6 +438,9 @@ static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
 			trs_json *pj = trs_json_new(TRS_JSON_OBJECT);
 			trs_json_set(pj, "uid", trs_json_new_num(c->parts[i].uid));
 			trs_json_set(pj, "part", trs_json_new_str(trs_craft_def(c, i)->id));
+			trs_json_set(pj, "parent", trs_json_new_num(c->parts[i].parent));
+			trs_json_set(pj, "node", trs_json_new_str(c->parts[i].node));
+			trs_json_set(pj, "parent_node", trs_json_new_str(c->parts[i].parent_node));
 			trs_json_push(arr, pj);
 		}
 	}
@@ -807,6 +810,29 @@ static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
 	ret_doubles(r, out, 2);
 }
 
+/* terrain_map(body, w, h) -> w*h heights (m) on an equirectangular grid in
+ * the body-fixed frame: x -> longitude -pi..pi, y -> latitude +pi/2..-pi/2 */
+static void m_terrain_map(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	int w = (int)a[1].i, hh = (int)a[2].i;
+	if (!ok_body(h, a[0].i) || w < 2 || hh < 2 || w > 8192 || hh > 4096) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	const trs_body *b = &h->world->sys.bodies[a[0].i];
+	double *d = malloc(sizeof(double) * (size_t)w * (size_t)hh);
+	for (int y = 0; y < hh; y++) {
+		double lat = TRS_PI / 2 - (y + 0.5) / hh * TRS_PI;
+		for (int x = 0; x < w; x++) {
+			double lon = (x + 0.5) / w * TRS_TAU - TRS_PI;
+			trs_v3 dir = v3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+			d[(size_t)y * w + x] = trs_terrain_height(&b->terrain, b->radius, dir);
+		}
+	}
+	ret_doubles(r, d, (int64_t)w * hh);
+	free(d);
+}
+
 #define S TRS_T_STRING
 #define I TRS_T_INT
 #define F TRS_T_FLOAT
@@ -839,5 +865,6 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
 	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },
 	{ "subsolar_point", m_subsolar_point, A, 1, { I }, { "body" } },
+	{ "terrain_map", m_terrain_map, A, 3, { I, I, I }, { "body", "w", "h" } },
 };
 const int TRS_SIM_FLIGHT_METHOD_COUNT = sizeof(TRS_SIM_FLIGHT_METHODS) / sizeof(TRS_SIM_FLIGHT_METHODS[0]);

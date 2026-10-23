@@ -50,21 +50,21 @@ func run(runner: Node) -> Dictionary:
 	Sim.pending_craft_text = lander
 	var flight: Node3D = load("res://scenes/flight.tscn").instantiate()
 	tree.root.add_child(flight)
-	flight._cam_yaw = 2.4
-	flight._cam_pitch = 0.05
-	flight._cam_dist = 55.0
+	flight._cam_yaw = -0.6   # camera south-east of the pad, looking at the Puffin Spires
+	flight._cam_pitch = 0.06
+	flight._cam_dist = 60.0
 	await _settle(tree, 120)
 	await _shot(tree, "launchpad")
 
 	# 3. orbit: the orbiter over Floe, in sunlight
 	var s: FlightSession = flight.session
-	s.spawn_in_orbit(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json"), "floe", 90000.0)
+	s.spawn_in_orbit(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json"), "floe", 250000.0)
 	s.core.vessel_set_mode(s.active, "rails")
 	s.warp_to(s.time() + s.telemetry().orbit.period * 0.45)  # round to the day side
 	flight._clear_views()
 	flight._assign_crew()
-	flight._cam_dist = 26.0
-	flight._cam_pitch = 0.3
+	flight._cam_dist = 28.0
+	flight._cam_pitch = 0.55
 	flight._cam_yaw = 1.2
 	await _settle(tree, 120)
 	await _shot(tree, "orbit")

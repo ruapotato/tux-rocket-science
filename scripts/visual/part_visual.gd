@@ -18,12 +18,106 @@
 ## Procedural visuals for parts, built from each part's "shape" data so
 ## new parts in the JSON catalog get a body without any art pipeline.
 ## Used by the hangar and by flight. Views only: no gameplay state here.
+##
+## Surfaces use one hull shader (panel seams, ring seams, grime, hazard
+## stripes) and a bell shader for nozzles, all computed from object-space
+## position so no UV layout is needed.
 class_name PartVisual
 extends RefCounted
 
 const PICK_LAYER := 1 << 1
 
+# Palette: PASA white, ice blue, signal orange, graphite.
+const WHITE := Color(0.93, 0.94, 0.96)
+const ICE := Color(0.55, 0.78, 0.95)
+const ORANGE := Color(1.0, 0.52, 0.12)
+const GRAPHITE := Color(0.16, 0.17, 0.2)
+const STEEL := Color(0.55, 0.57, 0.6)
+const YELLOW := Color(0.98, 0.8, 0.15)
+const RED := Color(0.86, 0.2, 0.18)
+
 static var _mats := {}
+static var _hull_shader: Shader
+static var _bell_shader: Shader
+
+const HULL_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+uniform vec4 base_color : source_color = vec4(0.93, 0.94, 0.96, 1.0);
+uniform vec4 stripe_color : source_color = vec4(0.1, 0.1, 0.12, 1.0);
+uniform float panels = 8.0;        // seams around the circumference
+uniform float ring_spacing = 0.9;  // metres between ring seams (0 = none)
+uniform float seam_depth = 0.35;
+uniform float hazard = 0.0;        // 1 = diagonal hazard stripes
+uniform float checker = 0.0;       // 1 = roll-pattern quarters (classic test-rocket paint)
+uniform float roughness_base = 0.55;
+uniform float metal = 0.0;
+uniform float grime = 0.35;
+uniform float y_offset = 0.0;
+varying vec3 lp;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p), f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+
+void vertex() { lp = VERTEX; lp.y += y_offset; }
+
+void fragment() {
+	float ang = atan(lp.x, lp.z) / 6.2831853 + 0.5;
+	vec3 col = base_color.rgb;
+	if (checker > 0.5) {
+		bool q = fract(ang * 2.0) < 0.5;
+		bool h = fract(lp.y / max(ring_spacing, 0.01) * 0.5) < 0.5;
+		if (q != h) col = stripe_color.rgb;
+	}
+	if (hazard > 0.5) {
+		float s = fract((ang * 18.0) + lp.y * 3.0);
+		col = s < 0.5 ? base_color.rgb : stripe_color.rgb;
+	}
+	// panel seams
+	float sa = abs(fract(ang * panels) - 0.5) * 2.0;
+	float seam = smoothstep(0.985, 1.0, sa);
+	if (ring_spacing > 0.0) {
+		float sr = abs(fract(lp.y / ring_spacing) - 0.5) * 2.0;
+		seam = max(seam, smoothstep(0.96, 1.0, sr));
+	}
+	// grime and weathering, stronger toward the bottom
+	float n = vnoise(vec2(ang * 40.0, lp.y * 6.0)) * 0.6 + vnoise(vec2(ang * 140.0, lp.y * 22.0)) * 0.4;
+	float g = grime * (0.35 + 0.65 * smoothstep(0.6, -0.8, lp.y)) * n;
+	col *= 1.0 - g * 0.22;
+	col *= 1.0 - seam * seam_depth;
+	ALBEDO = col;
+	ROUGHNESS = clamp(roughness_base + n * 0.2 - seam * 0.1, 0.05, 1.0);
+	METALLIC = metal;
+	SPECULAR = 0.5;
+	// a little rim light so silhouettes read against black space
+	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
+	EMISSION = col * rim * 0.08;
+}
+"""
+
+const BELL_SHADER := """
+shader_type spatial;
+render_mode cull_disabled;
+uniform float height = 1.0;
+varying vec3 lp;
+void vertex() { lp = VERTEX; }
+void fragment() {
+	float t = clamp(0.5 - lp.y / height, 0.0, 1.0);    // 0 at the throat, 1 at the lip
+	vec3 throat = vec3(0.18, 0.17, 0.17);
+	vec3 mid = vec3(0.46, 0.36, 0.28);                  // heat-tinted bronze
+	vec3 lip = vec3(0.30, 0.33, 0.42);                  // blued steel at the lip
+	vec3 col = t < 0.6 ? mix(throat, mid, t / 0.6) : mix(mid, lip, (t - 0.6) / 0.4);
+	float bands = 0.92 + 0.08 * step(0.5, fract(lp.y * 14.0));
+	ALBEDO = col * bands;
+	METALLIC = 0.85;
+	ROUGHNESS = 0.35 + 0.2 * t;
+	if (!FRONT_FACING) { ALBEDO *= 0.35; ROUGHNESS = 0.9; }
+}
+"""
 
 
 static func mat(key: String, color: Color, metal := 0.0, rough := 0.6, emission := Color.BLACK) -> StandardMaterial3D:
@@ -36,6 +130,37 @@ static func mat(key: String, color: Color, metal := 0.0, rough := 0.6, emission 
 	if emission != Color.BLACK:
 		m.emission_enabled = true
 		m.emission = emission
+	_mats[key] = m
+	return m
+
+
+## Hull material with seams/paint options. Cached by its parameters.
+static func hull(color: Color, opts := {}) -> ShaderMaterial:
+	var key := "hull:%s:%s" % [color.to_html(), str(opts)]
+	if _mats.has(key):
+		return _mats[key]
+	if _hull_shader == null:
+		_hull_shader = Shader.new()
+		_hull_shader.code = HULL_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = _hull_shader
+	m.set_shader_parameter("base_color", color)
+	for k in opts:
+		m.set_shader_parameter(k, opts[k])
+	_mats[key] = m
+	return m
+
+
+static func bell(h: float) -> ShaderMaterial:
+	var key := "bell:%.3f" % h
+	if _mats.has(key):
+		return _mats[key]
+	if _bell_shader == null:
+		_bell_shader = Shader.new()
+		_bell_shader.code = BELL_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = _bell_shader
+	m.set_shader_parameter("height", h)
 	_mats[key] = m
 	return m
 
@@ -54,29 +179,29 @@ static func ghost_mat(ok: bool) -> StandardMaterial3D:
 
 
 static func highlight_mat() -> StandardMaterial3D:
-	return mat("highlight", Color(1.0, 0.75, 0.2), 0.0, 0.4, Color(0.6, 0.35, 0.0))
+	if _mats.has("highlight"):
+		return _mats["highlight"]
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(1.0, 0.6, 0.15, 0.35)
+	_mats["highlight"] = m
+	return m
 
 
-# Palette: PASA white, ice blue, signal orange, graphite.
-const WHITE := Color(0.93, 0.94, 0.96)
-const ICE := Color(0.55, 0.78, 0.95)
-const ORANGE := Color(1.0, 0.52, 0.12)
-const GRAPHITE := Color(0.16, 0.17, 0.2)
-const STEEL := Color(0.55, 0.57, 0.6)
-const YELLOW := Color(0.98, 0.8, 0.15)
-const RED := Color(0.86, 0.2, 0.18)
-
-
-static func build(part_id: String, with_pick := true) -> Node3D:
+## opts: {"shroud": metres of interstage fairing above a decoupler,
+##        "legs": 0..1 deployment for landing legs, "decals": bool}
+static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 	var d: Dictionary = Sim.part(part_id)
 	var sh: Dictionary = d.get("shape", {})
 	var root := Node3D.new()
 	root.name = part_id
 	match sh.get("type", "cylinder"):
 		"capsule":
-			_capsule(root, sh, d.get("crew", 1))
+			_capsule(root, sh, d.get("crew", 1), opts.get("decals", true))
 		"cylinder":
-			_cylinder_part(root, d, sh)
+			_cylinder_part(root, d, sh, opts)
 		"engine":
 			_engine(root, sh)
 		"booster":
@@ -88,9 +213,10 @@ static func build(part_id: String, with_pick := true) -> Node3D:
 		"fin":
 			_fin(root, sh)
 		"leg":
-			_leg(root, sh)
+			_leg(root, d)
+			pose_leg(root, d, opts.get("legs", 0.0))
 		_:
-			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, mat("white", WHITE))
+			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, hull(WHITE))
 	if with_pick:
 		_add_pick(root, sh)
 	return root
@@ -105,7 +231,7 @@ static func _mesh(parent: Node3D, mesh: Mesh, m: Material, xf := Transform3D.IDE
 	return mi
 
 
-static func _cyl(parent: Node3D, r_bottom: float, r_top: float, h: float, y: float, m: Material, segs := 32) -> MeshInstance3D:
+static func _cyl(parent: Node3D, r_bottom: float, r_top: float, h: float, y: float, m: Material, segs := 48) -> MeshInstance3D:
 	var c := CylinderMesh.new()
 	c.bottom_radius = r_bottom
 	c.top_radius = r_top
@@ -115,67 +241,170 @@ static func _cyl(parent: Node3D, r_bottom: float, r_top: float, h: float, y: flo
 	return _mesh(parent, c, m, Transform3D(Basis.IDENTITY, Vector3(0, y, 0)))
 
 
-static func _capsule(root: Node3D, sh: Dictionary, crew: int) -> void:
+static func _ring(parent: Node3D, r: float, y: float, thick: float, m: Material) -> void:
+	var t := TorusMesh.new()
+	t.inner_radius = r - thick
+	t.outer_radius = r + thick * 0.4
+	t.rings = 48
+	t.ring_segments = 8
+	_mesh(parent, t, m, Transform3D(Basis.IDENTITY.scaled(Vector3(1, 0.6, 1)), Vector3(0, y, 0)))
+
+
+static func _decal(parent: Node3D, at: Vector3, outward: Vector3, size: float) -> void:
+	var dc := Decal.new()
+	dc.texture_albedo = PasaLogo.decal_texture()
+	dc.size = Vector3(size, 0.5, size)
+	# a decal projects along its local -Y: point that into the hull
+	dc.transform = Transform3D(Basis(Quaternion(Vector3.DOWN, -outward.normalized())), at)
+	dc.cull_mask = 1
+	dc.upper_fade = 0.0
+	dc.lower_fade = 0.0
+	parent.add_child(dc)
+
+
+static func _capsule(root: Node3D, sh: Dictionary, crew: int, decals: bool) -> void:
 	var rb: float = sh.radius_bottom
 	var rt: float = sh.radius_top
 	var h: float = sh.height
-	_cyl(root, rb, rt, h, 0.0, mat("white", WHITE))
-	_cyl(root, rb * 1.02, rb * 1.02, h * 0.08, -h * 0.46, mat("graphite", GRAPHITE))  # heat shield rim
-	_cyl(root, rt * 1.05, rt * 1.05, h * 0.06, h * 0.47, mat("steel", STEEL, 0.7, 0.3))
-	# windows: one per seat, facing +Z
-	var win := mat("window", Color(0.1, 0.25, 0.4), 0.2, 0.1, Color(0.05, 0.12, 0.2))
+	_cyl(root, rb, rt, h, 0.0, hull(WHITE, {"panels": 12.0, "ring_spacing": h * 0.34, "grime": 0.25, "y_offset": 0.0}), 64)
+	# heat shield and docking ring
+	_cyl(root, rb * 1.015, rb * 0.98, h * 0.07, -h * 0.475, hull(Color(0.22, 0.17, 0.14), {"panels": 24.0, "ring_spacing": 0.0, "grime": 0.9, "roughness_base": 0.85}))
+	_cyl(root, rt * 1.06, rt * 1.06, h * 0.07, h * 0.47, mat("steel", STEEL, 0.75, 0.3))
+	_ring(root, rt * 1.03, h * 0.5, 0.035, mat("graphite", GRAPHITE, 0.4, 0.5))
+	var tilt := atan2(rb - rt, h)
+	var win := mat("window", Color(0.06, 0.16, 0.28), 0.3, 0.05, Color(0.03, 0.08, 0.14))
+	var frame := mat("graphite", GRAPHITE, 0.4, 0.5)
 	for i in crew:
 		var a := (float(i) - (crew - 1) * 0.5) * 0.55
 		var y := 0.08 * h
 		var rr := lerpf(rb, rt, (y + h * 0.5) / h)
+		var b := Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, -tilt)
+		var pos := Basis(Vector3.UP, a) * Vector3(0, y, rr)
+		var fbox := BoxMesh.new()
+		fbox.size = Vector3(0.27, 0.25, 0.04)
+		_mesh(root, fbox, frame, Transform3D(b, pos))
 		var box := BoxMesh.new()
-		box.size = Vector3(0.22, 0.2, 0.05)
-		var b := Basis(Vector3.UP, a)
-		var tilt := atan2(rb - rt, h)
-		b = b * Basis(Vector3.RIGHT, -tilt)
-		_mesh(root, box, win, Transform3D(b, Basis(Vector3.UP, a) * Vector3(0, y, rr)))
-	# PASA band
-	_cyl(root, rb * 0.97 + 0.012, rb * 0.97 + 0.012, h * 0.05, -h * 0.32, mat("orange", ORANGE))
+		box.size = Vector3(0.21, 0.19, 0.05)
+		_mesh(root, box, win, Transform3D(b, pos + Basis(Vector3.UP, a) * Vector3(0, 0, 0.005)))
+	# hatch on the back, RCS blocks at the corners
+	var hatch := BoxMesh.new()
+	hatch.size = Vector3(0.34, 0.42, 0.03)
+	var hb := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -tilt)
+	_mesh(root, hatch, hull(Color(0.85, 0.86, 0.88), {"panels": 1.0, "ring_spacing": 0.0}), Transform3D(hb, Basis(Vector3.UP, PI) * Vector3(0, -0.02 * h, lerpf(rb, rt, 0.48))))
+	for k in 4:
+		var a := k * PI / 2 + PI / 4
+		var rcs := BoxMesh.new()
+		rcs.size = Vector3(0.1, 0.1, 0.06)
+		var y := h * 0.3
+		_mesh(root, rcs, frame, Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, -tilt), Basis(Vector3.UP, a) * Vector3(0, y, lerpf(rb, rt, (y + h * 0.5) / h) + 0.02)))
+	_cyl(root, rb * 0.985 + 0.012, rb * 0.985 + 0.012, h * 0.045, -h * 0.34, mat("orange", ORANGE, 0.0, 0.45))
+	if decals:
+		var y2 := -h * 0.12
+		_decal(root, Basis(Vector3.UP, PI / 2) * Vector3(0, y2, lerpf(rb, rt, (y2 + h * 0.5) / h)), Basis(Vector3.UP, PI / 2) * Vector3(0, 0, 1), 0.42)
 
 
-static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary) -> void:
+static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary, opts: Dictionary) -> void:
 	var r: float = sh.radius
 	var h: float = sh.height
 	if d.has("decoupler"):
-		_cyl(root, r, r, h * 0.5, h * 0.25, mat("yellow", YELLOW))
-		_cyl(root, r, r, h * 0.5, -h * 0.25, mat("graphite", GRAPHITE))
+		_cyl(root, r, r, h * 0.6, h * 0.2, hull(YELLOW, {"hazard": 1.0, "stripe_color": Color(0.08, 0.08, 0.1), "ring_spacing": 0.0, "panels": 1.0}))
+		_cyl(root, r * 0.98, r * 0.98, h * 0.4, -h * 0.3, mat("graphite", GRAPHITE, 0.4, 0.5))
+		var shroud: float = opts.get("shroud", 0.0)
+		if shroud > 0.0:
+			_shroud(root, r, h * 0.5, shroud)
 	elif d.has("fuel_liquid"):
-		_cyl(root, r, r, h, 0.0, mat("white", WHITE, 0.0, 0.5))
-		var bands := maxi(1, int(round(h / 0.95)))
-		for i in bands:
-			var y := -h * 0.5 + (i + 0.5) * h / bands
-			_cyl(root, r * 1.01, r * 1.01, minf(0.12, h * 0.1), y, mat("ice", ICE))
-		_cyl(root, r * 1.012, r * 1.012, 0.04, h * 0.5 - 0.02, mat("steel", STEEL, 0.7, 0.3))
-		_cyl(root, r * 1.012, r * 1.012, 0.04, -h * 0.5 + 0.02, mat("steel", STEEL, 0.7, 0.3))
+		_cyl(root, r, r, h, 0.0, hull(WHITE, {"panels": 8.0, "ring_spacing": 0.47, "grime": 0.3}), 64)
+		# roll-pattern band on bigger tanks, PASA stripes on all
+		if h > 3.0:
+			_cyl(root, r * 1.003, r * 1.003, 0.9, 0.6, hull(WHITE, {"checker": 1.0, "ring_spacing": 0.9, "stripe_color": GRAPHITE, "panels": 8.0}), 64)
+		_cyl(root, r * 1.006, r * 1.006, minf(0.14, h * 0.08), h * 0.5 - 0.22, mat("orange", ORANGE, 0.0, 0.45))
+		_ring(root, r * 1.005, h * 0.5 - 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
+		_ring(root, r * 1.005, -h * 0.5 + 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
+		if opts.get("decals", true) and h >= 1.8:
+			_decal(root, Vector3(0, -h * 0.08, r), Vector3(0, 0, 1), minf(0.9, h * 0.35))
 	else:  # reaction wheel and other short cylinders
-		_cyl(root, r, r, h, 0.0, mat("graphite", GRAPHITE, 0.3, 0.5))
-		_cyl(root, r * 1.01, r * 1.01, h * 0.25, 0.0, mat("orange", ORANGE))
+		_cyl(root, r, r, h, 0.0, hull(GRAPHITE, {"panels": 16.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}))
+		_cyl(root, r * 1.01, r * 1.01, h * 0.22, 0.0, mat("orange", ORANGE, 0.0, 0.45))
+		for k in 12:
+			var a := TAU * k / 12.0
+			var vent := BoxMesh.new()
+			vent.size = Vector3(0.12, h * 0.5, 0.02)
+			_mesh(root, vent, mat("vent", Color(0.07, 0.07, 0.08), 0.2, 0.8), Transform3D(Basis(Vector3.UP, a), Basis(Vector3.UP, a) * Vector3(0, 0, r + 0.004)))
+
+
+## Interstage fairing: covers the engine above a stack decoupler. It is part
+## of the decoupler, so it falls away with the spent stage at separation.
+static func _shroud(root: Node3D, r: float, y0: float, h: float) -> void:
+	var m := hull(WHITE, {"panels": 16.0, "ring_spacing": h * 0.5, "grime": 0.45, "seam_depth": 0.5})
+	var c := CylinderMesh.new()
+	c.top_radius = r * 1.012
+	c.bottom_radius = r * 1.02
+	c.height = h
+	c.radial_segments = 64
+	c.rings = 1
+	c.cap_top = false
+	c.cap_bottom = false
+	var mi := _mesh(root, c, m, Transform3D(Basis.IDENTITY, Vector3(0, y0 + h * 0.5, 0)))
+	mi.name = "Shroud"
+	var inside := _mesh(root, c, mat("shroud_in", Color(0.2, 0.21, 0.24), 0.2, 0.8), mi.transform)
+	inside.material_override.cull_mode = BaseMaterial3D.CULL_FRONT
+	_cyl(root, r * 1.03, r * 1.03, 0.08, y0 + h - 0.04, mat("orange", ORANGE, 0.0, 0.45))
 
 
 static func _engine(root: Node3D, sh: Dictionary) -> void:
 	var r: float = sh.radius
 	var rb: float = sh.radius_bell
 	var h: float = sh.height
-	var mount_h := h * 0.35
-	_cyl(root, r * 0.9, r, mount_h, h * 0.5 - mount_h * 0.5, mat("graphite", GRAPHITE, 0.4, 0.5))
-	_cyl(root, r * 0.35, r * 0.6, h * 0.2, h * 0.5 - mount_h - h * 0.1, mat("steel", STEEL, 0.8, 0.3))
-	var bell_h := h * 0.5
-	var bell := _cyl(root, rb, rb * 0.35, bell_h, -h * 0.5 + bell_h * 0.5, mat("bell", Color(0.32, 0.3, 0.3), 0.9, 0.35))
-	bell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	var mount_h := h * 0.22
+	# thrust plate and frame
+	_cyl(root, r * 0.92, r, mount_h, h * 0.5 - mount_h * 0.5, hull(GRAPHITE, {"panels": 12.0, "ring_spacing": 0.0, "metal": 0.5, "roughness_base": 0.45}))
+	for k in 4:
+		var a := TAU * k / 4.0 + PI / 4
+		var strut := CylinderMesh.new()
+		strut.top_radius = 0.025
+		strut.bottom_radius = 0.025
+		strut.height = h * 0.3
+		var top := Vector3(cos(a) * r * 0.7, h * 0.5 - mount_h, sin(a) * r * 0.7)
+		var bot := Vector3(cos(a) * r * 0.25, h * 0.5 - mount_h - h * 0.28, sin(a) * r * 0.25)
+		_mesh(root, strut, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Quaternion(Vector3.UP, (top - bot).normalized())), (top + bot) * 0.5))
+	# combustion chamber, turbopump and plumbing
+	var ch_y := h * 0.5 - mount_h - h * 0.12
+	_cyl(root, r * 0.26, r * 0.3, h * 0.2, ch_y, mat("chamber", Color(0.5, 0.52, 0.55), 0.85, 0.3))
+	var pump := CylinderMesh.new()
+	pump.top_radius = r * 0.12
+	pump.bottom_radius = r * 0.12
+	pump.height = h * 0.16
+	_mesh(root, pump, mat("pump", Color(0.62, 0.58, 0.5), 0.8, 0.35), Transform3D(Basis.IDENTITY, Vector3(r * 0.42, ch_y + h * 0.04, 0)))
+	_ring(root, r * 0.3, ch_y - h * 0.05, 0.02, mat("pipe", Color(0.72, 0.55, 0.3), 0.9, 0.3))
+	# bell
+	var bell_h := h * 0.52
+	var bell_mesh := CylinderMesh.new()
+	bell_mesh.top_radius = rb * 0.38
+	bell_mesh.bottom_radius = rb
+	bell_mesh.height = bell_h
+	bell_mesh.radial_segments = 48
+	bell_mesh.cap_top = false
+	bell_mesh.cap_bottom = false
+	var bmi := _mesh(root, bell_mesh, bell(bell_h), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 + bell_h * 0.5, 0)))
+	bmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_ring(root, rb, -h * 0.5 + 0.01, 0.025, mat("lip", Color(0.32, 0.35, 0.44), 0.9, 0.3))
 
 
 static func _booster(root: Node3D, sh: Dictionary) -> void:
 	var r: float = sh.radius
 	var h: float = sh.height
-	_cyl(root, r, r, h, 0.0, mat("white", WHITE))
+	_cyl(root, r, r, h, 0.0, hull(WHITE, {"panels": 6.0, "ring_spacing": h / 5.0, "grime": 0.4, "seam_depth": 0.5}), 64)
 	for i in 4:
-		_cyl(root, r * 1.01, r * 1.01, 0.16, -h * 0.4 + i * h * 0.27, mat("red", RED))
-	_cyl(root, r * 0.75, r * 0.45, 0.5, -h * 0.5 - 0.15, mat("bell", Color(0.32, 0.3, 0.3), 0.9, 0.35))
+		_cyl(root, r * 1.008, r * 1.008, 0.16, -h * 0.4 + i * h * 0.27, mat("red", RED, 0.0, 0.5))
+	for i in 5:
+		_ring(root, r * 1.004, -h * 0.5 + i * h / 5.0 + 0.02, 0.03, mat("steel", STEEL, 0.75, 0.3))
+	var noz := CylinderMesh.new()
+	noz.top_radius = r * 0.42
+	noz.bottom_radius = r * 0.72
+	noz.height = 0.55
+	noz.cap_top = false
+	noz.cap_bottom = false
+	_mesh(root, noz, bell(0.55), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 - 0.2, 0)))
 
 
 static func _cone(root: Node3D, d: Dictionary, sh: Dictionary) -> void:
@@ -183,44 +412,47 @@ static func _cone(root: Node3D, d: Dictionary, sh: Dictionary) -> void:
 	var rt: float = sh.radius_top
 	var h: float = sh.height
 	if d.has("parachute"):
-		_cyl(root, rb, rt, h, 0.0, mat("chute", Color(0.95, 0.35, 0.25)))
-		_cyl(root, rb * 1.02, rb * 1.02, h * 0.2, -h * 0.4, mat("white", WHITE))
+		_cyl(root, rb, rt * 1.2, h * 0.75, -h * 0.125, hull(WHITE, {"panels": 6.0, "ring_spacing": 0.0}))
+		_cyl(root, rt * 1.25, rt * 0.6, h * 0.3, h * 0.35, mat("chute", Color(0.95, 0.35, 0.25), 0.0, 0.5))
+		_ring(root, rb * 0.98, -h * 0.48, 0.025, mat("orange", ORANGE, 0.0, 0.45))
 	else:
-		_cyl(root, rb, maxf(rt, 0.01), h, 0.0, mat("white", WHITE), 32)
-		_cyl(root, rb * 1.01, rb * 0.82, h * 0.18, -h * 0.41, mat("orange", ORANGE))
+		# ogive nosecone: stacked frusta approximate the curve
+		var seg := 8
+		for k in seg:
+			var t0 := float(k) / seg
+			var t1 := float(k + 1) / seg
+			var r0 := rb * sqrt(1.0 - t0 * t0 * 0.98)
+			var r1 := maxf(rb * sqrt(1.0 - t1 * t1 * 0.98), 0.01)
+			_cyl(root, r0, r1, h / seg, -h * 0.5 + h * (t0 + t1) * 0.5, hull(WHITE, {"panels": 6.0, "ring_spacing": 0.0, "grime": 0.15}), 64)
+		_cyl(root, rb * 1.006, rb * 0.95, h * 0.1, -h * 0.45, mat("orange", ORANGE, 0.0, 0.45))
 
 
 static func _pylon(root: Node3D, sh: Dictionary) -> void:
 	var box := BoxMesh.new()
 	var depth: float = sh.get("depth", 0.3)
 	box.size = Vector3(sh.radius * 2.0, sh.height, depth)
-	_mesh(root, box, mat("yellow", YELLOW))
-	var stripe := BoxMesh.new()
-	stripe.size = Vector3(sh.radius * 2.02, sh.height * 0.25, depth * 1.02)
-	_mesh(root, stripe, mat("graphite", GRAPHITE))
+	_mesh(root, box, hull(YELLOW, {"hazard": 1.0, "stripe_color": Color(0.08, 0.08, 0.1), "panels": 1.0, "ring_spacing": 0.0}))
+	var arm := BoxMesh.new()
+	arm.size = Vector3(sh.radius * 1.2, sh.height * 0.2, depth * 1.2)
+	_mesh(root, arm, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, sh.height * 0.3, 0)))
+	_mesh(root, arm, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, -sh.height * 0.3, 0)))
 
 
 static func _fin(root: Node3D, sh: Dictionary) -> void:
-	# trapezoid in the local YZ plane: root chord along Y at z=0, span along +Z
+	# swept trapezoid in the local YZ plane: root chord along Y at z=0, span +Z
 	var span: float = sh.span
 	var rc: float = sh.root
 	var tc: float = sh.tip
 	var t: float = sh.thickness * 0.5
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var p := [
-		Vector3(0, rc * 0.5, 0), Vector3(0, -rc * 0.5, 0),
-		Vector3(0, -rc * 0.5, span), Vector3(0, -rc * 0.5 + tc, span),
-	]
+	var p := [Vector3(0, rc * 0.5, 0), Vector3(0, -rc * 0.5, 0), Vector3(0, -rc * 0.5, span), Vector3(0, -rc * 0.5 + tc, span)]
 	for side in [-1.0, 1.0]:
 		var o := Vector3(t * side, 0, 0)
-		var tri := [p[0], p[1], p[2], p[0], p[2], p[3]]
-		if side < 0:
-			tri = [p[0], p[2], p[1], p[0], p[3], p[2]]
+		var tri := [p[0], p[1], p[2], p[0], p[2], p[3]] if side > 0 else [p[0], p[2], p[1], p[0], p[3], p[2]]
 		for v in tri:
 			st.set_normal(Vector3(side, 0, 0))
 			st.add_vertex(v + o)
-	# edges
 	for e in 4:
 		var a: Vector3 = p[e]
 		var b: Vector3 = p[(e + 1) % 4]
@@ -228,31 +460,86 @@ static func _fin(root: Node3D, sh: Dictionary) -> void:
 		for v in [a + Vector3(t, 0, 0), b + Vector3(t, 0, 0), b - Vector3(t, 0, 0), a + Vector3(t, 0, 0), b - Vector3(t, 0, 0), a - Vector3(t, 0, 0)]:
 			st.set_normal(n)
 			st.add_vertex(v)
-	var m := st.commit()
-	var mi := _mesh(root, m, mat("fin", ORANGE))
+	var mi := _mesh(root, st.commit(), mat("fin", ORANGE, 0.1, 0.45))
 	mi.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# root fillet
+	var base := BoxMesh.new()
+	base.size = Vector3(t * 4.0, rc * 1.02, 0.06)
+	_mesh(root, base, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.03)))
 
 
-static func _leg(root: Node3D, sh: Dictionary) -> void:
-	var l: float = sh.length
-	var r: float = sh.radius
-	# strut angled down and out from the attach point
-	var strut := CylinderMesh.new()
-	strut.top_radius = r
-	strut.bottom_radius = r * 0.8
-	strut.height = l
-	var ang := deg_to_rad(20)
-	var b := Basis(Vector3.RIGHT, -ang)
-	var center := b * Vector3(0, -l * 0.5, 0)
-	_mesh(root, strut, mat("steel", STEEL, 0.7, 0.3), Transform3D(b, center + Vector3(0, 0, r)))
+static func _leg(root: Node3D, d: Dictionary) -> void:
+	var lg: Dictionary = d.get("leg", {})
+	var hinge := Vector3(0, 0.1, 0.14)
+	if lg.has("hinge"):
+		hinge = Vector3(lg.hinge[0], lg.hinge[1], lg.hinge[2])
+	var steel := mat("steel", STEEL, 0.75, 0.3)
+	var dark := mat("graphite", GRAPHITE, 0.4, 0.5)
+	# housing on the tank wall
+	var housing := BoxMesh.new()
+	housing.size = Vector3(0.26, 0.72, 0.12)
+	_mesh(root, housing, hull(YELLOW, {"panels": 1.0, "ring_spacing": 0.0, "grime": 0.5}), Transform3D(Basis.IDENTITY, Vector3(0, -0.2, 0.06)))
+	var pivot := Node3D.new()
+	pivot.name = "Pivot"
+	pivot.position = hinge
+	root.add_child(pivot)
+	var outer := CylinderMesh.new()
+	outer.top_radius = 0.07
+	outer.bottom_radius = 0.065
+	outer.height = 1.0
+	var o := _mesh(pivot, outer, steel)
+	o.name = "Outer"
+	var inner := CylinderMesh.new()
+	inner.top_radius = 0.05
+	inner.bottom_radius = 0.05
+	inner.height = 1.0
+	var i := _mesh(pivot, inner, mat("chrome", Color(0.8, 0.82, 0.85), 0.95, 0.15))
+	i.name = "Inner"
 	var foot := CylinderMesh.new()
-	foot.top_radius = 0.18
-	foot.bottom_radius = 0.22
+	foot.top_radius = 0.12
+	foot.bottom_radius = float(lg.get("foot_radius", 0.2))
 	foot.height = 0.06
-	_mesh(root, foot, mat("graphite", GRAPHITE), Transform3D(Basis.IDENTITY, b * Vector3(0, -l, 0) + Vector3(0, 0, r)))
-	var box := BoxMesh.new()
-	box.size = Vector3(0.18, 0.3, 0.12)
-	_mesh(root, box, mat("yellow", YELLOW), Transform3D(Basis.IDENTITY, Vector3(0, -0.1, 0.06)))
+	var f := _mesh(pivot, foot, dark)
+	f.name = "Foot"
+	var brace := CylinderMesh.new()
+	brace.top_radius = 0.03
+	brace.bottom_radius = 0.03
+	brace.height = 1.0
+	var b := _mesh(root, brace, steel)
+	b.name = "Brace"
+
+
+## Poses a leg visual for deployment k (0 stowed .. 1 deployed), using the
+## same geometry as trs_leg_foot() in trs_core.
+static func pose_leg(root: Node3D, d: Dictionary, k: float) -> void:
+	var lg: Dictionary = d.get("leg", {})
+	var L: float = lg.get("length", 1.6)
+	var ang := deg_to_rad(float(lg.get("deploy_angle_deg", 20.0))) * k
+	var frac: float = lg.get("stowed_fraction", 0.55)
+	var len := L * (frac + (1.0 - frac) * k)
+	var pivot: Node3D = root.get_node_or_null("Pivot")
+	if pivot == null:
+		return
+	# strut points down and swings out (+Z) by `ang`, matching trs_leg_foot()
+	pivot.basis = Basis(Vector3.RIGHT, -ang)
+	var outer: MeshInstance3D = pivot.get_node("Outer")
+	var outer_len := L * frac * 0.95
+	outer.scale = Vector3(1, outer_len, 1)
+	outer.position = Vector3(0, -outer_len * 0.5, 0)
+	var inner: MeshInstance3D = pivot.get_node("Inner")
+	inner.scale = Vector3(1, len - 0.05, 1)
+	inner.position = Vector3(0, -(len - 0.05) * 0.5, 0)
+	var foot: MeshInstance3D = pivot.get_node("Foot")
+	foot.position = Vector3(0, -len + 0.03, lerpf(0.06, 0.0, k))
+	# stowed the pad folds flat against the hull; deployed it lies level
+	foot.rotation = Vector3(lerpf(PI / 2, ang, k), 0, 0)
+	# brace from the housing's lower end to mid-strut
+	var a := Vector3(0, -0.4, 0.1)
+	var m := pivot.position + pivot.basis * Vector3(0, -len * 0.6, 0)
+	var brace: MeshInstance3D = root.get_node("Brace")
+	var dir := m - a
+	brace.transform = Transform3D(Basis(Quaternion(Vector3.UP, dir.normalized())).scaled(Vector3(1, dir.length(), 1)), (a + m) * 0.5)
+	brace.visible = k > 0.05
 
 
 static func _add_pick(root: Node3D, sh: Dictionary) -> void:
@@ -269,9 +556,9 @@ static func _add_pick(root: Node3D, sh: Dictionary) -> void:
 			cs.position = Vector3(0, 0, sh.span * 0.5)
 		"leg":
 			var b := BoxShape3D.new()
-			b.size = Vector3(0.3, sh.length, 0.5)
+			b.size = Vector3(0.3, 1.0, 0.3)
 			cs.shape = b
-			cs.position = Vector3(0, -sh.length * 0.5, 0.2)
+			cs.position = Vector3(0, -0.3, 0.12)
 		"pylon":
 			var b := BoxShape3D.new()
 			b.size = Vector3(sh.radius * 2.0, sh.height, sh.get("depth", 0.3))
@@ -285,11 +572,34 @@ static func _add_pick(root: Node3D, sh: Dictionary) -> void:
 	root.add_child(body)
 
 
+## Interstage fairing heights per part index: a stack decoupler whose "top"
+## node mates with an engine gets a shroud the height of that engine.
+## parts: [{part, parent, node, parent_node}] (craft order).
+static func shroud_heights(parts: Array) -> Dictionary:
+	var out := {}
+	for i in parts.size():
+		var d: Dictionary = Sim.part(parts[i].part)
+		if not d.has("decoupler") or d.decoupler.get("kind", "stack") != "stack":
+			continue
+		var nb := -1
+		if int(parts[i].parent) >= 0 and parts[i].node == "top":
+			nb = int(parts[i].parent)
+		else:
+			for k in range(i + 1, parts.size()):
+				if int(parts[k].parent) == i and parts[k].parent_node == "top":
+					nb = k
+		if nb >= 0 and Sim.part(parts[nb].part).has("engine") and Sim.part(parts[nb].part).shape.type == "engine":
+			out[i] = float(Sim.part(parts[nb].part).shape.height)
+	return out
+
+
 ## Applies a material to every mesh under a node (ghosts, highlights).
 static func paint(n: Node, m: Material) -> void:
 	for c in n.get_children():
 		if c is MeshInstance3D:
 			(c as MeshInstance3D).material_override = m
+		elif c is Decal:
+			(c as Decal).visible = false
 		paint(c, m)
 
 

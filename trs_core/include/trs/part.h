@@ -66,6 +66,9 @@ typedef struct {
 	/* landing leg */
 	int is_leg;
 	double leg_length, leg_spring, leg_damper, leg_max_speed;
+	trs_v3 leg_hinge;          /* part-local hinge point */
+	double leg_angle;          /* deployed swing-out angle from vertical, rad */
+	double leg_stowed_fraction; /* telescoped length when stowed */
 
 	/* aero: Cd per face and reference areas (axial = end face, side = profile) */
 	double cd_top, cd_bottom, cd_side, area_axial, area_side;
@@ -91,5 +94,8 @@ const trs_attach_node *trs_part_node(const trs_part_def *d, const char *name);
 /* Engine helpers. mdot is independent of pressure; thrust scales with Isp. */
 double trs_engine_isp(const trs_part_def *d, double pressure);
 double trs_engine_mdot(const trs_part_def *d); /* at full throttle */
+/* Leg foot contact point (part-local) for deployment fraction k in [0, 1].
+ * The visuals use the same formula, so feet touch where they are drawn. */
+trs_v3 trs_leg_foot(const trs_part_def *d, double k);
 
 #endif
