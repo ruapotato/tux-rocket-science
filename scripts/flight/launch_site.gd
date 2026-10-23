@@ -213,6 +213,18 @@ static func site_fixed_godot(core: TrsSim, body: int) -> Vector3:
 	return Frame.vec_arr([r * cos(lat) * cos(lon), r * cos(lat) * sin(lon), r * sin(lat)])
 
 
+## Site centre, body-fixed, Godot axes, as doubles [x, y, z].
+static func site_fixed_d(core: TrsSim, body: int) -> Array:
+	var info: Dictionary = JSON.parse_string(core.body_info(body))
+	var s: Dictionary = info.get("site", {})
+	if s.is_empty():
+		return [0.0, 0.0, 0.0]
+	var lat := deg_to_rad(s.lat_deg)
+	var lon := deg_to_rad(s.lon_deg)
+	var r: float = info.radius + s.altitude
+	return [r * cos(lat) * cos(lon), r * sin(lat), -r * cos(lat) * sin(lon)]
+
+
 ## Local frame at the site: +Y up, +X east (Godot axes, body-fixed).
 static func site_basis(site_pos: Vector3) -> Basis:
 	var up := site_pos.normalized()

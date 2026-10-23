@@ -2,7 +2,7 @@
   "format": "trs-craft",
   "version": 1,
   "name": "Orbiter",
-  "description": "Two stages to a stable orbit around Floe, then a parachute home.",
+  "description": "Two stages to orbit around Floe if you fly a clean gravity turn; P for the chute home.",
   "parts": [
     {
       "part": "pod_1",
@@ -21,7 +21,7 @@
       "parent_node": "top",
       "pos": [0, 0.675, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 0,
+      "stage": -1,
       "sym": 0
     },
     {
@@ -41,15 +41,15 @@
       "parent_node": "bottom",
       "pos": [0, -1, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 1,
+      "stage": 0,
       "sym": 0
     },
     {
-      "part": "tank_m",
+      "part": "tank_s",
       "parent": 3,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -2.0375, 0],
+      "pos": [0, -1.56875, 0],
       "rot": [0, 0, 0, 1],
       "stage": -1,
       "sym": 0
@@ -59,9 +59,9 @@
       "parent": 4,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -3.475, 0],
+      "pos": [0, -2.5375, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 2,
+      "stage": 1,
       "sym": 0
     },
     {
@@ -69,9 +69,9 @@
       "parent": 5,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -4.075, 0],
+      "pos": [0, -3.1375, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 2,
+      "stage": 1,
       "sym": 0
     },
     {
@@ -79,7 +79,7 @@
       "parent": 6,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -6.05, 0],
+      "pos": [0, -5.1125, 0],
       "rot": [0, 0, 0, 1],
       "stage": -1,
       "sym": 0
@@ -89,7 +89,7 @@
       "parent": 7,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -8.8625, 0],
+      "pos": [0, -7.925, 0],
       "rot": [0, 0, 0, 1],
       "stage": -1,
       "sym": 0
@@ -99,9 +99,9 @@
       "parent": 8,
       "node": "top",
       "parent_node": "bottom",
-      "pos": [0, -10.4, 0],
+      "pos": [0, -9.4625, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 3,
+      "stage": 2,
       "sym": 0
     },
     {
@@ -109,7 +109,7 @@
       "parent": 8,
       "node": "",
       "parent_node": "",
-      "pos": [0, -9.4625, 0.625],
+      "pos": [0, -8.525, 0.625],
       "rot": [0, 0, 0, 1],
       "stage": -1,
       "sym": 1
@@ -119,7 +119,7 @@
       "parent": 8,
       "node": "",
       "parent_node": "",
-      "pos": [0.541265877365, -9.4625, -0.3125],
+      "pos": [0.541265877365, -8.525, -0.3125],
       "rot": [0, 0.866025403784439, 0, 0.5],
       "stage": -1,
       "sym": 1
@@ -129,7 +129,7 @@
       "parent": 8,
       "node": "",
       "parent_node": "",
-      "pos": [-0.541265877365, -9.4625, -0.3125],
+      "pos": [-0.541265877365, -8.525, -0.3125],
       "rot": [0, 0.866025403784439, 0, -0.5],
       "stage": -1,
       "sym": 1

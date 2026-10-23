@@ -108,6 +108,10 @@ func available() -> Array:
 
 ## Picks crew for `seats` seats: the named ones first, then whoever is free.
 func assign(seats: int, wanted: Array = []) -> Array:
+	# never launch an empty seat: recruit if the corps has run short
+	while available().size() < seats:
+		if recruit_random().is_empty():
+			break
 	var out := []
 	for n in wanted:
 		var c := find(n)
@@ -123,23 +127,41 @@ func assign(seats: int, wanted: Array = []) -> Array:
 
 ## Records a completed flight. outcome: "recovered" | "lost"
 func record_flight(names: Array, outcome: String, stats: Dictionary) -> void:
+	if outcome == "lost":
+		record_loss(names, stats)
+		return
 	for n in names:
 		var c := find(n)
-		if c.is_empty():
+		if c.is_empty() or c.status == "lost":
 			continue
-		c.flights += 1
-		var r: Dictionary = c.records
-		r.max_altitude = maxf(r.max_altitude, stats.get("max_altitude", 0.0))
-		r.max_g = maxf(r.max_g, stats.get("max_g", 0.0))
-		r.orbits += int(stats.get("orbits", 0))
-		r.krill_landings += int(stats.get("krill_landings", 0))
-		for b in stats.get("visited", []):
-			if not r.visited.has(b):
-				r.visited.append(b)
-		# nobody dies at PASA: lost crews are fished out by the recovery walrus
-		c.status = "infirmary" if outcome == "lost" else "available"
+		_add_stats(c, stats)
+		c.status = "available"
 	# anyone in the infirmary from before gets better after a flight
 	for c in crew:
 		if c.status == "infirmary" and not names.has(c.name):
 			c.status = "available"
 	save_roster()
+
+
+## The crew did not come home. Lost penguins stay on the roster (with their
+## records) but never fly again; PASA recruits replacements as needed.
+func record_loss(names: Array, stats: Dictionary) -> void:
+	for n in names:
+		var c := find(n)
+		if c.is_empty() or c.status == "lost":
+			continue
+		_add_stats(c, stats)
+		c.status = "lost"
+	save_roster()
+
+
+func _add_stats(c: Dictionary, stats: Dictionary) -> void:
+	c.flights += 1
+	var r: Dictionary = c.records
+	r.max_altitude = maxf(r.max_altitude, stats.get("max_altitude", 0.0))
+	r.max_g = maxf(r.max_g, stats.get("max_g", 0.0))
+	r.orbits += int(stats.get("orbits", 0))
+	r.krill_landings += int(stats.get("krill_landings", 0))
+	for b in stats.get("visited", []):
+		if not r.visited.has(b):
+			r.visited.append(b)

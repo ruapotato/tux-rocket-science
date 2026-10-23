@@ -23,7 +23,7 @@
 ##   load_craft {path | text}         launch {body?}        revert {to: launch}
 ##   spawn_orbit {body, altitude, inc_deg?}
 ##   throttle {value}   attitude {pitch, yaw, roll}   sas {mode, target?[3]}
-##   stage   legs {deployed}   switch {id}
+##   stage   chute   legs {deployed}   switch {id}
 ##   warp {kind: physics|rails, index}   step {ticks | seconds}
 ##   query   vessels   events   predict {patches?, horizon?}   time
 ##   warp_to {t}   trajectory {nodes: [[t, pro, nrm, rad]...], patches?, horizon?}
@@ -84,6 +84,8 @@ func handle(cmd: Dictionary) -> Dictionary:
 			return _ok() if session.set_sas(cmd.get("mode", "stability"), tgt) else _err("unknown sas mode")
 		"stage":
 			return _ok({"new_vessels": session.stage()})
+		"chute":
+			return _ok({"armed": session.deploy_chutes()})
 		"legs":
 			session.set_legs(bool(cmd.get("deployed", true)))
 			return _ok()

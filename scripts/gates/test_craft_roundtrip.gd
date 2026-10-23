@@ -89,7 +89,7 @@ func _build_orbiter() -> CraftModel:
 	m.attach_stack(CraftModel.held_single("parachute"), 0, "top")
 	var rw := _stack_below(m, 0, "reaction_wheel")
 	var d1 := _stack_below(m, rw, "decoupler_stack")
-	var t2 := _stack_below(m, d1, "tank_m")
+	var t2 := _stack_below(m, d1, "tank_s")
 	var e2 := _stack_below(m, t2, "engine_vac")
 	var d2 := _stack_below(m, e2, "decoupler_stack")
 	var t1a := _stack_below(m, d2, "tank_l")
@@ -227,21 +227,22 @@ func _same_craft(a: CraftModel, b: CraftModel) -> bool:
 func _staging_ops() -> void:
 	var m := _build_orbiter()
 	var n0 := m.stage_count()
+	var dv0: float = m.stats().dv_vac
 	var alb := -1
 	for i in m.parts.size():
 		if m.parts[i].part == "engine_vac":
 			alb = i
 	# drop the vacuum engine into a brand-new stage just above its decoupler
-	m.insert_stage(alb, 2)
-	var inserted: bool = m.stage_count() == n0 + 1 and m.parts[alb].stage == 2
+	m.insert_stage(alb, 1)
+	var inserted: bool = m.stage_count() == n0 + 1 and m.parts[alb].stage == 1
 	var st := m.stats()
 	# engine now lights one stage after its decoupler fires: dv still exists
-	var dv_ok: bool = absf(st.dv_vac - 4586.24) < 1.0
+	var dv_ok: bool = absf(st.dv_vac - dv0) < 1.0
 	m.set_stage(alb, 0)
 	var moved: bool = m.parts[alb].stage == 0
 	m.undo()
 	m.undo()
-	var back: bool = m.stage_count() == n0 and m.parts[alb].stage == 2
+	var back: bool = m.stage_count() == n0 and m.parts[alb].stage == 1
 	m.reset_staging()
 	var reset := m.stage_count() == n0
 	_check(inserted and dv_ok and moved and back and reset,

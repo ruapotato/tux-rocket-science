@@ -2,7 +2,7 @@
   "format": "trs-craft",
   "version": 1,
   "name": "Hopper",
-  "description": "Suborbital hop: straight up, pop the chute, wave on the way down.",
+  "description": "Suborbital hop: straight up, then press P for the chute on the way down.",
   "parts": [
     {
       "part": "pod_1",
@@ -21,7 +21,7 @@
       "parent_node": "top",
       "pos": [0, 0.675, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 0,
+      "stage": -1,
       "sym": 0
     },
     {
@@ -31,7 +31,7 @@
       "parent_node": "bottom",
       "pos": [0, -0.6, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 1,
+      "stage": 0,
       "sym": 0
     },
     {
@@ -51,7 +51,7 @@
       "parent_node": "bottom",
       "pos": [0, -3.175, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 2,
+      "stage": 1,
       "sym": 0
     },
     {

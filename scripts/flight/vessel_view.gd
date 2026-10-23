@@ -57,19 +57,30 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabl
 uniform vec4 core_color : source_color = vec4(1.0, 0.95, 0.8, 1.0);
 uniform vec4 edge_color : source_color = vec4(0.35, 0.55, 1.0, 1.0);
 uniform float intensity = 1.0;
+uniform float exit_r = 0.5;     // nozzle exit radius (m): the plume starts exactly there
+uniform float len = 6.0;        // plume length (m)
+uniform float spread = 0.4;     // how far it balloons by the tail (x exit radius)
 uniform float diamonds = 0.0;   // 1 at sea level (shock diamonds), 0 in vacuum
 uniform float smoke = 0.0;      // solid motors: orange, turbulent
 varying float t;                // 0 at the nozzle .. 1 at the tail
 varying vec3 lp;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-void vertex() { lp = VERTEX; t = clamp(-VERTEX.y + 0.5, 0.0, 1.0); }
+void vertex() {
+	t = clamp(0.5 - VERTEX.y, 0.0, 1.0);
+	vec2 dir = length(VERTEX.xz) > 1e-5 ? normalize(VERTEX.xz) : vec2(0.0);
+	// a sea-level plume necks in after the nozzle, a vacuum one flares out
+	float neck = 1.0 - diamonds * 0.18 * sin(min(t * 6.0, 3.14159));
+	float r = exit_r * neck * (1.0 + spread * pow(t, 0.75));
+	VERTEX = vec3(dir.x * r, -t * len, dir.y * r);
+	lp = VERTEX;
+}
 void fragment() {
 	float facing = abs(dot(NORMAL, VIEW));
 	float body = pow(facing, 1.5);                       // soft, see-through edges
-	float fade = pow(1.0 - t, 1.6);
+	float fade = pow(1.0 - t, 1.4) * smoothstep(0.0, 0.04, t + 0.02);
 	float flick = 0.85 + 0.15 * sin(TIME * 60.0 + lp.y * 9.0) * hash(vec2(floor(TIME * 30.0), 1.0));
-	float shock = 1.0 + diamonds * 0.8 * pow(max(sin(t * 34.0 - TIME * 3.0), 0.0), 6.0) * (1.0 - t);
-	float turb = 1.0 + smoke * 0.4 * (hash(floor(vec2(atan(lp.x, lp.z) * 6.0, t * 18.0 - TIME * 20.0))) - 0.5);
+	float shock = 1.0 + diamonds * 0.9 * pow(max(sin(t * 30.0 - TIME * 2.0), 0.0), 6.0) * (1.0 - t);
+	float turb = 1.0 + smoke * 0.45 * (hash(floor(vec2(atan(lp.x, lp.z) * 6.0, t * 18.0 - TIME * 20.0))) - 0.5);
 	vec3 col = mix(core_color.rgb, edge_color.rgb, smoothstep(0.0, 0.7, t + (1.0 - facing) * 0.5));
 	ALBEDO = col * body * fade * flick * shock * turb * intensity;
 }
@@ -78,23 +89,33 @@ void fragment() {
 static var _plume_shader: Shader
 
 
-func _plume(d: Dictionary) -> Node3D:
+## Nozzle exit radius and where it sits below the part centre.
+static func nozzle(d: Dictionary) -> Dictionary:
 	var sh: Dictionary = d.shape
 	var h: float = sh.get("height", 1.0)
-	var r: float = sh.get("radius_bell", sh.get("radius", 0.5))
+	if sh.type == "booster":
+		return {"r": float(sh.radius) * 0.72, "y": -h * 0.5 - 0.475}
+	return {"r": float(sh.get("radius_bell", sh.get("radius", 0.5))), "y": -h * 0.5}
+
+
+func _plume(d: Dictionary) -> Node3D:
+	var nz := nozzle(d)
+	var r: float = nz.r
 	var root := Node3D.new()
-	root.position = Vector3(0, -h * 0.5 - (0.45 if sh.type == "booster" else 0.0), 0)
+	root.position = Vector3(0, nz.y, 0)
 	var solid: bool = d.engine.propellant == "solid"
+	root.set_meta("exit_r", r)
+	root.set_meta("solid", solid)
 	if _plume_shader == null:
 		_plume_shader = Shader.new()
 		_plume_shader.code = PLUME_SHADER
 	for k in 2:
 		var c := CylinderMesh.new()
-		c.top_radius = r * (0.9 if k == 0 else 0.45)
-		c.bottom_radius = r * (1.3 if k == 0 else 0.25)
+		c.top_radius = 1.0
+		c.bottom_radius = 1.0
 		c.height = 1.0
 		c.radial_segments = 24
-		c.rings = 8
+		c.rings = 12
 		c.cap_top = false
 		c.cap_bottom = false
 		var mi := MeshInstance3D.new()
@@ -102,20 +123,20 @@ func _plume(d: Dictionary) -> Node3D:
 		var m := ShaderMaterial.new()
 		m.shader = _plume_shader
 		if solid:
-			m.set_shader_parameter("core_color", Color(1.0, 0.85, 0.55))
-			m.set_shader_parameter("edge_color", Color(1.0, 0.42, 0.12))
+			m.set_shader_parameter("core_color", Color(1.0, 0.88, 0.6))
+			m.set_shader_parameter("edge_color", Color(1.0, 0.45, 0.12))
 			m.set_shader_parameter("smoke", 1.0)
 		else:
 			m.set_shader_parameter("core_color", Color(1.0, 0.96, 0.85) if k == 1 else Color(0.75, 0.82, 1.0))
 			m.set_shader_parameter("edge_color", Color(0.3, 0.5, 1.0))
-		m.set_shader_parameter("intensity", 1.6 if k == 1 else 0.8)
+		m.set_shader_parameter("intensity", 2.6 if k == 1 else 1.3)
 		mi.material_override = m
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.name = "Core" if k == 1 else "Outer"
 		root.add_child(mi)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.6, 0.3) if solid else Color(0.9, 0.85, 1.0)
-	light.omni_range = 18.0
+	light.omni_range = 8.0 + r * 20.0
 	light.light_energy = 0.0
 	light.name = "Glow"
 	root.add_child(light)
@@ -152,7 +173,7 @@ func _canopy() -> Node3D:
 
 ## Places every part relative to the floating origin (the active vessel).
 ## `pressure` (Pa) shapes the plumes: tight in air, wide in vacuum.
-## uid -> last world position of parts that left this view this frame
+## uid -> {pos, part} of parts that left this view this frame
 var vanished := {}
 
 
@@ -171,7 +192,7 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 	if n == 0:
 		visible = false
 		for uid in _parts.keys():
-			vanished[uid] = _parts[uid].node.global_position
+			vanished[uid] = {"pos": _parts[uid].node.global_position, "part": _parts[uid].part}
 			_parts[uid].node.queue_free()
 		_parts.clear()
 		return
@@ -208,9 +229,21 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 				PartVisual.pose_leg(node, Sim.part(e.part), smoothstep(0.0, 1.0, kk))
 	for uid in _parts.keys():
 		if not seen.has(uid):
-			vanished[uid] = _parts[uid].node.global_position
+			vanished[uid] = {"pos": _parts[uid].node.global_position, "part": _parts[uid].part}
 			_parts[uid].node.queue_free()
 			_parts.erase(uid)
+
+
+## Lit nozzles for the exhaust smoke: [{key, pos, dir, thr, r, solid}].
+func nozzles() -> Array:
+	var out := []
+	for uid in _parts:
+		var p: Node3D = _parts[uid].plume
+		if p == null or not p.visible or not p.is_inside_tree():
+			continue
+		out.append({"key": "%d/%d" % [vessel_id, uid], "pos": p.global_position, "dir": -p.global_basis.y.normalized(),
+			"thr": float(p.get_meta("thr", 0.0)), "r": float(p.get_meta("exit_r")), "solid": bool(p.get_meta("solid"))})
+	return out
 
 
 func has_uid(uid: int) -> bool:
@@ -218,19 +251,29 @@ func has_uid(uid: int) -> bool:
 
 
 func _update_plume(p: Node3D, thr: float, pressure: float, flicker: float) -> void:
-	p.visible = thr > 0.01
-	if not p.visible:
+	var on := thr > 0.01
+	p.set_meta("thr", thr)
+	p.visible = on
+	if not on:
 		return
-	var vac := clampf(1.0 - pressure / 101325.0, 0.0, 1.0)
-	var length := (6.0 + 12.0 * vac) * (0.35 + 0.65 * thr) * (0.92 + 0.16 * flicker)
-	var width := 1.0 + 1.6 * vac
+	var air := clampf(pressure / 101325.0, 0.0, 1.0)
+	var r: float = p.get_meta("exit_r")
+	var solid: bool = p.get_meta("solid")
+	var vac := 1.0 - air
+	var length := r * (14.0 if solid else 11.0) * (1.0 + 0.9 * vac) * (0.4 + 0.6 * thr) * (0.94 + 0.12 * flicker)
 	for c in p.get_children():
 		if c is MeshInstance3D:
-			var core_len := length * (0.45 if c.name == "Core" else 1.0)
-			c.scale = Vector3(width, core_len, width)
-			c.position = Vector3(0, -core_len * 0.5, 0)
-			var m: ShaderMaterial = c.material_override
-			m.set_shader_parameter("diamonds", 1.0 - vac)
+			var mi := c as MeshInstance3D
+			var core := mi.name == "Core"
+			var m: ShaderMaterial = mi.material_override
+			var L := length * (0.42 if core else 1.0)
+			var rr := r * (0.55 if core else 0.97)
+			m.set_shader_parameter("exit_r", rr)
+			m.set_shader_parameter("len", L)
+			m.set_shader_parameter("spread", lerpf(0.25, 1.9, vac) * (0.6 if core else 1.0))
+			m.set_shader_parameter("diamonds", air)
+			var ext := maxf(rr * 4.0, L)
+			mi.custom_aabb = AABB(Vector3(-ext, -L - 1.0, -ext), Vector3(ext * 2.0, L + 2.0, ext * 2.0))
 	var glow: OmniLight3D = p.get_node("Glow")
 	glow.light_energy = 3.0 * thr
 

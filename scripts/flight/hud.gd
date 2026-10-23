@@ -21,6 +21,9 @@ extends Control
 
 signal sas_pressed(mode: String)
 signal menu_action(action: String)
+signal warp_pressed(dir: int)       # +1 faster, -1 slower, 0 stop
+signal throttle_set(value: float)   # dragged on the throttle gauge
+signal action_pressed(name: String) # "stage", "chute", "legs"
 
 const SAS_BUTTONS := [
 	["stability", "SAS"], ["prograde", "PRO"], ["retrograde", "RET"], ["normal", "NRM"],
@@ -46,6 +49,12 @@ var _t: Dictionary = {}
 var _warp_text := ""
 var portrait_slot: Control
 var _node_label: Label
+var _warp_label: Label
+var _action_buttons := {}
+var _hint: Label
+var _fail: PanelContainer
+var _fail_title: Label
+var _fail_body: Label
 
 
 func _ready() -> void:
@@ -65,6 +74,27 @@ func _ready() -> void:
 	_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status = _label(tv, 14, Color(0.8, 0.88, 1.0))
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# time warp: the buttons say what they do, the label says what is on
+	var wr := HBoxContainer.new()
+	wr.alignment = BoxContainer.ALIGNMENT_CENTER
+	wr.add_theme_constant_override("separation", 6)
+	tv.add_child(wr)
+	for b in [["◀◀", -1, "Slower time warp (,)"], ["■", 0, "Back to normal time (/)"], ["▶▶", 1, "Faster time warp (.)\nIn the air or under thrust only up to 4x physics warp"]]:
+		var btn := Button.new()
+		btn.text = b[0]
+		btn.tooltip_text = b[2]
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.custom_minimum_size = Vector2(44, 0)
+		btn.add_theme_font_size_override("font_size", 13)
+		var dir: int = b[1]
+		btn.pressed.connect(func(): warp_pressed.emit(dir))
+		wr.add_child(btn)
+	_warp_label = Label.new()
+	_warp_label.custom_minimum_size = Vector2(150, 0)
+	_warp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_warp_label.add_theme_font_size_override("font_size", 13)
+	wr.add_child(_warp_label)
+	wr.move_child(_warp_label, 2)
 
 	_left = _panel_text(Vector2(10, 10), Vector2(270, 0))
 	_right = _panel_text(Vector2(-280, 10), Vector2(270, 0), true)
@@ -75,7 +105,7 @@ func _ready() -> void:
 	bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	bottom.offset_left = -230
 	bottom.offset_right = 230
-	bottom.offset_top = -300
+	bottom.offset_top = -330
 	bottom.offset_bottom = -6
 	bottom.alignment = BoxContainer.ALIGNMENT_END
 	add_child(bottom)
@@ -90,6 +120,21 @@ func _ready() -> void:
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 20)
 	bottom.add_child(spacer)
+	var act_row := HBoxContainer.new()
+	act_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	act_row.add_theme_constant_override("separation", 6)
+	bottom.add_child(act_row)
+	for a in [["stage", "STAGE  (Space)", "Fire the next stage"], ["chute", "CHUTE  (P)", "Arm the parachutes: they open once the air is thick enough and you are slow enough"],
+			["legs", "LEGS  (G)", "Landing legs down / up"]]:
+		var ab := Button.new()
+		ab.text = a[1]
+		ab.tooltip_text = a[2]
+		ab.focus_mode = Control.FOCUS_NONE
+		ab.add_theme_font_size_override("font_size", 12)
+		var nm: String = a[0]
+		ab.pressed.connect(func(): action_pressed.emit(nm))
+		act_row.add_child(ab)
+		_action_buttons[nm] = ab
 	var sas_row := HBoxContainer.new()
 	sas_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	bottom.add_child(sas_row)
@@ -106,7 +151,7 @@ func _ready() -> void:
 	_fuel = PanelContainer.new()
 	_fuel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_fuel.offset_left = -290
-	_fuel.offset_top = -170
+	_fuel.offset_top = -190
 	_fuel.offset_right = -10
 	_fuel.offset_bottom = -10
 	add_child(_fuel)
@@ -125,8 +170,8 @@ func _ready() -> void:
 
 	_node_label = Label.new()
 	_node_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_node_label.offset_top = -330
-	_node_label.offset_bottom = -306
+	_node_label.offset_top = -360
+	_node_label.offset_bottom = -336
 	_node_label.offset_left = -300
 	_node_label.offset_right = 300
 	_node_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -147,8 +192,22 @@ func _ready() -> void:
 	_toast.add_theme_constant_override("outline_size", 6)
 	add_child(_toast)
 
+	_hint = Label.new()
+	_hint.set_anchors_preset(Control.PRESET_CENTER)
+	_hint.offset_top = 120
+	_hint.offset_left = -300
+	_hint.offset_right = 300
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.add_theme_font_size_override("font_size", 18)
+	_hint.add_theme_color_override("font_color", Color(1.0, 0.75, 0.4))
+	_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	_hint.add_theme_constant_override("outline_size", 5)
+	_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_hint)
+
 	_build_menu()
 	_build_help()
+	_build_failure()
 
 
 func _label(parent: Node, size: int, col: Color) -> Label:
@@ -183,11 +242,23 @@ func _panel_text(pos: Vector2, size: Vector2, right := false) -> RichTextLabel:
 
 func _gauge(parent: Node, title: String) -> Control:
 	var g := Control.new()
-	g.custom_minimum_size = Vector2(34, Navball.SIZE)
+	g.custom_minimum_size = Vector2(40, Navball.SIZE)
 	g.set_meta("title", title)
 	g.set_meta("value", 0.0)
 	g.set_meta("max", 1.0)
 	g.draw.connect(func(): _draw_gauge(g))
+	if title == "THR":
+		g.tooltip_text = "Throttle: drag here, or Shift / Ctrl, Z full, X cut"
+		g.mouse_default_cursor_shape = Control.CURSOR_VSIZE
+		g.gui_input.connect(func(e: InputEvent):
+			var press: bool = e is InputEventMouseButton and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and e.pressed
+			var drag: bool = e is InputEventMouseMotion and ((e as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
+			if press or drag:
+				var h := g.size.y - 24
+				throttle_set.emit(clampf(1.0 - (e.position.y - 6.0) / (h - 4.0), 0.0, 1.0))
+				g.accept_event())
+	else:
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(g)
 	return g
 
@@ -199,7 +270,12 @@ func _draw_gauge(g: Control) -> void:
 	var col := PartVisual.ORANGE if g.get_meta("title") == "THR" else Color(0.4, 0.95, 0.5).lerp(Color(1, 0.3, 0.2), v)
 	g.draw_rect(Rect2(8, 6 + (h - 4) * (1 - v), 18, (h - 4) * v), col)
 	g.draw_rect(Rect2(6, 4, 22, h), Color(0.32, 0.5, 0.72), false, 1.5)
-	g.draw_string(get_theme_default_font(), Vector2(2, g.size.y - 4), g.get_meta("title"), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.85, 0.95))
+	var label: String = g.get_meta("title")
+	if label == "THR":
+		label = "%d%%" % roundi(v * 100.0)
+	elif label == "G":
+		label = "%.1fg" % float(g.get_meta("value"))
+	g.draw_string(get_theme_default_font(), Vector2(0, g.size.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, g.size.x, 12, Color(0.8, 0.85, 0.95))
 
 
 func _build_menu() -> void:
@@ -247,16 +323,17 @@ var _help: PanelContainer
 
 const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86a6]F1 to toggle[/color]
 
-[b]Z[/b] full throttle   [b]X[/b] cut   [b]Shift / Ctrl[/b] throttle up / down
-[b]Space[/b] stage (first press releases the clamps)
-[b]W S[/b] pitch   [b]A D[/b] yaw   [b]Q E[/b] roll   [b]T[/b] SAS on/off
+[b]Z[/b] full throttle   [b]X[/b] cut   [b]Shift / Ctrl[/b] throttle up / down (or drag the THR bar)
+[b]Space[/b] stage (first press releases the clamps)   [b]P[/b] parachute   [b]G[/b] legs
+[b]W A S D[/b] / arrows steer [i]as you see it[/i]: W tips the nose away from the camera,
+   D swings it right on screen.   [b]Q E[/b] roll   [b]T[/b] SAS on/off
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
-[b]G[/b] landing legs   [b]V[/b] surface / orbital speed
+[b]V[/b] surface / orbital speed
 
-[b]M[/b] map view: click your orbit to add a maneuver node, drag its handles
-[b]Tab[/b] (in map) change focus body   [b]Warp to node[/b] in the node panel
-[b]. ,[/b] faster / slower time warp   [b]/[/b] stop warp
-   (on-rails warp is refused under thrust or in the atmosphere)
+[b]. ,[/b] or the [b]▶▶ ◀◀[/b] buttons: faster / slower time   [b]/[/b] or [b]■[/b] normal time
+   (big warps need you coasting above the air; in it, or under thrust, max 4x)
+[b]M[/b] map, centred on you: click your orbit to add a maneuver node, drag its handles,
+   then [b]Skip to burn[/b] fast-forwards until just before it. [b]Tab[/b] changes the focus
 [b][ ][/b] switch vessel   [b]Esc[/b] pause: revert, sound, main menu
 Right-drag to orbit the camera, wheel to zoom.
 
@@ -270,8 +347,8 @@ func _build_help() -> void:
 	_help.set_anchors_preset(Control.PRESET_CENTER)
 	_help.offset_left = -330
 	_help.offset_right = 330
-	_help.offset_top = -230
-	_help.offset_bottom = 230
+	_help.offset_top = -250
+	_help.offset_bottom = 250
 	_help.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var t := RichTextLabel.new()
 	t.bbcode_enabled = true
@@ -289,6 +366,61 @@ func _build_help() -> void:
 		_help.visible = true
 		cf.set_value("ui", "seen_flight_help", true)
 		cf.save(Sfx.SETTINGS)
+
+
+func _build_failure() -> void:
+	_fail = PanelContainer.new()
+	_fail.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_fail.offset_left = -270
+	_fail.offset_right = 270
+	_fail.offset_top = 130
+	_fail.offset_bottom = 130
+	_fail.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.12, 0.04, 0.04, 0.94), 10, Color(0.85, 0.25, 0.2)))
+	_fail.visible = false
+	add_child(_fail)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	_fail.add_child(v)
+	_fail_title = Label.new()
+	_fail_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fail_title.add_theme_font_size_override("font_size", 30)
+	_fail_title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	v.add_child(_fail_title)
+	_fail_body = Label.new()
+	_fail_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fail_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_fail_body.custom_minimum_size = Vector2(480, 0)
+	_fail_body.add_theme_font_size_override("font_size", 16)
+	v.add_child(_fail_body)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	v.add_child(row)
+	for item in [["Revert to launch", "revert_launch"], ["Back to hangar", "revert_hangar"], ["Keep watching", "dismiss"], ["Main menu", "main_menu"]]:
+		var b := Button.new()
+		b.text = item[0]
+		b.focus_mode = Control.FOCUS_NONE
+		var act: String = item[1]
+		b.pressed.connect(func():
+			if act == "dismiss":
+				_fail.visible = false
+			else:
+				menu_action.emit(act))
+		row.add_child(b)
+
+
+func show_failure(title: String, body: String, hint: String) -> void:
+	_fail_title.text = title
+	_fail_body.text = body + "\n\n" + hint
+	_fail.visible = true
+
+
+func hide_failure() -> void:
+	_fail.visible = false
+
+
+func set_hint(s: String) -> void:
+	_hint.text = s
 
 
 func toggle_help() -> void:
@@ -323,6 +455,7 @@ func set_node_text(s: String) -> void:
 
 func set_warp_text(s: String) -> void:
 	_warp_text = s
+	_warp_label.text = s if s != "" else "time: normal"
 
 
 static func fmt_dist(m: float) -> String:
@@ -396,7 +529,8 @@ func _update_fuel(t: Dictionary) -> void:
 	title.add_theme_color_override("font_color", Color(0.62, 0.75, 0.9))
 	title.add_theme_font_size_override("font_size", 13)
 	v.add_child(title)
-	for kind in [["Liquid", "liquid", Color(0.45, 0.75, 1.0)], ["Solid", "solid", Color(1.0, 0.6, 0.25)]]:
+	title.text = "PROPELLANT · this stage"
+	for kind in [["Liquid", "stage_liquid", Color(0.45, 0.75, 1.0)], ["Solid", "stage_solid", Color(1.0, 0.6, 0.25)]]:
 		var cap: float = t.get(kind[1] + "_capacity", 0.0)
 		if cap <= 0:
 			continue
@@ -414,6 +548,16 @@ func _update_fuel(t: Dictionary) -> void:
 		l.add_theme_font_size_override("font_size", 12)
 		v.add_child(l)
 		v.add_child(bar)
+	if t.get("stage_liquid_capacity", 0.0) <= 0.0 and t.get("stage_solid_capacity", 0.0) <= 0.0:
+		var none := Label.new()
+		none.text = "No engine in this stage"
+		none.add_theme_font_size_override("font_size", 12)
+		v.add_child(none)
+	var whole := Label.new()
+	whole.text = "Whole vessel: liquid %.0f kg%s" % [t.get("liquid", 0.0), ("   solid %.0f kg" % t.get("solid", 0.0)) if t.get("solid_capacity", 0.0) > 0.0 else ""]
+	whole.add_theme_font_size_override("font_size", 11)
+	whole.add_theme_color_override("font_color", Color(0.62, 0.72, 0.85))
+	v.add_child(whole)
 	var tw := Label.new()
 	tw.text = "Thrust %.0f kN   Δv left %.0f m/s" % [t.get("thrust", 0.0) / 1000.0, t.get("dv_total", 0.0)]
 	tw.add_theme_font_size_override("font_size", 13)

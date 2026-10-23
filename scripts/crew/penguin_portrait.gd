@@ -24,6 +24,7 @@ extends Control
 
 var member: Dictionary = {}
 var mood := "calm"
+var lost := false
 var mood_text := ""
 var g := 1.0
 
@@ -69,8 +70,19 @@ func react(kind: String, secs := 3.0) -> void:
 
 
 ## Feeds flight state. t: telemetry dictionary; spin: rad/s of tumbling.
+## The pod is gone: the feed cuts to static.
+func set_lost() -> void:
+	lost = true
+	mood = "lost"
+	mood_text = "signal lost"
+	queue_redraw()
+
+
 func update_state(t: Dictionary, spin_rate: float, delta: float) -> void:
 	_time += delta
+	if lost:
+		queue_redraw()
+		return
 	g = t.get("g_force", 0.0)
 	var nerve: float = member.get("nerve", 0.5)
 	var glee: float = member.get("glee", 0.5)
@@ -159,6 +171,9 @@ func _sky_color(t: Dictionary) -> Color:
 func _draw() -> void:
 	var w := size.x
 	var h := size.y - 26.0
+	if lost:
+		_draw_lost(w, h)
+		return
 	var c := Vector2(w * 0.5, h * 0.53)
 	# pod interior: padded wall, porthole with sky, seat
 	draw_rect(Rect2(0, 0, w, h), Color(0.1, 0.16, 0.2))
@@ -207,6 +222,21 @@ func _draw() -> void:
 	draw_string(font, Vector2(6, h + 12), str(member.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, w - 8, 12, Color(1, 1, 1))
 	var mood_col := Color(1, 0.4, 0.3) if mood == "panicking" else Color(1.0, 0.75, 0.3) if mood in ["thrilled", "cheering"] else Color(0.7, 0.85, 1.0)
 	draw_string(font, Vector2(6, h + 24), mood_text, HORIZONTAL_ALIGNMENT_LEFT, w - 8, 11, mood_col)
+
+
+func _draw_lost(w: float, h: float) -> void:
+	draw_rect(Rect2(0, 0, w, h), Color(0.03, 0.03, 0.04))
+	_rng.seed = int(_time * 24.0)
+	for i in 70:
+		var y := _rng.randf() * h
+		var v := _rng.randf_range(0.15, 0.6)
+		draw_line(Vector2(_rng.randf() * w * 0.5, y), Vector2(w * (0.5 + _rng.randf() * 0.5), y), Color(v, v, v, 0.5), 1.0)
+	var font := get_theme_default_font()
+	draw_string(font, Vector2(0, h * 0.45), "SIGNAL LOST", HORIZONTAL_ALIGNMENT_CENTER, w, 16, Color(1, 0.35, 0.3))
+	draw_string(font, Vector2(0, h * 0.45 + 22), "in memoriam", HORIZONTAL_ALIGNMENT_CENTER, w, 12, Color(0.75, 0.78, 0.85))
+	draw_rect(Rect2(0, h, w, 26), Color(0.05, 0.07, 0.11, 0.95))
+	draw_string(font, Vector2(6, h + 12), str(member.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, w - 8, 12, Color(0.7, 0.7, 0.75))
+	draw_string(font, Vector2(6, h + 24), "lost with the pod", HORIZONTAL_ALIGNMENT_LEFT, w - 8, 11, Color(1, 0.4, 0.3))
 
 
 func _draw_penguin() -> void:

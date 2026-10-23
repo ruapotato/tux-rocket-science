@@ -175,6 +175,12 @@ static void m_vessel_set_legs(void *self, const trs_val *a, trs_val *r) {
 	trs_vessel_refresh(h->world, (int)a[0].i);
 }
 
+/* vessel_deploy_chutes(id) -> how many chutes were armed */
+static void m_vessel_deploy_chutes(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = ok_vessel(h, a[0].i) ? trs_vessel_deploy_chutes(h->world, (int)a[0].i) : 0;
+}
+
 static const char *MODE_NAMES[] = { "physics", "rails", "landed" };
 
 /* vessel_set_mode(id, "physics"|"rails"|"landed") */
@@ -304,6 +310,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "north", v3_json(north));
 	trs_json_set(j, "east", v3_json(east));
 	trs_json_set(j, "nose", v3_json(nose));
+	trs_json_set(j, "side", v3_json(side));
 	trs_json_set(j, "position", v3_json(pos));
 	trs_json_set(j, "velocity", v3_json(vel));
 	trs_json_set(j, "surface_velocity", v3_json(vsurf));
@@ -378,6 +385,52 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "liquid_capacity", trs_json_new_num(liquid_cap));
 		trs_json_set(j, "solid", trs_json_new_num(solid));
 		trs_json_set(j, "solid_capacity", trs_json_new_num(solid_cap));
+		/* the current stage: propellant feeding the lit engines (or, between
+		 * stages, the engines the next stage will light) */
+		if (vs->dirty)
+			trs_vessel_refresh(w, id);
+		unsigned char *grp = calloc((size_t)c->count + 1, 1);
+		int any_lit = 0;
+		for (int i = 0; i < c->count; i++)
+			if (c->parts[i].engine_on && trs_craft_def(c, i)->propellant != TRS_PROP_NONE)
+				any_lit = 1;
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (d->propellant == TRS_PROP_NONE)
+				continue;
+			if (any_lit ? !c->parts[i].engine_on : c->parts[i].stage != vs->next_stage)
+				continue;
+			grp[i] = 1; /* solids carry their own propellant */
+			if (d->propellant == TRS_PROP_LIQUID)
+				for (int k = 0; k < c->count; k++)
+					if (vs->fuel_group[k] == vs->fuel_group[i])
+						grp[k] = 1;
+		}
+		double sl = 0, slc = 0, ss = 0, ssc = 0;
+		for (int i = 0; i < c->count; i++) {
+			if (!grp[i])
+				continue;
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (d->fuel_liquid > 0)
+				sl += c->parts[i].fuel, slc += d->fuel_liquid;
+			if (d->fuel_solid > 0)
+				ss += c->parts[i].fuel, ssc += d->fuel_solid;
+		}
+		free(grp);
+		trs_json_set(j, "stage_liquid", trs_json_new_num(sl));
+		trs_json_set(j, "stage_liquid_capacity", trs_json_new_num(slc));
+		trs_json_set(j, "stage_solid", trs_json_new_num(ss));
+		trs_json_set(j, "stage_solid_capacity", trs_json_new_num(ssc));
+		int chutes = 0, chutes_stowed = 0, chutes_open = 0;
+		for (int i = 0; i < c->count; i++)
+			if (trs_craft_def(c, i)->is_parachute) {
+				chutes++;
+				chutes_stowed += c->parts[i].chute == TRS_CHUTE_STOWED;
+				chutes_open += c->parts[i].chute == TRS_CHUTE_SEMI || c->parts[i].chute == TRS_CHUTE_FULL;
+			}
+		trs_json_set(j, "chutes", trs_json_new_num(chutes));
+		trs_json_set(j, "chutes_stowed", trs_json_new_num(chutes_stowed));
+		trs_json_set(j, "chutes_open", trs_json_new_num(chutes_open));
 	}
 	ret_json(r, j);
 }
@@ -880,6 +933,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_set_sas", m_vessel_set_sas, B, 3, { I, S, A }, { "id", "mode", "target" } },
 	{ "vessel_stage", m_vessel_stage, S, 1, { I }, { "id" } },
 	{ "vessel_set_legs", m_vessel_set_legs, V, 2, { I, B }, { "id", "deployed" } },
+	{ "vessel_deploy_chutes", m_vessel_deploy_chutes, I, 1, { I }, { "id" } },
 	{ "vessel_set_mode", m_vessel_set_mode, V, 2, { I, S }, { "id", "mode" } },
 	{ "vessel_alive", m_vessel_alive, B, 1, { I }, { "id" } },
 	{ "telemetry", m_telemetry, S, 1, { I }, { "id" } },

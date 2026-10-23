@@ -82,8 +82,8 @@ func _ready() -> void:
 	_trail_mat.initial_velocity_min = 25.0
 	_trail_mat.initial_velocity_max = 45.0
 	_trail_mat.gravity = Vector3.ZERO
-	_trail_mat.scale_min = 0.5
-	_trail_mat.scale_max = 1.0
+	_trail_mat.scale_min = 0.9
+	_trail_mat.scale_max = 1.8
 	_trail_mat.particle_flag_align_y = true
 	var grad := Gradient.new()
 	grad.set_color(0, Color(1.0, 0.9, 0.7, 1.0))
@@ -92,10 +92,10 @@ func _ready() -> void:
 	var gt := GradientTexture1D.new()
 	gt.gradient = grad
 	_trail_mat.color_ramp = gt
-	var sc := Curve.new()
-	sc.add_point(Vector2(0.0, 0.5))
-	sc.add_point(Vector2(0.3, 1.0))
-	sc.add_point(Vector2(1.0, 1.8))
+	var sc := Curve.new()  # 0..1 growth into the scale range
+	sc.add_point(Vector2(0.0, 0.28))
+	sc.add_point(Vector2(0.3, 0.55))
+	sc.add_point(Vector2(1.0, 1.0))
 	var sct := CurveTexture.new()
 	sct.curve = sc
 	_trail_mat.scale_curve = sct
@@ -122,6 +122,7 @@ func _ready() -> void:
 
 
 ## air_vel: velocity of the vessel relative to the air (Godot axes, m/s);
+## the glow sits on the side moving into the air, the trail streams behind;
 ## rho: air density; size: vessel bounding radius (m).
 func update_fx(air_vel: Vector3, rho: float, size: float, delta: float) -> void:
 	var v := air_vel.length()
@@ -133,7 +134,8 @@ func update_fx(air_vel: Vector3, rho: float, size: float, delta: float) -> void:
 	_trail.emitting = level > 0.05
 	if not visible:
 		return
-	var flow := air_vel.normalized() if v > 1.0 else Vector3.DOWN
+	# the air streams past opposite to our motion through it
+	var flow := -air_vel.normalized() if v > 1.0 else Vector3.DOWN
 	# sheath sits on the windward side
 	var r := size * 0.62
 	_shell.scale = Vector3.ONE * r

@@ -109,6 +109,13 @@ func set_legs(deployed: bool) -> void:
 	core.vessel_set_legs(active, deployed)
 
 
+## Arms every stowed parachute; each opens once the air is thick and slow
+## enough. Returns how many were armed.
+func deploy_chutes() -> int:
+	_telemetry_tick = -1
+	return core.vessel_deploy_chutes(active)
+
+
 func stage() -> Array:
 	if warp_kind == "rails" and warp_index > 0:
 		set_warp("rails", 0)

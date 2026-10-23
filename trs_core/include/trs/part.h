@@ -72,6 +72,8 @@ typedef struct {
 
 	/* aero: Cd per face and reference areas (axial = end face, side = profile) */
 	double cd_top, cd_bottom, cd_side, area_axial, area_side;
+	double cop;    /* cross-flow centre of pressure along the axis, fraction of height from the part centre */
+	int plate;     /* flat plate (fins): cross-flow force only along the plate normal (local X) */
 
 	/* geometry used for mass properties and default areas */
 	double radius, height;

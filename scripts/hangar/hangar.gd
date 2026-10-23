@@ -20,7 +20,11 @@
 extends Node3D
 
 const SYMMETRY_STEPS := [1, 2, 3, 4, 6]
-const SNAP_PX := 46.0
+const SNAP_PX := 60.0
+## The craft hangs in the assembly frame at a working height, so there is
+## always room to build downward from the pod; it only rises when the stack
+## below the pod would reach the floor.
+const BUILD_HEIGHT := 7.0
 const ROT_STEP := deg_to_rad(15.0)
 const CATEGORIES := ["pods", "tanks", "engines", "structural", "aero", "utility", "control"]
 const CATEGORY_NAMES := {
@@ -41,6 +45,8 @@ var _cam_target := Vector3(0, 6, 0)
 var _orbiting := false
 var _panning := false
 
+var _craft_y := -1.0
+var _node_markers: Array[MeshInstance3D] = []
 var _held: Dictionary = {}
 var _held_spin := 0.0
 var _held_extra: Array = DMath.q_identity()
@@ -195,8 +201,14 @@ func _rebuild_craft() -> void:
 		_part_nodes.append(v)
 		var h := CraftModel.part_height(p.part)
 		min_y = minf(min_y, p.pos[1] - h * 0.5 - (0.6 if Sim.part(p.part).get("shape", {}).get("type", "") in ["booster", "engine"] else 0.0))
-	# stand the craft on the floor
-	_craft_root.position = Vector3(0, -min_y + 0.2, 0)
+	# hang the craft at the working height (raising it only when it must),
+	# and move the camera with it so nothing jumps under the cursor
+	var y := maxf(BUILD_HEIGHT, -min_y + 0.6)
+	if _craft_y >= 0.0 and absf(y - _craft_y) > 1e-6:
+		_cam_target.y += y - _craft_y
+		_update_camera()
+	_craft_y = y
+	_craft_root.position = Vector3(0, y, 0)
 	_hover = -1
 
 
@@ -626,7 +638,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cam_pitch += mm.relative.y * 0.006
 			_update_camera()
 		elif _panning:
-			_cam_target.y = clampf(_cam_target.y + mm.relative.y * 0.03 * _cam_dist / 20.0, 0.5, 80.0)
+			_cam_target.y = clampf(_cam_target.y + mm.relative.y * 0.03 * _cam_dist / 20.0, 0.5, 120.0)
 			_update_camera()
 	elif event is InputEventKey and event.pressed:
 		_key(event as InputEventKey)
@@ -658,6 +670,8 @@ func _key(k: InputEventKey) -> void:
 			_rotate_input([0.0, 0.0, 1.0], -ROT_STEP)
 		KEY_X:
 			_cycle_symmetry(-1 if k.shift_pressed else 1)
+		KEY_F:
+			_frame_craft()
 		KEY_DELETE, KEY_BACKSPACE:
 			if not _held.is_empty():
 				_drop_held()
@@ -666,7 +680,10 @@ func _key(k: InputEventKey) -> void:
 		KEY_ESCAPE:
 			_drop_held()
 		KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PAGEUP, KEY_PAGEDOWN:
-			if _hover > 0 and _held.is_empty():
+			if (_hover <= 0 or not _held.is_empty()) and k.keycode in [KEY_PAGEUP, KEY_PAGEDOWN]:
+				_cam_target.y = clampf(_cam_target.y + (2.0 if k.keycode == KEY_PAGEUP else -2.0), 0.5, 120.0)
+				_update_camera()
+			elif _hover > 0 and _held.is_empty():
 				var step := 0.25 if k.shift_pressed else 0.05
 				var d := {KEY_UP: [0.0, step, 0.0], KEY_DOWN: [0.0, -step, 0.0], KEY_LEFT: [-step, 0.0, 0.0],
 					KEY_RIGHT: [step, 0.0, 0.0], KEY_PAGEUP: [0.0, 0.0, step], KEY_PAGEDOWN: [0.0, 0.0, -step]}
@@ -748,6 +765,7 @@ func _update_hover_and_snap() -> void:
 			_hover = idx
 			_highlight([] if idx < 0 else model.counterparts(idx))
 		_clear_ghosts()
+		_show_node_markers(false)
 		return
 	if _hover >= 0:
 		_hover = -1
@@ -780,11 +798,43 @@ func _update_hover_and_snap() -> void:
 				placements = pl
 				_snap = {"kind": "surface", "target": idx, "angle": angle, "y": local_hit.y}
 	var ok := not _snap.is_empty() or model.parts.is_empty()
+	_show_node_markers(true)
 	if placements.is_empty():
 		# float in front of the camera
 		var p: Vector3 = ray.from + ray.dir * _cam_dist * 0.7 - _craft_root.global_position
 		placements = [{"pos": [p.x, p.y, p.z], "rot": DMath.q_identity()}]
 	_show_ghosts(placements, ok)
+
+
+## While a part is held, every free attach node shows as a marker; the one
+## it would snap to turns green.
+func _show_node_markers(on: bool) -> void:
+	var nodes: Array = model.free_nodes() if on else []
+	while _node_markers.size() < nodes.size():
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.16
+		sm.height = 0.32
+		mi.mesh = sm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.no_depth_test = true
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.render_priority = 10
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		_node_markers.append(mi)
+	for k in _node_markers.size():
+		var mi := _node_markers[k]
+		mi.visible = k < nodes.size()
+		if not mi.visible:
+			continue
+		var n: Dictionary = nodes[k]
+		mi.global_position = _craft_root.global_transform * DMath.to_v3(n.pos)
+		var hot: bool = _snap.get("kind", "") == "stack" and _snap.target == n.index and _snap.node == n.node
+		(mi.material_override as StandardMaterial3D).albedo_color = Color(0.3, 1.0, 0.45, 0.95) if hot else Color(1.0, 0.6, 0.15, 0.75)
+		mi.scale = Vector3.ONE * (1.5 if hot else 1.0) * clampf(_cam_dist / 20.0, 0.6, 3.0)
 
 
 func _show_ghosts(placements: Array, ok: bool) -> void:
@@ -807,10 +857,10 @@ func _show_ghosts(placements: Array, ok: bool) -> void:
 func _update_hint() -> void:
 	if not _held.is_empty():
 		var name: String = Sim.part(_held.parts[0].part).name
-		_hint.text = "Holding %s%s — click to attach · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
+		_hint.text = "Holding %s%s — move to an orange node (it turns green) or onto a hull, then click · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
 			name, "" if _held.parts.size() == 1 else " (+%d)" % (_held.parts.size() - 1), symmetry]
 	elif _hover >= 0:
 		var p: Dictionary = model.parts[_hover]
 		_hint.text = "%s — click to pick up · Del removes · Q/E/W/S/A/D rotate · arrows/PgUp/PgDn offset (Shift: bigger steps)" % Sim.part(p.part).name
 	else:
-		_hint.text = "Right-drag orbit · wheel zoom · middle-drag up/down · pick a part on the left · Ctrl+Z/Y undo/redo · Ctrl+S save"
+		_hint.text = "Pick a part on the left · click a part on the craft to pick it up · right-drag orbit · wheel zoom · middle-drag or PgUp/PgDn move view up/down · F frame craft · Ctrl+Z/Y undo/redo · Ctrl+S save"

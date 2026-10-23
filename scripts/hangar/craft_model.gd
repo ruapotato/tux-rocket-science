@@ -589,7 +589,7 @@ func set_name_text(n: String) -> void:
 
 func activatable(i: int) -> bool:
 	var d := Sim.part(parts[i].part)
-	return d.has("engine") or d.has("decoupler") or d.has("parachute")
+	return d.has("engine") or d.has("decoupler")  # parachutes are deployed by hand (P)
 
 
 ## Parts that firing decoupler i would detach (mirrors trs_core's rule).
@@ -610,7 +610,8 @@ func detach_set(i: int) -> Array[int]:
 
 ## KSP-style automatic staging: the deepest stack segment lights first,
 ## radial boosters drop next, then each stack decoupler fires together with
-## the next segment's engines; parachutes come last.
+## the next segment's engines. Parachutes are not staged: the pilot deploys
+## them (P) when it is safe.
 func auto_stage() -> void:
 	var n := parts.size()
 	var sd := []  # stack-decoupler depth per part
@@ -650,12 +651,6 @@ func auto_stage() -> void:
 				radial.append(i)
 		if not radial.is_empty():
 			steps.append(radial)
-	var chutes := []
-	for i in n:
-		if Sim.part(parts[i].part).has("parachute"):
-			chutes.append(i)
-	if not chutes.is_empty():
-		steps.append(chutes)
 	for p in parts:
 		p.stage = -1
 	for k in steps.size():

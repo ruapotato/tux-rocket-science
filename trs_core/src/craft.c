@@ -408,8 +408,6 @@ void trs_craft_activate_stage_root_only(trs_craft *c, int s) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (d->propellant != TRS_PROP_NONE)
 			c->parts[i].engine_on = 1;
-		if (d->is_parachute && c->parts[i].chute == TRS_CHUTE_STOWED)
-			c->parts[i].chute = TRS_CHUTE_ARMED;
 		if (d->is_leg)
 			c->parts[i].legs_deployed = 1;
 	}

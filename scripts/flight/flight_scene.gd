@@ -62,6 +62,7 @@ func _ready() -> void:
 	if cs:
 		cs.attach(session)
 	_build()
+	_roster_snapshot = Crew.crew.duplicate(true)
 	_assign_crew()
 	_cam_dist = 18.0 + _craft_height() * 1.2
 	hud.toast("PASA, %s is on the pad. Z for full throttle, SPACE to launch." % session.telemetry().get("name", "vessel"), 5.0)
@@ -219,6 +220,23 @@ func _build() -> void:
 	ui.add_child(hud)
 	hud.sas_pressed.connect(_on_sas)
 	hud.menu_action.connect(_on_menu)
+	hud.warp_pressed.connect(func(dir: int):
+		if dir == 0:
+			session.set_warp("physics", 0)
+		else:
+			_change_warp(dir))
+	hud.throttle_set.connect(func(x: float): _throttle = x)
+	hud.action_pressed.connect(_on_action)
+
+
+func _on_action(a: String) -> void:
+	match a:
+		"stage":
+			_stage()
+		"chute":
+			_deploy_chutes()
+		"legs":
+			_toggle_legs()
 
 
 # ---- input --------------------------------------------------------------------
@@ -234,7 +252,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cam_dist = minf(5.0e4, _cam_dist * 1.1)
 	elif event is InputEventMouseMotion and _orbiting:
 		var mm := event as InputEventMouseMotion
-		_cam_yaw -= mm.relative.x * 0.008
+		_cam_yaw += mm.relative.x * 0.008
 		_cam_pitch = clampf(_cam_pitch + mm.relative.y * 0.006, -1.45, 1.45)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		_key(event as InputEventKey)
@@ -258,16 +276,16 @@ func _key(k: InputEventKey) -> void:
 			_throttle = 0.0
 		KEY_T:
 			_on_sas("off" if session.telemetry().get("sas", "off") != "off" else "stability")
+		KEY_P:
+			_deploy_chutes()
 		KEY_G:
-			_legs_down = not _legs_down
-			session.set_legs(_legs_down)
-			hud.toast("Legs " + ("down" if _legs_down else "up"), 1.5)
+			_toggle_legs()
 		KEY_V:
 			hud.speed_mode = "orbit" if hud.speed_mode == "surface" else "surface"
 		KEY_M:
 			_map.visible = not _map.visible
 			if _map.visible:
-				_map.focus_body = int(session.telemetry().get("body_index", 1))
+				_map.focus_on_vessel()
 		KEY_TAB:
 			if _map.visible:
 				_map.cycle_focus()
@@ -285,16 +303,57 @@ func _key(k: InputEventKey) -> void:
 var _legs_down := false
 
 
+func _toggle_legs() -> void:
+	_legs_down = not _legs_down
+	session.set_legs(_legs_down)
+	hud.toast("Legs " + ("down" if _legs_down else "up"), 1.5)
+
+
 func _stage() -> void:
+	var t0 := session.telemetry()
+	if not t0.get("alive", false):
+		return
+	if int(t0.next_stage) < 0:
+		hud.toast("No stages left. (P deploys parachutes)", 2.0)
+		Sfx.play("click")
+		return
+	var lit0 := int(t0.get("engines_lit", 0))
+	var was_clamped: bool = t0.get("clamped", false)
 	var created := session.stage()
+	var t1 := session.telemetry()
+	var lit := int(t1.get("engines_lit", 0)) > lit0
 	_react("stage", 2.0)
-	Sfx.play("stage" if not created.is_empty() else "ignite")
+	# each sound is something that actually happened
+	if not created.is_empty():
+		Sfx.play("stage")
+	if lit:
+		Sfx.play("ignite")
+	if created.is_empty() and not lit:
+		Sfx.play("decouple" if was_clamped else "click")
 	if not _launched:
 		_launched = true
 		mission_start = session.time()
-		hud.toast("Liftoff! The penguins are going to space.", 3.0)
+		if t1.get("thrust", 0.0) > 0.0:
+			hud.toast("Liftoff! The penguins are going to space.", 3.0)
+		else:
+			hud.toast("Clamps released, but no engine is burning! (Z for full throttle)", 3.5)
 	elif not created.is_empty():
 		hud.toast("Staging: separation confirmed", 1.5)
+	elif lit:
+		hud.toast("Ignition", 1.2)
+
+
+func _deploy_chutes() -> void:
+	var t := session.telemetry()
+	if int(t.get("chutes", 0)) == 0:
+		hud.toast("This vessel has no parachute", 2.0)
+		return
+	var n := session.deploy_chutes()
+	if n == 0:
+		hud.toast("Parachutes already deployed", 1.5)
+		return
+	Sfx.play("click")
+	hud.toast("Parachute armed: it opens once the air is thick enough and you are slow enough", 3.0)
 
 
 func _change_warp(dir: int) -> void:
@@ -350,6 +409,9 @@ func _on_menu(action: String) -> void:
 	hud.show_menu(false)
 	match action:
 		"revert_launch":
+			_restore_crew()
+			_fail_in = 0.0
+			hud.hide_failure()
 			_clear_views()
 			session.revert_to_launch()
 			_launched = false
@@ -359,6 +421,7 @@ func _on_menu(action: String) -> void:
 			_assign_crew()
 			hud.toast("Reverted to launch. The penguins pretend nothing happened.", 2.5)
 		"revert_hangar":
+			_restore_crew()
 			get_tree().change_scene_to_file("res://scenes/hangar.tscn")
 		"main_menu":
 			_record("lost" if _mission.pod_lost else "recovered")
@@ -369,12 +432,11 @@ func _on_sim_event(e: Dictionary) -> void:
 	match e.kind:
 		"part_destroyed":
 			_react("boom", 3.5)
-			Sfx.play("boom", clampf(float(e.speed) / 30.0, 0.4, 1.5))
+			var how: String = "in the blast" if float(e.speed) < 0.0 else "at %.0f m/s" % float(e.speed)
 			if Sim.part(e.part).get("crew", 0) > 0:
-				_mission.pod_lost = true
-				hud.toast("PASA, we have a problem. (%s lost at %.0f m/s)" % [Sim.part(e.part).name, e.speed], 5.0)
-			else:
-				hud.toast("%s destroyed (%.0f m/s impact)" % [Sim.part(e.part).name, e.speed], 2.5)
+				_crew_lost(Sim.part(e.part).name, how)
+			elif not _mission.pod_lost:
+				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
 		"soi_change":
 			_react("orbit", 3.0)
 			if not _mission.visited.has(str(e.get("body", ""))):
@@ -410,16 +472,50 @@ func _controls(delta: float) -> void:
 	if Input.is_key_pressed(KEY_CTRL):
 		_throttle = maxf(0.0, _throttle - THROTTLE_RATE * delta)
 	session.set_throttle(_throttle)
-	var pitch := float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W))
-	var yaw := float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A))
+	# steering is relative to the view: W/Up tips the nose away from the
+	# camera (or down the screen), D/Right swings it to the screen's right
+	var away := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
+	var right := float(Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT))
 	var roll := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
-	session.set_input(pitch, yaw, roll)
+	var pr := _view_steer(away, right)
+	session.set_input(pr.x, pr.y, roll)
 	if _sas_maneuver:
 		var nb := _node_burn()
 		if nb.is_empty():
 			_sas_maneuver = false
 		else:
 			session.set_sas("target", PackedFloat64Array([nb.vec.x, nb.vec.y, nb.vec.z]))
+
+
+## Turns screen-relative steering into the vessel's pitch (local X torque)
+## and yaw (local Z torque) inputs.
+func _view_steer(away: float, right: float) -> Vector2:
+	if away == 0.0 and right == 0.0:
+		return Vector2.ZERO
+	var t := session.telemetry()
+	if not t.get("alive", false) or not t.has("side"):
+		return Vector2.ZERO
+	var n := Frame.vec_arr(t.nose).normalized()
+	var x := Frame.vec_arr(t.side).normalized()
+	var z := x.cross(n)  # vessel local +Z (right-handed, Y = nose)
+	var cr := _cam.global_basis.x.normalized()
+	var cu := _cam.global_basis.y.normalized()
+	var cf := -_cam.global_basis.z.normalized()
+	var perp := func(v: Vector3) -> Vector3: return v - n * v.dot(n)
+	# where each key wants the nose to go: "away" heads into the screen,
+	# blending to down-screen as the nose already points away (and to
+	# up-screen when it points at the camera); "right" is screen-right
+	var fd := n.dot(cf)
+	var m_away: Vector3 = perp.call(cf) + perp.call(-cu) * smoothstep(0.5, 0.95, fd) * 2.0 \
+		+ perp.call(cu) * smoothstep(0.5, 0.95, -fd) * 2.0
+	var m_right: Vector3 = perp.call(cr)
+	# a torque about axis A moves the nose along A x nose, so A = nose x m
+	var a_away := n.cross(m_away)
+	var a_right := n.cross(m_right)
+	a_away /= maxf(a_away.length(), 0.3)
+	a_right /= maxf(a_right.length(), 0.3)
+	var axis := a_away * away + a_right * right
+	return Vector2(clampf(axis.dot(x), -1.0, 1.0), clampf(axis.dot(z), -1.0, 1.0))
 
 
 func _clear_views() -> void:
@@ -431,6 +527,14 @@ func _clear_views() -> void:
 func _render(delta: float) -> void:
 	var t := session.telemetry()
 	if not t.get("alive", false):
+		# nothing left to follow: every remaining visual goes up where it was
+		for id in _views.keys():
+			_views[id].refresh(-1, 0.0, 0.0)
+			_explode_vanished(_views[id].vanished)
+			_views[id].queue_free()
+		_views.clear()
+		_update_booms(delta, Vector3.ZERO)
+		_update_failure(delta)
 		hud.update_from(t, 0.0)
 		return
 	var core := session.core
@@ -459,12 +563,15 @@ func _render(delta: float) -> void:
 
 	# camera rig in the local horizon frame
 	var up := Frame.vec_arr(t.up)
+	_last_up = up
 	var north := Frame.vec_arr(t.north)
 	var east := Frame.vec_arr(t.east)
 	# positive pitch puts the camera above the vessel, looking down at it
 	var horiz := north * cos(_cam_yaw) + east * sin(_cam_yaw)
 	_cam.position = (-horiz * cos(_cam_pitch) + up * sin(_cam_pitch)) * _cam_dist
 	_cam.look_at(Vector3.ZERO, up)
+	_update_booms(delta, -Frame.vec_arr(t.surface_velocity) * delta)
+	_update_failure(delta)
 
 	# bodies: sun direction, terrain for the current body
 	var bodies: PackedFloat64Array = core.body_render(origin)
@@ -476,7 +583,8 @@ func _render(delta: float) -> void:
 	_terrain.set_body(bi)
 	var body_rel := Frame.vec(bodies, bi * 5)
 	var eye: PackedFloat64Array = core.to_body_fixed(bi, origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
-	_terrain.refresh(eye, body_rel, bodies[bi * 5 + 3])
+	# the body centre stays in doubles: the ground near us must not jitter
+	_terrain.refresh(eye, [bodies[bi * 5], bodies[bi * 5 + 2], -bodies[bi * 5 + 1]], bodies[bi * 5 + 3])
 	# cloud deck 7 km up on bodies that have weather; from below it would be
 	# an overcast we don't model yet, so it shows once you're above it
 	var deck: float = 7000.0
@@ -539,6 +647,17 @@ func _render(delta: float) -> void:
 	for p in _portraits:
 		p.update_state(t, t.get("spin", 0.0), delta)
 	_update_audio(t)
+	if _smoke == null:
+		_smoke = SmokeTrail.new()
+		add_child(_smoke)
+	if origin != _smoke_origin:
+		_smoke.clear()
+		_smoke_origin = origin
+	var nozzles := []
+	for id in _views:
+		nozzles.append_array(_views[id].nozzles())
+	var day_light := clampf(up.dot(sun_dir) * 3.0 + 0.35, 0.12, 1.0)
+	_smoke.step(delta, nozzles, Frame.vec_arr(t.surface_velocity), t.pressure / 101325.0, day_light, up, t.altitude_terrain)
 	if _reentry == null:
 		_reentry = ReentryFX.new()
 		add_child(_reentry)
@@ -546,6 +665,11 @@ func _render(delta: float) -> void:
 		_craft_r = maxf(1.5, _craft_height() * 0.5)
 	_reentry.update_fx(Frame.vec_arr(t.surface_velocity), t.density, _craft_r, delta)
 	Sfx.wind_level = maxf(Sfx.wind_level, _reentry.level)
+	var hint := ""
+	if int(t.get("chutes_stowed", 0)) > 0 and _launched and t.in_atmosphere and not t.landed \
+			and t.vertical_speed < -20.0 and t.altitude_terrain < 12000.0:
+		hint = "Falling with the parachute packed: press P to deploy it"
+	hud.set_hint(hint)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
 		_map.refresh()
@@ -575,37 +699,84 @@ func _explode_vanished(gone: Dictionary) -> void:
 				moved = true
 				break
 		if not moved:
-			_explosion(gone[uid])
+			_explosion(gone[uid].pos, gone[uid].part)
 
 
-func _explosion(at: Vector3) -> void:
-	var root := Node3D.new()
-	root.position = at
-	add_child(root)
-	var ball := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 1.0
-	sm.height = 2.0
-	ball.mesh = sm
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.albedo_color = Color(1.0, 0.6, 0.2, 0.9)
-	ball.material_override = m
-	root.add_child(ball)
-	var light := OmniLight3D.new()
-	light.light_color = Color(1.0, 0.6, 0.3)
-	light.omni_range = 40.0
-	light.light_energy = 8.0
-	root.add_child(light)
-	var tw := create_tween().set_parallel(true)
-	tw.tween_property(ball, "scale", Vector3.ONE * 7.0, 0.7)
-	tw.tween_property(m, "albedo_color:a", 0.0, 0.7)
-	tw.tween_property(light, "light_energy", 0.0, 0.7)
-	tw.chain().tween_callback(root.queue_free)
+func _explosion(at: Vector3, part_id: String) -> void:
+	var d: Dictionary = Sim.part(part_id)
+	# propellant makes the bang: a full tank is a bomb, a fin is a pop
+	var mass: float = d.get("mass", 100.0) + d.get("fuel_liquid", 0.0) + d.get("fuel_solid", 0.0)
+	var size := clampf(1.2 * pow(mass / 100.0, 1.0 / 3.0), 1.5, 9.0)
+	for b in _booms:
+		if is_instance_valid(b) and b.young() and b.position.distance_to(at) < b.size * 1.6:
+			b.merge(size)
+			return
+	var up := Frame.vec_arr(session.telemetry().get("up", [0.0, 0.0, 1.0])) if session.telemetry().get("alive", false) else _last_up
+	var ex := Explosion.new(size, up)
+	ex.position = at
+	add_child(ex)
+	_booms.append(ex)
+	var dist := at.distance_to(_cam.position if _cam else Vector3.ZERO)
+	_shake = maxf(_shake, clampf(size * 6.0 / (dist + 8.0), 0.0, 2.5))
+	Sfx.play("boom", clampf(size / 5.0 * 30.0 / (dist * 0.05 + 30.0), 0.3, 1.8))
 
 
+## The crew pod is gone. PASA does not get this one back.
+func _crew_lost(part_name: String, how: String) -> void:
+	if _mission.pod_lost:
+		return
+	_mission.pod_lost = true
+	var names := ", ".join(crew_names) if not crew_names.is_empty() else "the crew"
+	if _launched and not crew_names.is_empty():
+		Crew.record_loss(crew_names, _mission)
+		_recorded = true
+	for p in _portraits:
+		p.set_lost()
+	Sfx.play("alarm")
+	hud.toast("PASA, we have a problem...", 2.5)
+	_fail_text = ["MISSION LOST", "%s was destroyed %s.\n%s did not survive." % [part_name, how, names],
+		"Revert to launch to try again: it will be as if it never happened."]
+	_fail_in = 3.0
+
+
+func _restore_crew() -> void:
+	if not _roster_snapshot.is_empty():
+		Crew.crew = _roster_snapshot.duplicate(true)
+		Crew.save_roster()
+	_recorded = false
+
+
+## Explosions hang in the air (or sit on the ground) while we move on;
+## big ones shake the camera.
+func _update_booms(delta: float, drift: Vector3) -> void:
+	for k in range(_booms.size() - 1, -1, -1):
+		if not is_instance_valid(_booms[k]):
+			_booms.remove_at(k)
+		else:
+			_booms[k].position += drift
+	if _shake > 0.01:
+		_cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * _shake * 0.35
+		_shake *= exp(-delta * 2.5)
+
+
+## The mission-lost panel waits a moment so the player sees what happened.
+func _update_failure(delta: float) -> void:
+	if _fail_in > 0.0:
+		_fail_in -= delta
+		if _fail_in <= 0.0:
+			hud.show_failure(_fail_text[0], _fail_text[1], _fail_text[2])
+
+
+var _last_up := Vector3.UP
+var _fail_in := 0.0
+var _fail_text: Array = []
+var _booms: Array[Explosion] = []
+var _shake := 0.0
+var _roster_snapshot: Array = []
+
+
+var _smoke: SmokeTrail
+var _smoke_origin := -1
 var _chutes_open := 0
 var _reentry: ReentryFX
 var _craft_r := 5.0

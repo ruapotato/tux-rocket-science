@@ -11,7 +11,7 @@
       "crew": 1,
       "torque": 5000,
       "crash_tolerance": 14,
-      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9 },
+      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.0 },
       "nodes": [
         { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.3 },
@@ -28,7 +28,7 @@
       "crew": 3,
       "torque": 12000,
       "crash_tolerance": 14,
-      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9 },
+      "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.6 },
       "nodes": [
         { "name": "top", "pos": [0, 0.8, 0], "dir": [0, 1, 0], "radius": 0.3 },
@@ -227,7 +227,7 @@
       "category": "aero",
       "description": "Sharp enough to part the air, too dull to hurt the air's feelings.",
       "mass": 80,
-      "aero": { "cd_top": 0.12, "cd_bottom": 0.8, "cd_side": 0.8 },
+      "aero": { "cd_top": 0.12, "cd_bottom": 0.8, "cd_side": 0.8, "cop": -0.3 },
       "crash_tolerance": 10,
       "shape": { "type": "cone", "radius_bottom": 0.625, "radius_top": 0.0, "height": 1.1 },
       "nodes": [

@@ -27,9 +27,9 @@ extends RefCounted
 var api: ControlAPI
 var target_ap := 84000.0
 var target_pe := 78500.0
-var turn_start := 800.0   # m AGL
+var turn_start := 250.0   # m AGL: kick over before the air gets thick, then follow prograde
 var turn_end := 42000.0   # m, nose horizontal by here
-var keep_stage := 2  # stages below this are never fired during ascent
+var keep_stage := 1  # stages below this are never fired during ascent
 var phase := "liftoff"
 var log := PackedStringArray()
 var max_q := 0.0
@@ -98,7 +98,7 @@ func step(dt: float) -> bool:
 				var sv := v3(t.surface_velocity).normalized()
 				var up := v3(t.up)
 				var pro := acos(clampf(sv.dot(up), -1.0, 1.0))
-				p = clampf(p, pro - deg_to_rad(4.0), pro + deg_to_rad(4.0))
+				p = clampf(p, pro - deg_to_rad(6.0), pro + deg_to_rad(6.0))
 			_point(t, p)
 			if ap >= target_ap:
 				api.handle({"cmd": "throttle", "value": 0.0})
@@ -129,7 +129,7 @@ func step(dt: float) -> bool:
 				_note(t, "orbit: Pe %.1f km, Ap %.1f km" % [orb.pe_alt / 1000.0, ap / 1000.0])
 				phase = "done"
 				return true
-			if t.get("thrust_max", 0.0) <= 0.0 and t.next_stage <= 1:
+			if t.get("thrust_max", 0.0) <= 0.0 and t.next_stage <= 0:
 				phase = "out_of_fuel"
 				_note(t, "out of propellant, Pe %.1f km" % (orb.pe_alt / 1000.0))
 				return true

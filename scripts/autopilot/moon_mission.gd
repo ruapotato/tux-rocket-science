@@ -71,7 +71,7 @@ func aligned(dir: Vector3, deg := 3.0) -> bool:
 
 
 ## Stage while the current stage is spent, never past `min_stage`.
-func stage_if_spent(min_stage := 1) -> void:
+func stage_if_spent(min_stage := 0) -> void:
 	var t := tel()
 	if t.next_stage >= min_stage and t.get("thrust_max", 0.0) <= 0.0:
 		api.handle({"cmd": "stage"})
@@ -87,7 +87,7 @@ func body_info(id: String) -> Dictionary:
 
 ## Burns `dv` m/s along fixed direction `dir` (sim frame) and returns what
 ## was delivered (from trs_core's integrated thrust acceleration).
-func burn(dir: Vector3, dv: float, min_stage := 1) -> float:
+func burn(dir: Vector3, dv: float, min_stage := 0) -> float:
 	point(dir)
 	for i in 50 * 40:
 		if aligned(dir):
@@ -114,7 +114,7 @@ func burn(dir: Vector3, dv: float, min_stage := 1) -> float:
 
 
 ## Executes maneuver node [t, pro, nrm, rad]: warp, point, burn centred on t.
-func execute_node(node: Array, min_stage := 1) -> void:
+func execute_node(node: Array, min_stage := 0) -> void:
 	var dir := v3(api.handle({"cmd": "node_vector", "nodes": [node], "index": 0}).vector)
 	var dv := dir.length()
 	var bt: float = api.handle({"cmd": "burn_time", "dv": dv}).seconds
@@ -257,7 +257,7 @@ func capture() -> void:
 		var tt := tel()
 		if tt.orbit.ap_alt != null and tt.orbit.ap_alt < tt.orbit.pe_alt + 25000.0:
 			break
-		stage_if_spent(1)
+		stage_if_spent(0)
 		api.handle({"cmd": "throttle", "value": 1.0})
 		step(5)
 	api.handle({"cmd": "throttle", "value": 0.0})
@@ -268,7 +268,7 @@ func capture() -> void:
 ## Braking from orbit, then a guided vertical descent onto the surface.
 func land() -> bool:
 	var t := tel()
-	if t.next_stage == 1:
+	if t.next_stage == 0:
 		api.handle({"cmd": "stage"})
 		note("lander separated from the transfer stage")
 	api.handle({"cmd": "legs", "deployed": true})
@@ -351,7 +351,7 @@ func leave_krill() -> bool:
 		if t.vertical_speed < 5.0 and agl < 3000.0:
 			th = minf(th, deg_to_rad(45.0))
 		point(up * cos(th) + east * sin(th))
-		stage_if_spent(1)
+		stage_if_spent(0)
 		api.handle({"cmd": "throttle", "value": 1.0})
 		step(5)
 	api.handle({"cmd": "throttle", "value": 0.0})
@@ -395,8 +395,8 @@ func return_home() -> bool:
 		if not t.alive:
 			return false
 		max_g = maxf(max_g, t.g_force)
-		if not chute_armed and t.altitude < 30000.0 and t.next_stage >= 0:
-			api.handle({"cmd": "stage"})  # arms the chute; it opens once slow enough
+		if not chute_armed and t.altitude < 30000.0:
+			api.handle({"cmd": "chute"})  # arms the chute; it opens once slow enough
 			chute_armed = true
 			note("chute armed")
 		if t.landed and t.surface_speed < 0.3:

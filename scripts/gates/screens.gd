@@ -74,6 +74,7 @@ func run(runner: Node) -> Dictionary:
 	var node := m.plan_transfer()
 	s.nodes = [node]
 	flight._map.visible = true
+	flight._map.focus_vessel = false  # the whole Floe-Krill system
 	flight._map.focus_body = 1
 	flight._map._dist = 240.0
 	flight._map._pitch = 1.05

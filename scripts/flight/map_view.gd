@@ -28,6 +28,10 @@ const COLORS := [Color(0.35, 0.85, 1.0), Color(1.0, 0.62, 0.2), Color(0.6, 1.0, 
 
 var session: FlightSession
 var focus_body := 1
+## When set, the camera pivots on the vessel (the default); Tab moves the
+## focus to the bodies and back.
+var focus_vessel := true
+var _target := Vector3.ZERO
 var _vp: SubViewport
 var _cam: Camera3D
 var _yaw := 0.6
@@ -147,7 +151,8 @@ func setup(s: FlightSession) -> void:
 	_panel.custom_minimum_size = Vector2(270, 0)
 	v.add_child(_panel)
 	_warp_btn = Button.new()
-	_warp_btn.text = "Warp to node"
+	_warp_btn.text = "Skip to burn"
+	_warp_btn.tooltip_text = "Fast-forward time until just before this maneuver node's burn starts,\nso you can point the ship and burn (MNV on the SAS row points it for you)."
 	_warp_btn.focus_mode = Control.FOCUS_NONE
 	_warp_btn.pressed.connect(_warp_to_node)
 	v.add_child(_warp_btn)
@@ -157,10 +162,10 @@ func setup(s: FlightSession) -> void:
 	_del_btn.pressed.connect(func(): _delete_node(selected_node))
 	v.add_child(_del_btn)
 	var help := Label.new()
-	help.text = "M back to flight · click the path to add a node · drag handles · right-drag orbit · wheel zoom · Tab focus"
+	help.text = "M back to flight · click your path to add a burn (maneuver node) · drag its handles · right-drag orbit · wheel zoom · Tab: focus vessel / planets"
 	help.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	help.offset_top = 82
-	help.offset_bottom = 100
+	help.offset_top = 118
+	help.offset_bottom = 136
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	help.add_theme_font_size_override("font_size", 13)
 	help.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
@@ -185,10 +190,18 @@ func refresh() -> void:
 	if session.active < 0:
 		return
 	var t := session.telemetry()
+	if focus_vessel:
+		focus_body = int(t.get("body_index", focus_body))
 	var offs := _body_offsets()
-	# camera around the focus body
-	_cam.position = Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw)) * _dist
-	_cam.look_at(Vector3.ZERO, Vector3.UP)
+	# the vessel, from exact relative positions (it is the render origin)
+	var vrel := Frame.vec(session.core.vessel_render(session.active, session.active), 1)
+	var feed: PackedFloat64Array = session.core.body_render(session.active)
+	var vpos := (-Frame.vec(feed, focus_body * 5) + vrel) * SCALE
+	# camera around the vessel or the focus body
+	var want := vpos if focus_vessel else Vector3.ZERO
+	_target = want if _target.distance_to(want) > _dist * 2.0 else _target.lerp(want, 0.25)
+	_cam.position = _target + Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw)) * _dist
+	_cam.look_at(_target, Vector3.UP)
 	var sun: DirectionalLight3D = _vp.get_node("Sun")
 	var sd := (offs[0] as Vector3).normalized()
 	if sd.length() > 0.5:
@@ -245,10 +258,7 @@ func refresh() -> void:
 		elif p.end == "atmosphere" or p.end == "surface":
 			_markers.append({"pos": endp, "label": "Impact" if p.end == "surface" else "Atmosphere", "color": Color(1, 0.4, 0.3)})
 	# the vessel itself
-	var vrel := Frame.vec(session.core.vessel_render(session.active, session.active), 1)
-	var feed: PackedFloat64Array = session.core.body_render(session.active)
-	var vpos := -Frame.vec(feed, focus_body * 5)  # active vessel is the render origin
-	_vessel_icon.position = (vpos + vrel) * SCALE
+	_vessel_icon.position = vpos
 	_vessel_icon.scale = Vector3.ONE * _dist / 30.0
 	_update_panel(t)
 	_overlay.queue_redraw()
@@ -432,16 +442,36 @@ func _warp_to_node() -> void:
 		get_parent().toast("Warp stopped: " + reason)
 
 
+## vessel -> Floe -> Krill -> ... -> vessel
 func cycle_focus() -> void:
-	focus_body = (focus_body + 1) % _bodies.size()
-	if focus_body == 0:
+	if focus_vessel:
+		focus_vessel = false
 		focus_body = 1
-	_dist = 30.0 if focus_body == 1 else 8.0
+	else:
+		focus_body += 1
+		if focus_body >= _bodies.size():
+			focus_vessel = true
+			focus_body = int(session.telemetry().get("body_index", 1))
+	_dist = 6.0 if focus_vessel else (30.0 if focus_body == 1 else 8.0)
+
+
+## Re-centres on the vessel (when the map opens).
+func focus_on_vessel() -> void:
+	focus_vessel = true
+	focus_body = int(session.telemetry().get("body_index", 1))
+	_dist = clampf(_dist, 2.0, 40.0)
 
 
 func _draw_overlay() -> void:
 	var ov := _overlay
 	var font := get_theme_default_font()
+	# you are here
+	if not _cam.is_position_behind(_vessel_icon.position):
+		var vp := _cam.unproject_position(_vessel_icon.position)
+		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.006)
+		ov.draw_arc(vp, 9.0 + 3.0 * pulse, 0, TAU, 24, Color(1, 1, 1, 0.8), 2.0, true)
+		ov.draw_circle(vp, 3.5, Color(1, 1, 1))
+		ov.draw_string(font, vp + Vector2(14, 5), str(session.telemetry().get("name", "vessel")), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.9))
 	for m in _markers:
 		if _cam.is_position_behind(m.pos):
 			continue

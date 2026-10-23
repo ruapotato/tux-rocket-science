@@ -184,6 +184,8 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m);
 /* Fires the vessel's next stage. New vessels created by decouplers are
  * written to new_ids (up to max); returns how many. */
 int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
+/* Arms every stowed parachute (they open once the air allows). Returns how many. */
+int trs_vessel_deploy_chutes(trs_world *w, int id);
 /* Refreshes mass properties and caches after editing vessel->craft. */
 void trs_vessel_refresh(trs_world *w, int id);
 /* Linear and angular momentum (about the SOI body centre) of one vessel. */

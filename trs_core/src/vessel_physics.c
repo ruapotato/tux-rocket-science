@@ -215,7 +215,16 @@ static void burn(trs_vessel *vs, const engine_set *es, double h, int to_empty) {
 	free(draw);
 }
 
-/* Total aerodynamic force (SOI frame) and torque about the CoM (vessel-local). */
+/* Total aerodynamic force (SOI frame) and torque about the CoM (vessel-local).
+ *
+ * Each part sees the air at its own velocity (the CoM's plus the spin's
+ * w x arm), so a tumbling craft is damped the way a real one is. A body's
+ * force splits into an axial part on the face meeting the air and a
+ * cross-flow part (Newtonian, ~sin^2 of the angle of attack) acting at the
+ * part's centre of pressure. Fins are flat plates: they push back only along
+ * their normal, which is what makes them lift and keeps rockets pointed.
+ * Open parachutes are pure drag. For flow straight along a part's axis this
+ * reduces exactly to Cd * A * q on the leading face. */
 static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, trs_v3 *force, trs_v3 *torque_local) {
 	*force = v3(0, 0, 0);
 	if (torque_local)
@@ -228,31 +237,60 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 	trs_atmosphere_at(b, alt, &p, &rho);
 	if (rho <= 0)
 		return;
-	trs_v3 vair = v3_sub(v, v3_cross(trs_body_omega(b), r));
-	double sp = v3_len(vair);
-	if (sp < 1e-9)
+	trs_v3 omega_b = trs_body_omega(b);
+	trs_v3 vair = v3_sub(v, v3_cross(omega_b, r));
+	if (v3_len(vair) < 1e-9 && v3_len(v3_sub(vs->w, omega_b)) < 1e-9)
 		return;
-	trs_v3 dir_world = v3_scale(vair, 1.0 / sp);
-	trs_v3 d_local = quat_rotate(quat_conj(vs->q), dir_world);
-	double qdyn = 0.5 * rho * sp * sp;
+	trs_quat qi = quat_conj(vs->q);
+	trs_v3 vl = quat_rotate(qi, vair);
+	/* spin relative to the (co-rotating) air, vessel-local */
+	trs_v3 wl = quat_rotate(qi, v3_sub(vs->w, omega_b));
 	const trs_craft *c = vs->craft;
 	trs_v3 f_local_total = v3(0, 0, 0);
 	for (int i = 0; i < c->count; i++) {
 		const trs_part *pt = &c->parts[i];
 		const trs_part_def *d = trs_craft_def(c, i);
-		double cs = v3_dot(d_local, part_axis(pt));
+		trs_v3 arm = v3_sub(pt->pos, vs->cm);
+		trs_v3 vp = v3_add(vl, v3_cross(wl, arm));
+		double sp = v3_len(vp);
+		if (sp < 1e-9)
+			continue;
+		trs_v3 dl = v3_scale(vp, 1.0 / sp);
+		double qd = 0.5 * rho * sp * sp;
+		trs_v3 ax = part_axis(pt);
+		double cs = v3_dot(dl, ax);
 		double face = cs > 0 ? d->cd_top * vs->face_top[i] : d->cd_bottom * vs->face_bottom[i];
-		double cda = cs * cs * face + (1 - cs * cs) * d->cd_side * d->area_side;
-		if (d->is_parachute) {
-			if (pt->chute == TRS_CHUTE_SEMI)
-				cda += d->chute_semi_cda;
-			else if (pt->chute == TRS_CHUTE_FULL)
-				cda += d->chute_full_cda;
+		/* axial: on the leading face, along the axis */
+		trs_v3 f_axial = v3_scale(ax, -qd * face * cs * fabs(cs));
+		trs_v3 f_cross;
+		if (d->plate) {
+			trs_v3 n = quat_rotate(pt->rot, v3(1, 0, 0));
+			double cn = v3_dot(dl, n);
+			f_cross = v3_scale(n, -qd * d->cd_side * d->area_side * cn * fabs(cn));
+		} else {
+			trs_v3 perp = v3_sub(dl, v3_scale(ax, cs));
+			f_cross = v3_scale(perp, -qd * d->cd_side * d->area_side * v3_len(perp));
 		}
-		trs_v3 f = v3_scale(d_local, -qdyn * cda);
+		trs_v3 f_chute = v3(0, 0, 0);
+		if (d->is_parachute) {
+			double cda = pt->chute == TRS_CHUTE_SEMI ? d->chute_semi_cda : pt->chute == TRS_CHUTE_FULL ? d->chute_full_cda : 0;
+			f_chute = v3_scale(dl, -qd * cda);
+		}
+		trs_v3 f = v3_add(v3_add(f_axial, f_cross), f_chute);
 		f_local_total = v3_add(f_local_total, f);
-		if (torque_local)
-			*torque_local = v3_add(*torque_local, v3_cross(v3_sub(pt->pos, vs->cm), f));
+		if (torque_local) {
+			trs_v3 cop = v3_add(arm, v3_scale(ax, d->cop * d->height));
+			*torque_local = v3_add(*torque_local, v3_add(v3_cross(arm, v3_add(f_axial, f_chute)), v3_cross(cop, f_cross)));
+			/* the part's own extent resists turning end over end: linearised
+			 * cross-flow on a spinning slab of side area A and length L, with
+			 * an empirical factor standing in for the pitch-damping derivative */
+			double wa = v3_dot(wl, ax);
+			trs_v3 w_perp = v3_sub(wl, v3_scale(ax, wa));
+			double cq = 0.5 * rho * sp * d->cd_side * d->area_side;
+			double L = fmax(d->height, 2 * d->radius);
+			*torque_local = v3_sub(*torque_local, v3_scale(w_perp, cq * L * L));
+			*torque_local = v3_sub(*torque_local, v3_scale(ax, cq * d->radius * d->radius * 0.1 * wa));
+		}
 	}
 	*force = quat_rotate(vs->q, f_local_total);
 }
@@ -619,8 +657,6 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (d->propellant != TRS_PROP_NONE)
 			c->parts[i].engine_on = 1;
-		if (d->is_parachute && c->parts[i].chute == TRS_CHUTE_STOWED)
-			c->parts[i].chute = TRS_CHUTE_ARMED;
 		if (d->is_leg)
 			c->parts[i].legs_deployed = 1;
 	}
@@ -700,12 +736,24 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		trs_m3 IAi = m3_inverse(&IA), IBi = m3_inverse(&IB);
 		nv->w = v3_add(nv->w, m3_mulv(&IBi, v3_cross(v3_sub(P, nv->r), Jv)));
 		vs->w = v3_add(vs->w, m3_mulv(&IAi, v3_cross(v3_sub(P, vs->r), v3_neg(Jv))));
-		(void)world_point;
 		if (made < max && new_ids)
 			new_ids[made] = nid;
 		made++;
 	}
 	return made < max ? made : max;
+}
+
+int trs_vessel_deploy_chutes(trs_world *w, int id) {
+	trs_vessel *vs = &w->vessels[id];
+	if (!vs->craft)
+		return 0;
+	int n = 0;
+	for (int i = 0; i < vs->craft->count; i++)
+		if (trs_craft_def(vs->craft, i)->is_parachute && vs->craft->parts[i].chute == TRS_CHUTE_STOWED) {
+			vs->craft->parts[i].chute = TRS_CHUTE_ARMED;
+			n++;
+		}
+	return n;
 }
 
 /* ---- destruction, launch ------------------------------------------------------- */
@@ -734,11 +782,47 @@ static int spawn_piece(trs_world *w, int parent_id, trs_craft *piece, trs_v3 cm_
 	return nid;
 }
 
+/* A part going up with propellant in it is a bomb: every part (on any
+ * vessel in the same SOI) whose centre is inside the blast radius is queued
+ * for destruction next tick, so failures cascade the way real ones do. The
+ * radius grows with the cube root of the propellant mass. */
+static void blast(trs_world *w, int body, trs_v3 at, double fuel, int skip_uid) {
+	if (fuel < 50)
+		return;
+	double R = 1.6 * cbrt(fuel / 100.0);
+	for (int j = 0; j < w->nvessels; j++) {
+		trs_vessel *o = &w->vessels[j];
+		if (!o->alive || !o->craft || o->body != body || o->mode != TRS_MODE_PHYSICS)
+			continue;
+		if (v3_len(v3_sub(o->r, at)) > R + o->bound_radius + 1)
+			continue;
+		for (int k = 0; k < o->craft->count && o->npending < TRS_MAX_PENDING; k++) {
+			const trs_part *pk = &o->craft->parts[k];
+			if (pk->uid == skip_uid || v3_len(v3_sub(world_point(o, pk->pos), at)) > R)
+				continue;
+			int seen = 0;
+			for (int q = 0; q < o->npending; q++)
+				seen |= o->pending_uid[q] == pk->uid;
+			if (!seen) {
+				o->pending_uid[o->npending] = pk->uid;
+				o->pending_speed[o->npending++] = -1; /* blast, not impact */
+			}
+		}
+	}
+}
+
 void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed) {
 	trs_vessel *vs = &w->vessels[id];
 	trs_craft *c = vs->craft;
 	if (!c || part < 0 || part >= c->count)
 		return;
+	{
+		const trs_part_def *d = trs_craft_def(c, part);
+		double fuel = (d->fuel_liquid > 0 || d->fuel_solid > 0) ? c->parts[part].fuel : 0;
+		blast(w, vs->body, world_point(vs, c->parts[part].pos), fuel, c->parts[part].uid);
+		vs = &w->vessels[id];
+		c = vs->craft;
+	}
 	trs_world_event ev = { TRS_WEV_PART_DESTROYED, w->t, id, -1, c->parts[part].uid, "", speed };
 	snprintf(ev.part, sizeof ev.part, "%s", trs_craft_def(c, part)->id);
 	trs_world_push_event(w, ev);

@@ -99,6 +99,8 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	d->cd_side = trs_json_num(aero, "cd_side", 1.0);
 	d->area_axial = trs_json_num(aero, "area_axial", TRS_PI * d->radius * d->radius);
 	d->area_side = trs_json_num(aero, "area_side", 2 * d->radius * d->height);
+	d->cop = trs_json_num(aero, "cop", 0);
+	d->plate = trs_json_bool(aero, "plate", sh && !strcmp(trs_json_str(sh, "type", ""), "fin"));
 
 	const trs_json *nodes = trs_json_get(j, "nodes");
 	for (size_t k = 0; nodes && k < nodes->count && k < TRS_MAX_NODES; k++) {

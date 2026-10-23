@@ -276,7 +276,7 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		trs_world *w = malloc(sizeof(trs_world));
 		trs_world_init(w, &sys, 0);
 		int id = drop_at(w, &c, floe, 3000, 150);
-		trs_world_stage(w, id, NULL, 0);
+		trs_vessel_deploy_chutes(w, id);
 		trs_vessel *vs = &w->vessels[id];
 		double ground = trs_body_terrain_at(F, w->t, vs->r);
 		for (int s = 0; s < 50 * 3600 && (vs->altitude - ground > 300 || vs->altitude == 0); s++) {
@@ -300,9 +300,10 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		free(w);
 		trs_craft_free(&c);
 	}
-	/* 2. Bare pod: in-flight drag deceleration equals 1/2 rho v^2 CdA / m,
-	 *    directed against the airflow (the pod falls fast enough that it is
-	 *    never at steady terminal speed, so check the force directly). */
+	/* 2. Bare pod: in-flight aero acceleration equals the analytic force from
+	 *    the part data, F = -q (Cd A cos|cos| along the axis + Cd_side A_side
+	 *    sin^2 across it), checked directly every tick of a 15 s fall (the pod
+	 *    is never at steady terminal speed). */
 	{
 		trs_craft c;
 		trs_craft_init(&c, &cat);
@@ -312,22 +313,29 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		trs_world_init(w, &sys, 0);
 		int id = drop_at(w, &c, floe, 4000, 60);
 		trs_vessel *vs = &w->vessels[id];
-		double worst = 0, worst_dir = 0;
+		double worst = 0, worst_drag = 0;
 		for (int s = 0; s < 50 * 15; s++) {
 			trs_v3 r0 = vs->r, v0 = vs->v; /* sensed_accel is evaluated at tick start */
+			trs_quat q0 = vs->q;
 			trs_world_step_physics(w);
 			trs_v3 vair = v3_sub(v0, v3_cross(trs_body_omega(F), r0));
 			double p, rho;
 			trs_atmosphere_at(F, v3_len(r0) - F->radius, &p, &rho);
-			double want = 0.5 * rho * v3_len2(vair) * pd->cd_bottom * pd->area_axial / vs->mass;
-			double got = v3_len(vs->sensed_accel);
-			worst = fmax(worst, fabs(got - want) / want);
-			worst_dir = fmax(worst_dir, 1 + v3_dot(v3_norm(vs->sensed_accel), v3_norm(vair)));
+			double qd = 0.5 * rho * v3_len2(vair);
+			trs_v3 dir = v3_norm(vair), ax = quat_rotate(q0, v3(0, 1, 0));
+			double cs = v3_dot(dir, ax);
+			trs_v3 perp = v3_sub(dir, v3_scale(ax, cs));
+			double face = cs > 0 ? pd->cd_top * pd->area_axial : pd->cd_bottom * pd->area_axial;
+			trs_v3 want = v3_scale(v3_add(v3_scale(ax, -qd * face * cs * fabs(cs)),
+					v3_scale(perp, -qd * pd->cd_side * pd->area_side * v3_len(perp))), 1.0 / vs->mass);
+			worst = fmax(worst, v3_len(v3_sub(vs->sensed_accel, want)) / v3_len(want));
+			/* and it is (nearly) pure drag: the pod falls almost along its axis */
+			worst_drag = fmax(worst_drag, 1 + v3_dot(v3_norm(vs->sensed_accel), dir));
 		}
-		int ok = worst < 1e-6 && worst_dir < 1e-9; /* slight attitude wobble adds side drag */
+		int ok = worst < 1e-6 && worst_drag < 1e-5;
 		failed += !ok;
-		trs_log_printf(log, "%s bare pod drag over 15 s fall: |a| rel err %.1e, direction err %.1e (now %.1f m/s at %.0f m)\n",
-				ok ? "ok  " : "FAIL", worst, worst_dir, v3_len(vs->v), vs->altitude);
+		trs_log_printf(log, "%s bare pod aero over 15 s fall: |a - analytic| rel %.1e, off-drag %.1e (now %.1f m/s at %.0f m)\n",
+				ok ? "ok  " : "FAIL", worst, worst_drag, v3_len(vs->v), vs->altitude);
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
@@ -364,6 +372,40 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
+	}
+	/* 4. Weathervaning: a lone nosecone and a lone pod, released tumbling at
+	 *    90 deg to the airflow, settle point-first and heat-shield-first. */
+	{
+		const char *ids[2] = { "nosecone", "pod_1" };
+		const double want_cs[2] = { 1, -1 }; /* nose along the flow / against */
+		for (int k = 0; k < 2; k++) {
+			trs_craft c;
+			trs_craft_init(&c, &cat);
+			trs_craft_add(&c, trs_catalog_find(&cat, ids[k]), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+			trs_world *w = malloc(sizeof(trs_world));
+			trs_world_init(w, &sys, 0);
+			int id = drop_at(w, &c, floe, 20000, 80);
+			trs_vessel *vs = &w->vessels[id];
+			vs->sas = TRS_SAS_OFF; /* free fall, no reaction wheel help */
+			/* sideways, with a little spin */
+			vs->q = quat_from_to(v3(0, 1, 0), v3(0, 1, 0));
+			vs->w = v3_add(trs_body_omega(F), v3(0.3, 0, 0.5));
+			for (int s = 0; s < 50 * 40; s++)
+				trs_world_step_physics(w);
+			trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(F), vs->r));
+			double cs = v3_dot(v3_norm(vair), quat_rotate(vs->q, v3(0, 1, 0)));
+			double ang = acos(fmax(-1, fmin(1, cs * want_cs[k]))) * 180 / TRS_PI;
+			/* pitch/yaw rate (roll about the axis may persist; it is barely damped) */
+			trs_v3 wr = v3_sub(vs->w, trs_body_omega(F)), axw = quat_rotate(vs->q, v3(0, 1, 0));
+			double spin = v3_len(v3_sub(wr, v3_scale(axw, v3_dot(wr, axw))));
+			int ok = ang < 10 && spin < 0.5; /* settled: only a small residual nod */
+			failed += !ok;
+			trs_log_printf(log, "%s %-9s released sideways: after 40 s %.1f deg off %s-first, pitch rate %.3f rad/s\n",
+					ok ? "ok  " : "FAIL", ids[k], ang, k == 0 ? "point" : "shield", spin);
+			trs_world_free(w);
+			free(w);
+			trs_craft_free(&c);
+		}
 	}
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
@@ -506,7 +548,7 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 		trs_world *w = malloc(sizeof(trs_world));
 		trs_world_init(w, &sys, 0);
 		int id = drop_on(w, &c, floe, 2500.0, 120.0);
-		trs_world_stage(w, id, NULL, 0);
+		trs_vessel_deploy_chutes(w, id);
 		int s;
 		for (s = 0; s < 50 * 900 && !(w->vessels[id].landed && surface_speed(w, id) < 0.05); s++)
 			trs_world_step_physics(w);
@@ -515,6 +557,35 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 		failed += !ok;
 		trs_log_printf(log, "%s chute landing on Floe: down after %.0f s, touchdown %.1f m/s, %d parts destroyed\n",
 				ok ? "ok  " : "FAIL", s * TRS_PHYSICS_DT, w->vessels[id].max_impact, destroyed);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 5. A fuelled Orbiter toppling onto the ice: the tanks burst and the
+	 *    blast takes the crew pod with them (a failed launch is fatal). */
+	{
+		trs_craft c;
+		if (!trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c))
+			return TRS_GATE_FAIL;
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_on(w, &c, floe, 3.0, 9.0);
+		trs_vessel *vs = &w->vessels[id];
+		vs->sas = TRS_SAS_OFF;
+		vs->q = quat_from_to(v3(0, 1, 0), v3(0, 1, 0)); /* lying along the horizon */
+		for (int s = 0; s < 50 * 10; s++)
+			trs_world_step_physics(w);
+		int pod_lost = 0, blasted = 0, destroyed = 0;
+		for (int e = 0; e < w->nevents; e++)
+			if (w->events[e].kind == TRS_WEV_PART_DESTROYED) {
+				destroyed++;
+				pod_lost |= !strcmp(w->events[e].part, "pod_1");
+				blasted += w->events[e].speed < 0;
+			}
+		int ok = pod_lost && blasted > 0;
+		failed += !ok;
+		trs_log_printf(log, "%s toppled Orbiter: %d parts destroyed (%d by blast), crew pod %s\n", ok ? "ok  " : "FAIL",
+				destroyed, blasted, pod_lost ? "lost" : "survived");
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
