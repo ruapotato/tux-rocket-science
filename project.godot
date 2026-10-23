@@ -13,6 +13,7 @@ config/features=PackedStringArray("4.7")
 [autoload]
 
 Sim="*res://scripts/sim/sim.gd"
+Crew="*res://scripts/crew/crew_roster.gd"
 GateRunner="*res://scripts/boot/gate_runner.gd"
 ControlSocket="*res://scripts/control/control_server.gd"
 

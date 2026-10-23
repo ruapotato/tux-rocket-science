@@ -28,7 +28,7 @@ var hud: FlightHUD
 var mission_start := 0.0
 var _cam: Camera3D
 var _cam_yaw := 0.4
-var _cam_pitch := 0.15
+var _cam_pitch := 0.08
 var _cam_dist := 30.0
 var _orbiting := false
 var _terrain: TerrainView
@@ -41,6 +41,12 @@ var _launched := false
 var _flicker := 0.0
 var _map: MapView
 var _sas_maneuver := false
+var crew_names: Array = []
+var _portraits: Array[PenguinPortrait] = []
+var _mission := {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
+var _was_orbiting := false
+var _recover_btn: Button
+var _recorded := false
 
 
 func _ready() -> void:
@@ -55,8 +61,63 @@ func _ready() -> void:
 	if cs:
 		cs.attach(session)
 	_build()
+	_assign_crew()
 	_cam_dist = 18.0 + _craft_height() * 1.2
 	hud.toast("PASA, %s is on the pad. Z for full throttle, SPACE to launch." % session.telemetry().get("name", "vessel"), 5.0)
+
+
+func _assign_crew() -> void:
+	for p in _portraits:
+		p.queue_free()
+	_portraits.clear()
+	var seats := int(session.telemetry().get("crew_capacity", 0))
+	crew_names = Crew.assign(seats, Sim.pending_crew)
+	var row := HBoxContainer.new()
+	row.name = "Crew"
+	row.add_theme_constant_override("separation", 6)
+	row.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	for c in hud.portrait_slot.get_children():
+		c.queue_free()
+	hud.portrait_slot.add_child(row)
+	for n in crew_names:
+		var pp := PenguinPortrait.new()
+		pp.set_member(Crew.find(n))
+		if crew_names.size() > 1:
+			pp.custom_minimum_size = Vector2(118, 150)
+		else:
+			pp.custom_minimum_size = Vector2(200, 220)
+		row.add_child(pp)
+		_portraits.append(pp)
+	row.position = Vector2(0, 240 - (220 if crew_names.size() <= 1 else 150))
+	_recover_btn = Button.new()
+	_recover_btn.text = "  Recover vessel  "
+	_recover_btn.visible = false
+	_recover_btn.focus_mode = Control.FOCUS_NONE
+	_recover_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_recover_btn.position.y = 90
+	_recover_btn.pressed.connect(_recover)
+	hud.add_child(_recover_btn)
+
+
+func _react(kind: String, secs := 3.0) -> void:
+	for p in _portraits:
+		p.react(kind, secs)
+
+
+## Writes the flight into the crew roster (not for reverts).
+func _record(outcome: String) -> void:
+	if _recorded or not _launched or crew_names.is_empty():
+		return
+	_recorded = true
+	Crew.record_flight(crew_names, outcome, _mission)
+
+
+func _recover() -> void:
+	_record("recovered")
+	var names := ", ".join(crew_names)
+	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s." % [names, FlightHUD.fmt_dist(_mission.max_altitude),
+		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else ""]
+	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
 
 
 func _craft_height() -> float:
@@ -77,6 +138,8 @@ func _build() -> void:
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	_env.ambient_light_color = Color(0.5, 0.58, 0.7)
 	_env.ambient_light_energy = 0.45
+	# the canvas background is not a sky: never reflect it
+	_env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_env.glow_enabled = true
 	_env.fog_enabled = true
@@ -195,6 +258,7 @@ var _legs_down := false
 
 func _stage() -> void:
 	var created := session.stage()
+	_react("stage", 2.0)
 	if not _launched:
 		_launched = true
 		mission_start = session.time()
@@ -259,26 +323,41 @@ func _on_menu(action: String) -> void:
 			_clear_views()
 			session.revert_to_launch()
 			_launched = false
+			_recorded = false
 			_throttle = 0.0
-			hud.toast("Reverted to launch", 2.0)
+			_mission = {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
+			_assign_crew()
+			hud.toast("Reverted to launch. The penguins pretend nothing happened.", 2.5)
 		"revert_hangar":
 			get_tree().change_scene_to_file("res://scenes/hangar.tscn")
 		"main_menu":
+			_record("lost" if _mission.pod_lost else "recovered")
 			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 func _on_sim_event(e: Dictionary) -> void:
 	match e.kind:
 		"part_destroyed":
+			_react("boom", 3.5)
 			if Sim.part(e.part).get("crew", 0) > 0:
+				_mission.pod_lost = true
 				hud.toast("PASA, we have a problem. (%s lost at %.0f m/s)" % [Sim.part(e.part).name, e.speed], 5.0)
 			else:
 				hud.toast("%s destroyed (%.0f m/s impact)" % [Sim.part(e.part).name, e.speed], 2.5)
 		"soi_change":
+			_react("orbit", 3.0)
+			if not _mission.visited.has(str(e.get("body", ""))):
+				_mission.visited.append(str(e.get("body", "")))
 			hud.toast("Entering the sphere of influence of %s" % str(e.get("body", "?")).capitalize(), 4.0)
 		"landed":
 			if e.vessel == session.active and _launched:
-				hud.toast("Touchdown! The crew is doing a little waddle.", 3.5)
+				_react("landed", 5.0)
+				var t := session.telemetry()
+				if t.get("body", "") == "krill":
+					_mission.krill_landings += 1
+					hud.toast("The penguins have landed on Krill! One small waddle for a penguin...", 5.0)
+				else:
+					hud.toast("Touchdown! The crew is doing a little waddle.", 3.5)
 		"warp_stopped":
 			hud.toast("Warp stopped: %s ahead" % e.reason, 2.5)
 
@@ -350,8 +429,9 @@ func _render(delta: float) -> void:
 	var up := Frame.vec_arr(t.up)
 	var north := Frame.vec_arr(t.north)
 	var east := Frame.vec_arr(t.east)
-	var dir := (north * cos(_cam_yaw) + east * sin(_cam_yaw)) * cos(_cam_pitch) + up * sin(_cam_pitch)
-	_cam.position = -dir * _cam_dist
+	# positive pitch puts the camera above the vessel, looking down at it
+	var horiz := north * cos(_cam_yaw) + east * sin(_cam_yaw)
+	_cam.position = (-horiz * cos(_cam_pitch) + up * sin(_cam_pitch)) * _cam_dist
 	_cam.look_at(Vector3.ZERO, up)
 
 	# bodies: sun direction, terrain for the current body
@@ -375,8 +455,10 @@ func _render(delta: float) -> void:
 		sky = Color(0.01, 0.01, 0.03).lerp(SKY_DAY, k * day)
 		_env.fog_light_color = sky
 		_env.fog_density = 0.00006 * k
+		_env.ambient_light_energy = 0.12 + 0.35 * k * day
 	else:
 		_env.fog_density = 0.0
+		_env.ambient_light_energy = 0.08  # airless: hard shadows
 	_sun.light_energy = 0.15 + 1.2 * clampf(up.dot(sun_dir) * 4.0 + 0.6, 0.0, 1.0) if t.altitude < 20000.0 else 1.3
 	_scaled.sync(_cam, origin, _cam.position, sun_dir, sky)
 
@@ -399,6 +481,17 @@ func _render(delta: float) -> void:
 		hud.set_node_text("")
 	hud.navball.update_attitude(up, north, east, nose, q_top, markers)
 	hud.maneuver_active = _sas_maneuver
+	# crew and mission bookkeeping
+	_mission.max_altitude = maxf(_mission.max_altitude, t.altitude)
+	_mission.max_g = maxf(_mission.max_g, t.g_force)
+	if t.situation == "orbiting" and not _was_orbiting and _launched:
+		_mission.orbits += 1
+		_react("orbit", 4.0)
+		hud.toast("Orbit achieved! The crew presses their beaks to the window.", 4.0)
+	_was_orbiting = t.situation == "orbiting"
+	for p in _portraits:
+		p.update_state(t, t.get("spin", 0.0), delta)
+	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
 		_map.refresh()
 	var warp := ""

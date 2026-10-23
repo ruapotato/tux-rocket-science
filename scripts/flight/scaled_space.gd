@@ -94,7 +94,7 @@ func setup(c: TrsSim) -> void:
 		_bodies.append({"node": node, "atmo": atmo, "info": info})
 
 
-func _atmosphere(col: Color, radius: float) -> MeshInstance3D:
+static func _atmosphere(col: Color, radius: float) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 1.0
@@ -122,7 +122,7 @@ void fragment() {
 
 
 ## Procedural textures keep the art pipeline-free (and original).
-func _floe_texture() -> Texture2D:
+static func _floe_texture() -> Texture2D:
 	var img := Image.create(512, 256, false, Image.FORMAT_RGB8)
 	var noise := FastNoiseLite.new()
 	noise.seed = 7
@@ -141,7 +141,7 @@ func _floe_texture() -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 
-func _krill_texture() -> Texture2D:
+static func _krill_texture() -> Texture2D:
 	var img := Image.create(512, 256, false, Image.FORMAT_RGB8)
 	var noise := FastNoiseLite.new()
 	noise.seed = 41
@@ -161,7 +161,7 @@ func _krill_texture() -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 
-func _starfield() -> Node3D:
+static func _starfield() -> Node3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true

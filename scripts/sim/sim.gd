@@ -29,6 +29,10 @@ var catalog: Dictionary = {}  # id -> part dictionary (display data + nodes)
 var catalog_order: Array[String] = []
 ## Craft handed between scenes (hangar -> flight -> back), canonical text.
 var pending_craft_text := ""
+## Crew names picked in the hangar for the next launch.
+var pending_crew: Array = []
+## A line for the hangar to show after a recovered flight.
+var last_mission_note := ""
 
 
 func _init() -> void:

@@ -128,8 +128,16 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 		freq *= 2.0;
 	}
 	h = t->offset + t->amplitude * h / norm;
-	if (t->crater_freq > 0)
-		h += craters(t, d);
+	if (t->crater_freq > 0) {
+		/* a cascade of ever smaller, shallower crater fields */
+		trs_terrain tt = *t;
+		for (int k = 0; k < 5; k++) {
+			h += craters(&tt, d);
+			tt.crater_freq *= 3.1;
+			tt.crater_depth /= 3.4;
+			tt.seed += 977u;
+		}
+	}
 	if (t->has_site) {
 		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->site_dir))));
 		double dist = ang * body_radius;

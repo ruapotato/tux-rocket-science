@@ -41,8 +41,9 @@ func setup(c: TrsSim) -> void:
 	core = c
 	_material = StandardMaterial3D.new()
 	_material.vertex_color_use_as_albedo = true
-	_material.roughness = 0.55
-	_material.metallic_specular = 0.6
+	_material.vertex_color_is_srgb = true
+	_material.roughness = 0.8
+	_material.metallic_specular = 0.3
 	_build_indices()
 
 
@@ -69,7 +70,7 @@ func set_body(b: int) -> void:
 static func _styles() -> Dictionary:
 	return {
 		"floe": {"low": Color(0.72, 0.8, 0.9), "high": Color(0.97, 0.98, 1.0), "slope": Color(0.45, 0.62, 0.8), "range": 900.0},
-		"krill": {"low": Color(0.36, 0.35, 0.37), "high": Color(0.62, 0.6, 0.58), "slope": Color(0.28, 0.27, 0.28), "range": 1800.0},
+		"krill": {"low": Color(0.26, 0.255, 0.27), "high": Color(0.5, 0.48, 0.46), "slope": Color(0.2, 0.19, 0.2), "range": 1800.0},
 		"default": {"low": Color(0.4, 0.4, 0.4), "high": Color(0.8, 0.8, 0.8), "slope": Color(0.3, 0.3, 0.3), "range": 1000.0},
 	}
 
@@ -82,7 +83,7 @@ func _build_indices() -> void:
 			var b := a + 1
 			var c := a + RES
 			var d := c + 1
-			idx.append_array([a, c, b, b, c, d])
+			idx.append_array([a, c, b, b, c, d])  # clockwise seen from outside = front
 	# skirt: edge vertices follow the grid in scan order after RES*RES
 	var edge := []
 	for y in RES:
@@ -106,7 +107,8 @@ func _build_indices() -> void:
 		var b: int = ring[(k + 1) % ring.size()]
 		var sa: int = skirt_of[a]
 		var sb: int = skirt_of[b]
-		idx.append_array([a, b, sa, b, sb, sa])
+		# skirts are thin walls seen from either side: emit both windings
+		idx.append_array([a, sa, b, b, sa, sb, a, b, sa, b, sb, sa])
 	_indices = idx
 
 
@@ -134,12 +136,21 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Vector3, rot: float) -> vo
 				continue
 			_patches[key] = _build(want[key])
 			built += 1
-	# drop patches no longer wanted once their replacements exist (avoid holes)
-	if built == 0:
-		for key in _patches.keys():
-			if not want.has(key):
-				_patches[key].node.queue_free()
-				_patches.erase(key)
+	# Drop unwanted patches only once the area they cover is fully drawn by
+	# wanted patches; otherwise keep them, but never draw two levels at once.
+	for key in _patches.keys():
+		if want.has(key):
+			_patches[key].node.visible = true
+			continue
+		if _covered(key, want):
+			_patches[key].node.queue_free()
+			_patches.erase(key)
+		else:
+			_patches[key].node.visible = true
+	# a wanted patch hides while an old ancestor still covers its area
+	for key in want.keys():
+		if _patches.has(key):
+			_patches[key].node.visible = not _ancestor_present(key, want)
 	var basis := Frame.spin(rot)
 	for key in _patches:
 		var p: Dictionary = _patches[key]
@@ -147,6 +158,51 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Vector3, rot: float) -> vo
 		p.node.transform = Transform3D(basis * _sim_basis(), body_rel + basis * Vector3(c.x, c.z, -c.y))
 	if _site_node:
 		_site_node.transform = Transform3D(basis * LaunchSite.site_basis(_site_pos), body_rel + basis * _site_pos)
+
+
+static func _parse(key: String) -> Array:
+	var p := key.split("/")
+	return [int(p[0]), int(p[1]), int(p[2]), int(p[3])]
+
+
+## True when every wanted patch overlapping `key`'s area is built.
+func _covered(key: String, want: Dictionary) -> bool:
+	var a := _parse(key)
+	for wk in want:
+		var b: Array = want[wk]
+		var f := int(b[0])
+		var l := int(b[1])
+		if f != a[0]:
+			continue
+		# overlap test in a common (finer) grid
+		var L := maxi(l, a[1])
+		var ai: int = a[2] << (L - a[1])
+		var aj: int = a[3] << (L - a[1])
+		var an: int = 1 << (L - a[1])
+		var bi := int(b[2]) << (L - l)
+		var bj := int(b[3]) << (L - l)
+		var bn := 1 << (L - l)
+		if bi < ai + an and ai < bi + bn and bj < aj + an and aj < bj + bn:
+			if not _patches.has(wk):
+				return false
+	return true
+
+
+## True while a built, unwanted patch at a coarser level still covers `key`.
+func _ancestor_present(key: String, want: Dictionary) -> bool:
+	var a := _parse(key)
+	var f: int = a[0]
+	var l: int = a[1]
+	var i: int = a[2]
+	var j: int = a[3]
+	while l > 0:
+		l -= 1
+		i >>= 1
+		j >>= 1
+		var k := _key(f, l, i, j)
+		if _patches.has(k) and not want.has(k):
+			return true
+	return false
 
 
 ## Patch vertices arrive in sim axes; this basis maps sim -> Godot inside

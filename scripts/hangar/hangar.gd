@@ -61,6 +61,7 @@ var _hint: Label
 var _toast: Label
 var _load_menu: PopupMenu
 var _parts_tabs: TabContainer
+var _crew_button: Button
 
 
 func _ready() -> void:
@@ -73,6 +74,9 @@ func _ready() -> void:
 		model.load_file(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
 	_on_model_changed()
 	_frame_craft()
+	if Sim.last_mission_note != "":
+		toast(Sim.last_mission_note)
+		Sim.last_mission_note = ""
 
 
 ## Points the camera at the whole craft.
@@ -234,6 +238,8 @@ func _build_ui() -> void:
 	_sym_button = _button("Symmetry: 1x", func(): _cycle_symmetry(1), "Radial symmetry (X / Shift+X)")
 	bar.add_child(_sym_button)
 	bar.add_child(_button("Reset staging", func(): model.reset_staging(), "Rebuild the staging sequence automatically"))
+	_crew_button = _button("Crew: —", _cycle_crew, "Who flies: click to swap in the next available penguin")
+	bar.add_child(_crew_button)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -380,6 +386,7 @@ func toast(msg: String) -> void:
 func _on_model_changed() -> void:
 	_rebuild_craft()
 	_stats = model.stats()
+	_refresh_crew()
 	if not _name_edit.has_focus():
 		_name_edit.text = model.craft_name
 	_undo_button.disabled = not model.can_undo()
@@ -544,6 +551,41 @@ func _on_palette(id: String) -> void:
 	_held = CraftModel.held_single(id)
 	_held_spin = 0.0
 	_held_extra = DMath.q_identity()
+
+
+## Seats come from the pods on the craft; crew from the PASA roster.
+func _refresh_crew() -> void:
+	var seats := int(_stats.get("crew", 0)) if not _stats.is_empty() else 0
+	Sim.pending_crew = Crew.assign(seats, Sim.pending_crew)
+	if seats == 0:
+		_crew_button.text = "Crew: none (uncrewed)"
+	else:
+		var short := []
+		for n in Sim.pending_crew:
+			short.append(n.get_slice(" ", 0) if n != "Commander Tux" else "Cmdr Tux")
+		_crew_button.text = "Crew: " + ", ".join(short)
+
+
+func _cycle_crew() -> void:
+	var seats := int(_stats.get("crew", 0)) if not _stats.is_empty() else 0
+	if seats == 0:
+		return
+	var avail := Crew.available()
+	if avail.is_empty():
+		return
+	# rotate the first seat through the available roster
+	var names := []
+	for c in avail:
+		names.append(c.name)
+	var cur: String = Sim.pending_crew[0] if not Sim.pending_crew.is_empty() else ""
+	var k := names.find(cur)
+	var next: String = names[(k + 1) % names.size()]
+	var wanted := [next]
+	for n in Sim.pending_crew:
+		if n != next and wanted.size() < seats:
+			wanted.append(n)
+	Sim.pending_crew = Crew.assign(seats, wanted)
+	_refresh_crew()
 
 
 func _cycle_symmetry(dir: int) -> void:

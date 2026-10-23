@@ -295,6 +295,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "clamped", trs_json_new_bool(vs->clamped));
 	trs_json_set(j, "contacts", trs_json_new_num(vs->contacts));
 	trs_json_set(j, "max_impact", trs_json_new_num(vs->max_impact));
+	trs_json_set(j, "spin", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? v3_len(v3_sub(vs->w, trs_body_omega(b))) : 0.0));
 	trs_json_set(j, "throttle", trs_json_new_num(vs->throttle));
 	trs_json_set(j, "dv_expended", trs_json_new_num(vs->dv_expended));
 	trs_json_set(j, "sas", trs_json_new_str(SAS_NAMES[vs->sas]));
@@ -775,6 +776,37 @@ static void m_burn_time(void *self, const trs_val *a, trs_val *r) {
 	r->f = vs->mass * (1 - exp(-a[1].f / ve)) / mdot;
 }
 
+/* flight_place_landed(craft, body, lat_deg, lon_deg) -> id resting on the
+ * surface (no clamps; LANDED until something moves it). */
+static void m_flight_place_landed(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = -1;
+	trs_craft c;
+	if (!h->world || !craft_from_text(h, a[0].s, &c))
+		return;
+	int b = trs_system_find(&h->world->sys, a[1].s);
+	if (b >= 0) {
+		r->i = trs_world_launch(h->world, &c, b, a[2].f / DEG, a[3].f / DEG);
+		if (r->i >= 0)
+			h->world->vessels[r->i].clamped = 0;
+	}
+	trs_craft_free(&c);
+}
+
+/* subsolar_point(body) -> [lat_deg, lon_deg] where the star is overhead now */
+static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double out[2] = { 0, 0 };
+	if (ok_body(h, a[0].i)) {
+		trs_v3 bp, bv;
+		trs_body_state_abs(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
+		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_neg(bp)));
+		out[0] = asin(d.z) * DEG;
+		out[1] = atan2(d.y, d.x) * DEG;
+	}
+	ret_doubles(r, out, 2);
+}
+
 #define S TRS_T_STRING
 #define I TRS_T_INT
 #define F TRS_T_FLOAT
@@ -805,5 +837,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
+	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },
+	{ "subsolar_point", m_subsolar_point, A, 1, { I }, { "body" } },
 };
 const int TRS_SIM_FLIGHT_METHOD_COUNT = sizeof(TRS_SIM_FLIGHT_METHODS) / sizeof(TRS_SIM_FLIGHT_METHODS[0]);
