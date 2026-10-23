@@ -1,0 +1,65 @@
+# Tux Rocket Science — AGPL-3.0-or-later
+# Every verification gate runs headless on every push and pull request.
+name: gates
+
+on:
+  push:
+  pull_request:
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake gcc-mingw-w64-x86-64
+      - name: License headers
+        run: python3 tools/license_headers.py
+      - name: Build (Linux)
+        run: |
+          cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/linux
+      - name: Build (Windows cross, mingw-w64)
+        run: |
+          cmake -S . -B build/windows -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
+          cmake --build build/windows
+      - name: Native gates
+        run: ./build/linux/trs_tests --data data --all
+      - name: Fetch Godot
+        run: |
+          curl -sSfL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip && mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+      - name: Godot gates (headless)
+        run: |
+          ./godot --headless --import || true
+          ./godot --headless -- --all-gates
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trs_core-bin
+          path: bin/
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (MinGW)
+        shell: bash
+        run: |
+          cmake -S . -B build/win -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc
+          cmake --build build/win
+      - name: Native gates
+        shell: bash
+        run: ./build/win/trs_tests.exe --data data --all
+      - name: Fetch Godot
+        shell: bash
+        run: |
+          curl -sSfL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_win64.exe.zip"
+          unzip -q godot.zip
+      - name: Godot gates (headless)
+        shell: bash
+        run: |
+          ./Godot_v${GODOT_VERSION}-stable_win64_console.exe --headless --import || true
+          ./Godot_v${GODOT_VERSION}-stable_win64_console.exe --headless -- --all-gates

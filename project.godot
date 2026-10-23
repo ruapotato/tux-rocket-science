@@ -1,0 +1,24 @@
+; Engine configuration file.
+; Tux Rocket Science — AGPL-3.0-or-later
+
+config_version=5
+
+[application]
+
+config/name="Tux Rocket Science"
+config/description="Penguins run the space program. PASA: Penguin Aeronautics & Space Administration."
+run/main_scene="res://scenes/main_menu.tscn"
+config/features=PackedStringArray("4.7")
+
+[autoload]
+
+GateRunner="*res://scripts/boot/gate_runner.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

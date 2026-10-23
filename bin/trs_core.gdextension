@@ -1,0 +1,10 @@
+[configuration]
+
+entry_symbol = "trs_core_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+linux.x86_64 = "res://bin/libtrs_core.linux.x86_64.so"
+windows.x86_64 = "res://bin/libtrs_core.windows.x86_64.dll"

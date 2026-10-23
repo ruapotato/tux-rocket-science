@@ -1,0 +1,13 @@
+# Godot
+.godot/
+/Godot_v*
+/godot
+
+# Build output
+/build/
+/bin/*.so
+/bin/*.dll
+/bin/*.dylib
+
+# Gate artifacts
+/screens/
