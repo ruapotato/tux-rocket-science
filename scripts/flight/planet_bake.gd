@@ -31,7 +31,11 @@ uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable
 uniform sampler2D normal_tex : filter_linear_mipmap, repeat_enable;
 uniform float roughness_v = 0.8;
 varying vec3 objp;
-void vertex() { objp = VERTEX; }
+varying vec3 up_v;
+void vertex() {
+	objp = VERTEX;
+	up_v = normalize((MODELVIEW_MATRIX * vec4(VERTEX, 0.0)).xyz);
+}
 void fragment() {
 	vec3 s = normalize(vec3(objp.x, -objp.z, objp.y));   // Godot object -> sim body-fixed
 	float lon = atan(s.y, s.x);
@@ -48,6 +52,12 @@ void fragment() {
 	ALBEDO = a;
 	ROUGHNESS = roughness_v;
 	SPECULAR = 0.35;
+}
+// relief normals must not light slopes on the night side of the planet
+void light() {
+	float shadow = smoothstep(-0.04, 0.05, dot(up_v, LIGHT));
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * ndl * shadow / PI;
 }
 """
 

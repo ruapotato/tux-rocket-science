@@ -796,6 +796,22 @@ static void m_flight_place_landed(void *self, const trs_val *a, trs_val *r) {
 	trs_craft_free(&c);
 }
 
+/* subpoint(body, target) -> [lat_deg, lon_deg] on `body` where `target`
+ * body is overhead now */
+static void m_subpoint(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double out[2] = { 0, 0 };
+	if (ok_body(h, a[0].i) && ok_body(h, a[1].i)) {
+		trs_v3 bp, bv, tp, tv;
+		trs_body_state_abs(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
+		trs_body_state_abs(&h->world->sys, (int)a[1].i, h->world->t, &tp, &tv);
+		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_sub(tp, bp)));
+		out[0] = asin(d.z) * DEG;
+		out[1] = atan2(d.y, d.x) * DEG;
+	}
+	ret_doubles(r, out, 2);
+}
+
 /* subsolar_point(body) -> [lat_deg, lon_deg] where the star is overhead now */
 static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -865,6 +881,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
 	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },
 	{ "subsolar_point", m_subsolar_point, A, 1, { I }, { "body" } },
+	{ "subpoint", m_subpoint, A, 2, { I, I }, { "body", "target" } },
 	{ "terrain_map", m_terrain_map, A, 3, { I, I, I }, { "body", "w", "h" } },
 };
 const int TRS_SIM_FLIGHT_METHOD_COUNT = sizeof(TRS_SIM_FLIGHT_METHODS) / sizeof(TRS_SIM_FLIGHT_METHODS[0]);

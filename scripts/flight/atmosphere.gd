@@ -38,6 +38,7 @@ uniform vec3 tau = vec3(0.035, 0.10, 0.34); // vertical optical depth at sea lev
 uniform float sun_power = 22.0;
 uniform float exposure = 1.0;
 uniform float intensity = 1.0;
+uniform float dbg = 0.0;
 
 const int STEPS = 24;
 const int LIGHT_STEPS = 6;
@@ -106,6 +107,7 @@ void fragment() {
 	// gentle tonemap so the dense limb clips to white instead of a hard edge
 	col = 1.0 - exp(-col * exposure);
 	ALBEDO = col * intensity;
+	if (dbg > 0.5) ALBEDO = vec3(sum.b * 50.0, phase * 5.0, 0.0);
 }
 """
 

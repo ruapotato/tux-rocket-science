@@ -151,14 +151,14 @@ func _build_world() -> void:
 	banner.font_size = 160
 	banner.pixel_size = 0.01
 	banner.modulate = Color(0.85, 0.9, 1.0, 0.9)
-	banner.position = Vector3(0, 13, -21.4)
+	banner.position = Vector3(-6, 13, -21.4)
 	add_child(banner)
 	var motto := Label3D.new()
 	motto.text = "Penguin Aeronautics & Space Administration  —  ad astra per glaciem"
 	motto.font_size = 56
 	motto.pixel_size = 0.01
 	motto.modulate = Color(1.0, 0.6, 0.25, 0.9)
-	motto.position = Vector3(0, 11.2, -21.4)
+	motto.position = Vector3(-6, 11.2, -21.4)
 	add_child(motto)
 
 	_craft_root = Node3D.new()

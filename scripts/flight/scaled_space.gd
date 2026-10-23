@@ -82,7 +82,7 @@ func setup(c: TrsSim) -> void:
 	_env.ambient_light_color = Color(0.03, 0.035, 0.05)
 	_env.glow_enabled = true
 	_env.glow_intensity = 1.2
-	_env.glow_bloom = 0.25
+	_env.glow_bloom = 0.0
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	we.environment = _env
 	add_child(we)

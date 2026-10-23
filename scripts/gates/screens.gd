@@ -92,17 +92,60 @@ func run(runner: Node) -> Dictionary:
 			break
 	var core := s.core
 	core.load_system(ProjectSettings.globalize_path(Sim.SYSTEM_PATH))
-	var sub: PackedFloat64Array = core.subsolar_point(core.body_find("krill"))
-	s.active = core.flight_place_landed(cm.save_text(), "krill", sub[0] + 8.0, sub[1] + 55.0)
+	# stand on the great circle from the sub-Floe point toward the sun:
+	# 68 degrees along it, Floe hangs ~22 degrees up and the sun is up too
+	var kb := core.body_find("krill")
+	var fp: PackedFloat64Array = core.subpoint(kb, core.body_find("floe"))
+	var sp: PackedFloat64Array = core.subsolar_point(kb)
+	var to_v := func(ll: PackedFloat64Array) -> Vector3:
+		var la := deg_to_rad(ll[0])
+		var lo := deg_to_rad(ll[1])
+		return Vector3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la))
+	var vf: Vector3 = to_v.call(fp)
+	var vs: Vector3 = to_v.call(sp)
+	var axis := vf.cross(vs).normalized()
+	var site := vf.rotated(axis, deg_to_rad(68.0))
+	s.active = core.flight_place_landed(cm.save_text(), "krill", rad_to_deg(asin(site.z)), rad_to_deg(atan2(site.y, site.x)))
 	s.set_legs(true)
 	s.nodes.clear()
 	flight._clear_views()
 	flight._assign_crew()
 	flight._cam_dist = 22.0
-	flight._cam_pitch = 0.12
-	flight._cam_yaw = 0.7
+	flight._cam_pitch = 0.08
+	# look toward Floe hanging in Krill's sky (Krill is tidally locked)
+	await tree.process_frame
+	var tk: Dictionary = s.telemetry()
+	var feed: PackedFloat64Array = s.core.body_render(s.active)
+	var fdir := Frame.vec(feed, s.core.body_find("floe") * 5).normalized()
+	var n := Frame.vec_arr(tk.north)
+	var e := Frame.vec_arr(tk.east)
+	flight._cam_yaw = atan2(fdir.dot(e), fdir.dot(n))
+	flight._cam_pitch = 0.0
+	flight._cam_dist = 18.0
+	flight._cam.fov = 70.0
 	await _settle(tree, 200)
 	await _shot(tree, "moon_surface")
+	if OS.get_environment("FLOE_ZOOM") != "":
+		flight._cam.fov = 6.0
+		flight._cam_pitch = -0.35
+		flight._cam_dist = 60.0
+		await _settle(tree, 10)
+		await _shot(tree, "floe_from_krill")
+		for b in flight._scaled._bodies:
+			if b.atmo: (b.atmo.material_override as ShaderMaterial).set_shader_parameter("dbg", 1.0)
+		await _settle(tree, 4)
+		await _shot(tree, "floe_from_krill_dbg")
+		for b in flight._scaled._bodies:
+			if b.atmo:
+				(b.atmo.material_override as ShaderMaterial).set_shader_parameter("dbg", 0.0)
+				b.atmo.visible = false
+		await _settle(tree, 4)
+		await _shot(tree, "floe_from_krill_noatmo")
+		for b in flight._scaled._bodies:
+			if b.clouds: b.clouds.visible = false
+		await _settle(tree, 4)
+		await _shot(tree, "floe_from_krill_bare")
+	flight._cam.fov = 60.0
 	flight.queue_free()
 	return {"status": "PASS", "log": "\n".join(_log)}
 

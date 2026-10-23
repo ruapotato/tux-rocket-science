@@ -320,7 +320,7 @@ static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary, opts: Di
 		_cyl(root, r * 1.006, r * 1.006, minf(0.14, h * 0.08), h * 0.5 - 0.22, mat("orange", ORANGE, 0.0, 0.45))
 		_ring(root, r * 1.005, h * 0.5 - 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
 		_ring(root, r * 1.005, -h * 0.5 + 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
-		if opts.get("decals", true) and h >= 1.8:
+		if opts.get("decals", true) and h >= 3.0:
 			_decal(root, Vector3(0, -h * 0.08, r), Vector3(0, 0, 1), minf(0.9, h * 0.35))
 	else:  # reaction wheel and other short cylinders
 		_cyl(root, r, r, h, 0.0, hull(GRAPHITE, {"panels": 16.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}))
