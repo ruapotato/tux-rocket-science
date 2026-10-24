@@ -57,7 +57,8 @@ func _ready() -> void:
 	box.position = Vector2(88, 460)
 	box.add_theme_constant_override("separation", 10)
 	add_child(box)
-	for item in [["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick], ["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]]:
+	Sim.tutorial = false
+	for item in [["First flight (tutorial)", _first_flight], ["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick], ["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(340, 50)
@@ -76,7 +77,7 @@ func _ready() -> void:
 	if Sim.last_mission_note != "":
 		var note := Label.new()
 		note.text = Sim.last_mission_note
-		note.position = Vector2(88, 700)
+		note.position = Vector2(88, 790)
 		note.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75))
 		add_child(note)
 
@@ -163,6 +164,12 @@ func _process(delta: float) -> void:
 
 func _hangar() -> void:
 	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
+
+
+func _first_flight() -> void:
+	Sim.pending_craft_text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "hopper.craft.json")
+	Sim.tutorial = true
+	get_tree().change_scene_to_file("res://scenes/flight.tscn")
 
 
 func _quick() -> void:

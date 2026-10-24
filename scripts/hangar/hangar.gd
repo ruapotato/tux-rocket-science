@@ -79,6 +79,7 @@ var _crew_button: Button
 
 
 func _ready() -> void:
+	Sim.tutorial = false
 	_build_world()
 	_build_ui()
 	model.changed.connect(_on_model_changed)

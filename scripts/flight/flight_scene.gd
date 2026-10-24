@@ -53,6 +53,7 @@ var _mission := {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings
 var _was_orbiting := false
 var _recover_btn: Button
 var _recorded := false
+var tutorial: FirstFlight
 
 
 func _ready() -> void:
@@ -70,7 +71,23 @@ func _ready() -> void:
 	_roster_snapshot = Crew.crew.duplicate(true)
 	_assign_crew()
 	_cam_dist = 18.0 + _craft_height() * 1.2
-	hud.toast("PASA, %s is on the pad. Z for full throttle, SPACE to launch." % session.telemetry().get("name", "vessel"), 5.0)
+	if Sim.tutorial:
+		_start_tutorial()
+	else:
+		hud.toast("PASA, %s is on the pad. Z for full throttle, SPACE to launch." % session.telemetry().get("name", "vessel"), 5.0)
+
+
+## The First Flight walkthrough, above the map so it stays readable there.
+func _start_tutorial() -> void:
+	if tutorial:
+		tutorial.get_parent().queue_free()
+	var layer := CanvasLayer.new()
+	layer.layer = 4
+	add_child(layer)
+	tutorial = FirstFlight.new()
+	layer.add_child(tutorial)
+	tutorial.setup(self)
+	hud.hide_help()
 
 
 func _assign_crew() -> void:
@@ -101,7 +118,7 @@ func _assign_crew() -> void:
 	_recover_btn.visible = false
 	_recover_btn.focus_mode = Control.FOCUS_NONE
 	_recover_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_recover_btn.position.y = 90
+	_recover_btn.position.y = 112  # just under the clock panel
 	_recover_btn.pressed.connect(_recover)
 	hud.add_child(_recover_btn)
 
@@ -483,6 +500,8 @@ func _on_menu(action: String) -> void:
 			_mission = {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
 			_assign_crew()
 			hud.toast("Reverted to launch. The penguins pretend nothing happened.", 2.5)
+			if tutorial:
+				_start_tutorial()
 		"revert_hangar":
 			_restore_crew()
 			get_tree().change_scene_to_file("res://scenes/hangar.tscn")

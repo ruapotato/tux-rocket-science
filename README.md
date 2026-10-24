@@ -9,7 +9,8 @@ orbit, plan a burn to the moon, land, and come home.
 
 ## Playing
 
-`godot` (or open the project in Godot 4.7), then **Assembly Hangar** → build or load a craft → **LAUNCH**.
+`godot` (or open the project in Godot 4.7), then **First flight** for a guided hop in the Hopper, or
+**Assembly Hangar** → build or load a craft → **LAUNCH**.
 
 | Where | Keys |
 |---|---|

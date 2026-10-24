@@ -29,6 +29,7 @@ var catalog: Dictionary = {}  # id -> part dictionary (display data + nodes)
 var catalog_order: Array[String] = []
 ## Craft handed between scenes (hangar -> flight -> back), canonical text.
 var pending_craft_text := ""
+var tutorial := false  # the next flight runs the First Flight walkthrough
 ## Crew names picked in the hangar for the next launch.
 var pending_crew: Array = []
 ## A line for the hangar to show after a recovered flight.
