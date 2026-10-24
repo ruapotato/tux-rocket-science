@@ -231,6 +231,12 @@ func advance(real_dt: float) -> void:
 
 
 func _manage_ranges() -> void:
+	# distances are to the active vessel: if it just broke up, follow a
+	# surviving piece first, or every piece would look infinitely far away
+	if not core.vessel_alive(active):
+		_pick_new_active()
+		if active < 0:
+			return
 	var vessels: Array = JSON.parse_string(core.vessel_list())
 	for v in vessels:
 		if v.id == active:

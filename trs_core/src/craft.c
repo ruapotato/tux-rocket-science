@@ -385,9 +385,20 @@ int trs_craft_engine_fed(const trs_craft *c, const trs_fuel_net *n, int i) {
 		return c->parts[i].fuel > FUEL_EPS;
 	if (d->propellant != TRS_PROP_LIQUID)
 		return 0;
-	for (int g = 0; g < n->ngroups; g++)
-		if (trs_fuel_reaches(n, g, n->group[i]) && trs_craft_group_fuel(c, n->group, g) > FUEL_EPS)
-			return 1;
+	int g = n->group[i];
+	for (int k = 0; k < c->count; k++)
+		if (trs_craft_def(c, k)->fuel_liquid > 0 && c->parts[k].fuel > 0 && trs_fuel_reaches(n, n->group[k], g)) {
+			/* the sum, not one tank, decides: tanks drain together */
+			double f = 0;
+			int ng = n->ngroups > 0 ? n->ngroups : 1;
+			double *gf = malloc(sizeof(double) * (size_t)ng);
+			trs_fuel_levels(n, c, gf);
+			for (int h = 0; h < n->ngroups && f <= FUEL_EPS; h++)
+				if (trs_fuel_reaches(n, h, g) && gf[h] > FUEL_EPS)
+					f = gf[h];
+			free(gf);
+			return f > FUEL_EPS;
+		}
 	return 0;
 }
 

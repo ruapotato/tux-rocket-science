@@ -158,9 +158,9 @@ typedef struct {
 	double speed;
 } trs_world_event;
 
-#define TRS_MAX_EVENTS 256
+#define TRS_MAX_EVENTS 2048
 
-#define TRS_MAX_VESSELS 64
+#define TRS_MAX_VESSELS 256
 #define TRS_MAX_PENDING 64
 /* pending_speed / event speed codes for causes other than impact */
 #define TRS_DESTROY_BLAST (-1.0)

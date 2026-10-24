@@ -15,15 +15,26 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-## --test-ascent: the stock orbiter flies from the launch pad to a stable
+## --test-ascent: the stock Orbiter and Sidecar each fly from the launch pad to a stable
 ## orbit (periapsis > 75 km) under a scripted autopilot, blind, through the
 ## control interface.
 extends RefCounted
 
 
 func run(_runner: Node) -> Dictionary:
+	var logs := PackedStringArray()
+	var ok := true
+	# the Sidecar flies its side tanks dry through feed lines on the way up
+	for craft in ["orbiter", "sidecar"]:
+		var r := _fly(craft)
+		ok = ok and r.status == "PASS"
+		logs.append("%s %s\n%s" % [craft, r.status, r.log])
+	return {"status": "PASS" if ok else "FAIL", "log": "\n".join(logs)}
+
+
+func _fly(craft: String) -> Dictionary:
 	var api := ControlAPI.new()
-	var r := api.handle({"cmd": "load_craft", "path": "orbiter"})
+	var r := api.handle({"cmd": "load_craft", "path": craft})
 	if not r.ok:
 		return {"status": "FAIL", "log": r.error}
 	r = api.handle({"cmd": "launch", "body": "floe"})

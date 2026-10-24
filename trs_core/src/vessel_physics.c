@@ -347,6 +347,7 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 #define CONTACT_OMEGA 22.0  /* rad/s: hull stiffness, well inside RK4 stability at 50 Hz */
 #define CONTACT_ZETA 0.8
 #define RADIAL_CLEAR_S 2.0 /* s a radially dropped piece passes through its core */
+#define GROUND_SKIP 2.0 /* m: see ground() */
 #define CONTACT_ROT_OMEGA 25.0 /* rad/s: cap on the contacts' stiffness against turning */
 #define FRICTION_MU 0.5
 #define SLIP_REG 0.08 /* m/s: friction regularisation */
@@ -392,23 +393,33 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 	 * that step can follow: a long rocket landing on one end would otherwise
 	 * see sum k |arm x n|^2 / I far past 1/h^2 and spin up without bound. */
 	double rot_k = 0, i_min = fmin(vs->inertia.m[0][0], fmin(vs->inertia.m[1][1], vs->inertia.m[2][2]));
+	/* Depth of each contact point. The terrain is sampled only near the
+	 * ground: a point standing well clear of the local ground plane (more
+	 * than GROUND_SKIP plus its sideways distance from the vessel, i.e. any
+	 * slope steeper than 45 degrees off that plane) cannot be touching. */
+	double *depths = malloc(sizeof(double) * (size_t)(vs->ncontact > 0 ? vs->ncontact : 1));
+	trs_v3 g0 = v3_scale(r, (b->radius + h_here) / rl);
 	for (int k = 0; k < vs->ncontact; k++) {
 		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
 		trs_v3 p = v3_add(r, arm);
+		trs_v3 dp = v3_sub(p, g0);
+		double above = v3_dot(dp, nrm);
+		if (above > GROUND_SKIP + v3_len(v3_sub(dp, v3_scale(nrm, above)))) {
+			depths[k] = -1;
+			continue;
+		}
 		double pl = v3_len(p);
-		double depth = (b->radius + trs_body_terrain_at(b, t, p) - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
-		if (depth > 0)
+		depths[k] = (b->radius + trs_body_terrain_at(b, t, p) - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
+		if (depths[k] > 0)
 			rot_k += (vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_spring : k_hull) * v3_len2(v3_cross(arm, nrm));
 	}
 	double soften = rot_k > 0 ? fmin(1, CONTACT_ROT_OMEGA * CONTACT_ROT_OMEGA * fmax(i_min, 1e-9) / rot_k) : 1;
 	for (int k = 0; k < vs->ncontact; k++) {
-		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
-		trs_v3 p = v3_add(r, arm);
-		double pl = v3_len(p);
-		double h = trs_body_terrain_at(b, t, p);
-		double depth = (b->radius + h - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
+		double depth = depths[k];
 		if (depth <= 0)
 			continue;
+		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
+		trs_v3 p = v3_add(r, arm);
 		trs_v3 vp = v3_sub(v3_add(v, v3_cross(vs->w, arm)), v3_cross(omega_b, p));
 		double vn = v3_dot(vp, nrm);
 		double kk = k_hull, cc = c_hull;
@@ -448,6 +459,7 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 			}
 		}
 	}
+	free(depths);
 }
 
 /* ---- attitude ------------------------------------------------------------------ */
@@ -1005,6 +1017,12 @@ static int spawn_piece(trs_world *w, int parent_id, trs_craft *piece, trs_v3 cm_
 	int nid = trs_world_add_vessel(w, body, r_old, v_old);
 	w->vessels[parent_id].fresh = 1;
 	if (nid < 0) {
+		/* no room for another vessel: the piece is lost, and says so */
+		for (int k = 0; k < piece->count; k++) {
+			trs_world_event ev = { TRS_WEV_PART_DESTROYED, w->t, parent_id, -1, piece->parts[k].uid, "", TRS_DESTROY_BLAST };
+			snprintf(ev.part, sizeof ev.part, "%s", trs_craft_def(piece, k)->id);
+			trs_world_push_event(w, ev);
+		}
 		trs_craft_free(piece);
 		return -1;
 	}
