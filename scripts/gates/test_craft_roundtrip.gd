@@ -329,3 +329,28 @@ func _staging_ops() -> void:
 	var merged: bool = m.stage_count() == n0 - 1 and m.parts[alb].stage == s_alb
 	_check(swapped and restored and merged,
 		"stage moves: swap earlier %s, back + undo %s, merge %s" % [swapped, restored, merged])
+	# thrust limits: saved only when set, survive a reload, scale TWR and
+	# burn time exactly, and leave delta-v alone (one engine per stage)
+	var ml := _build_orbiter()
+	var lifter := -1
+	for i in ml.parts.size():
+		if ml.parts[i].part == "engine_lifter":
+			lifter = i
+	var s_full := ml.stats()
+	var plain := ml.save_text()
+	var set_to := ml.set_limit(lifter, 0.6)
+	var text := ml.save_text()
+	var reloaded := CraftModel.new()
+	reloaded.load_text(text)
+	var s_lim := reloaded.stats()
+	var st_full: Dictionary = s_full.stages[0]
+	var st_lim: Dictionary = s_lim.stages[0]
+	var twr_ratio: float = st_lim.twr_sl / st_full.twr_sl
+	var burn_ratio: float = st_lim.burn_time / st_full.burn_time
+	var lim_ok: bool = set_to == 0.6 and not plain.contains("\"limit\"") and text.contains("\"limit\": 0.6") \
+		and reloaded.save_text() == text and absf(twr_ratio - 0.6) < 1e-12 and absf(burn_ratio - 1.0 / 0.6) < 1e-9 \
+		and absf(st_lim.dv_vac - st_full.dv_vac) < 1e-9
+	ml.undo()
+	lim_ok = lim_ok and ml.save_text() == plain
+	_check(lim_ok, "thrust limit 60%%: saved and reloaded identical %s, TWR x%.15f, burn time x%.12f, dv %.3f -> %.3f m/s, undo restores %s" % [
+		reloaded.save_text() == text, twr_ratio, burn_ratio, st_full.dv_vac, st_lim.dv_vac, ml.save_text() == plain])

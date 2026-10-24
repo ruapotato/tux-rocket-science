@@ -50,6 +50,7 @@ typedef struct {
 	int stage;            /* activation stage, -1 = none */
 	int sym;              /* symmetry group (0 = none), editor metadata */
 	double fuel;          /* remaining propellant, kg (liquid or solid) */
+	double limit;         /* engines: thrust limit, fraction of full (set in the hangar) */
 	int engine_on;
 	int chute;
 	int legs_deployed;
@@ -79,6 +80,9 @@ trs_json *trs_craft_to_json(const trs_craft *c);
 static inline const trs_part_def *trs_craft_def(const trs_craft *c, int i) {
 	return &c->cat->defs[c->parts[i].def];
 }
+
+/* Engine part i's propellant flow at full throttle, after its thrust limit. */
+double trs_part_mdot(const trs_craft *c, int i);
 
 double trs_craft_mass(const trs_craft *c);
 double trs_craft_part_mass(const trs_craft *c, int i);

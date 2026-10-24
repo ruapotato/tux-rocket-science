@@ -65,6 +65,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	p->stage = stage;
 	p->sym = sym;
 	p->fuel = fuel_capacity(&c->cat->defs[def]);
+	p->limit = 1;
 	p->temp = TRS_T_AMBIENT;
 	return c->count++;
 }
@@ -119,6 +120,15 @@ int trs_craft_from_json(trs_craft *c, const trs_part_catalog *cat, const trs_jso
 		const trs_json *f = trs_json_get(pj, "fuel");
 		if (f && f->type == TRS_JSON_NUMBER)
 			c->parts[k].fuel = f->num;
+		const trs_json *l = trs_json_get(pj, "limit");
+		if (l && l->type == TRS_JSON_NUMBER) {
+			if (!(l->num > 0 && l->num <= 1)) {
+				snprintf(err, errlen, "part %zu: thrust limit must be in (0, 1]", i);
+				trs_craft_free(c);
+				return 0;
+			}
+			c->parts[k].limit = l->num;
+		}
 	}
 	return 1;
 }
@@ -153,10 +163,16 @@ trs_json *trs_craft_to_json(const trs_craft *c) {
 		trs_json_set(pj, "sym", trs_json_new_num(p->sym));
 		if (p->fuel != fuel_capacity(d))
 			trs_json_set(pj, "fuel", trs_json_new_num(p->fuel));
+		if (p->limit != 1)
+			trs_json_set(pj, "limit", trs_json_new_num(p->limit));
 		trs_json_push(parts, pj);
 	}
 	trs_json_set(j, "parts", parts);
 	return j;
+}
+
+double trs_part_mdot(const trs_craft *c, int i) {
+	return trs_engine_mdot(trs_craft_def(c, i)) * c->parts[i].limit;
 }
 
 /* ---- mass properties ------------------------------------------------------ */
@@ -606,9 +622,9 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 				any = 1;
 				if (drop[i])
 					any_drop_lit = 1;
-				double md = trs_engine_mdot(d);
+				double md = trs_part_mdot(&c, i);
 				mdot += md;
-				f_vac += d->thrust_vac;
+				f_vac += md * d->isp_vac * TRS_G0;
 				f_sl += md * trs_engine_isp(d, p_sl) * TRS_G0;
 			}
 			if (!any || (drop_has_engines && !any_drop_lit))
@@ -627,7 +643,7 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				md[i] = c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID && trs_craft_engine_fed(&c, &net, i)
-						? trs_engine_mdot(d) : 0;
+						? trs_part_mdot(&c, i) : 0;
 			}
 			trs_fuel_rates(&net, &c, md, rate);
 			trs_fuel_levels(&net, &c, gf);
@@ -637,7 +653,7 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				if (c.parts[i].engine_on && d->propellant == TRS_PROP_SOLID && c.parts[i].fuel > FUEL_EPS)
-					tau = fmin(tau, c.parts[i].fuel / trs_engine_mdot(d));
+					tau = fmin(tau, c.parts[i].fuel / trs_part_mdot(&c, i));
 			}
 			double m0 = trs_craft_mass(&c), m1 = m0 - mdot * tau;
 			st->dv_vac += f_vac / mdot * log(m0 / m1);
@@ -650,7 +666,7 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				if (c.parts[i].engine_on && d->propellant == TRS_PROP_SOLID && c.parts[i].fuel > FUEL_EPS) {
-					c.parts[i].fuel -= trs_engine_mdot(d) * tau;
+					c.parts[i].fuel -= trs_part_mdot(&c, i) * tau;
 					if (c.parts[i].fuel < FUEL_EPS * 10)
 						c.parts[i].fuel = 0;
 				}

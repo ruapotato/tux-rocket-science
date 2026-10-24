@@ -112,11 +112,19 @@ trs_gate_status trs_gate_deltav(trs_log *log, const char *data_dir) {
 	double g_floe = floe_sys.bodies[floe].mu / pow(floe_sys.bodies[floe].radius, 2);
 	int failed = 0;
 
-	for (int k = 0; k < NSTOCK; k++) {
+	/* the stock craft, then the Sidecar with its side engines limited to
+	 * 70%: the core then drains its side tanks at a different rate */
+	for (int k = 0; k <= NSTOCK; k++) {
 		trs_craft c;
-		if (!trs_gate_load_craft(log, data_dir, STOCK_CRAFT[k], &cat, &c)) {
+		if (!trs_gate_load_craft(log, data_dir, STOCK_CRAFT[k < NSTOCK ? k : NSTOCK - 1], &cat, &c)) {
 			failed++;
 			continue;
+		}
+		if (k == NSTOCK) {
+			for (int i = 0; i < c.count; i++)
+				if (c.parts[i].sym != 0 && trs_craft_def(&c, i)->propellant != TRS_PROP_NONE)
+					c.parts[i].limit = 0.7;
+			snprintf(c.name, sizeof c.name, "Sidecar, side engines at 70%%");
 		}
 		trs_stage_stats st[32];
 		int ns = trs_craft_stage_stats(&c, trs_craft_max_stage(&c), g_floe, TRS_P_REF, st, 32);

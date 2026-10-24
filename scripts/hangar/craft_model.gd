@@ -31,6 +31,7 @@ const UP := [0.0, 1.0, 0.0]
 var craft_name := "Untitled"
 var description := ""
 ## Each part: {part, parent, node, parent_node, pos[3], rot[4], stage, sym}
+## plus, when not the default, fuel (kg) and limit (engine thrust fraction).
 var parts: Array = []
 ## When false, any structural change re-runs auto staging.
 var manual_staging := false
@@ -43,7 +44,7 @@ var _redo: Array[Dictionary] = []
 # trs_core owns the file format; see Sim.encode/decode for why numbers never
 # pass through text on this side.
 
-const FLOATS_PER_PART := 8
+const FLOATS_PER_PART := 9
 
 
 func to_meta() -> Dictionary:
@@ -73,6 +74,7 @@ func to_floats() -> PackedFloat64Array:
 		for k in 4:
 			f[o + 3 + k] = rot[k]
 		f[o + 7] = p.get("fuel", -1.0)
+		f[o + 8] = p.get("limit", 1.0)
 	return f
 
 
@@ -96,6 +98,8 @@ func load_bin(meta: Dictionary, floats: PackedFloat64Array) -> void:
 		}
 		if floats[o + 7] >= 0.0:
 			q["fuel"] = floats[o + 7]
+		if floats[o + 8] != 1.0:
+			q["limit"] = floats[o + 8]
 		parts.append(q)
 	changed.emit()
 
@@ -328,6 +332,8 @@ func _extract(i: int) -> Dictionary:
 			# symmetry inside the subtree survives only if the whole group is in it
 			"sym": p.sym if k != i and _group_within(p.sym, ids) else 0,
 		})
+		if p.has("limit"):
+			out[-1]["limit"] = p.limit
 	return {"parts": out, "root_node": parts[i].node}
 
 
@@ -416,6 +422,8 @@ func _append_held(held: Dictionary, parent: int, node: String, parent_node: Stri
 			"stage": h.stage,
 			"sym": sym if k == 0 else sym_map.get(h.sym, 0),
 		})
+		if h.has("limit"):
+			parts[-1]["limit"] = h.limit
 	return base
 
 
@@ -814,6 +822,22 @@ func merge_stage(s: int, t: int) -> void:
 			p.stage = t
 	_compact_stages()
 	changed.emit()
+
+
+## Engine thrust limit (fraction of full, 0.05..1) for part i and its
+## symmetric counterparts. Returns the value set.
+func set_limit(i: int, limit: float) -> float:
+	if i < 0 or i >= parts.size() or not Sim.part(parts[i].part).has("engine"):
+		return 1.0
+	limit = clampf(roundf(limit * 20.0) / 20.0, 0.05, 1.0)
+	checkpoint()
+	for c in counterparts(i):
+		if limit == 1.0:
+			parts[c].erase("limit")
+		else:
+			parts[c]["limit"] = limit
+	changed.emit()
+	return limit
 
 
 func _compact_stages() -> void:

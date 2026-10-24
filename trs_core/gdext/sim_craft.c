@@ -54,10 +54,11 @@ static int parse_craft(trs_sim_handle *h, const char *text, trs_craft *c, char *
 /* ---- binary-safe craft transfer ------------------------------------------
  * Godot's float<->text conversions are not correctly rounded, so craft
  * geometry crosses into GDScript only as doubles: a "meta" JSON with the
- * structure (strings/ints) plus a PackedFloat64Array with 8 doubles per
- * part: pos xyz, rot xyzw, fuel (-1 = full). trs_core owns all text. */
+ * structure (strings/ints) plus a PackedFloat64Array with 9 doubles per
+ * part: pos xyz, rot xyzw, fuel (-1 = full), thrust limit. trs_core owns
+ * all text. */
 
-#define FPP 8
+#define FPP 9
 
 static void ret_floats(trs_val *r, const trs_craft *c) {
 	r->arr.n = (int64_t)c->count * FPP;
@@ -70,6 +71,7 @@ static void ret_floats(trs_val *r, const trs_craft *c) {
 		o[0] = p->pos.x, o[1] = p->pos.y, o[2] = p->pos.z;
 		o[3] = p->rot.x, o[4] = p->rot.y, o[5] = p->rot.z, o[6] = p->rot.w;
 		o[7] = p->fuel == cap ? -1 : p->fuel;
+		o[8] = p->limit;
 	}
 }
 
@@ -129,6 +131,13 @@ static int craft_from_bin(trs_sim_handle *h, const char *meta, const trs_val *fl
 				v3(f[0], f[1], f[2]), q, (int)trs_json_num(pj, "stage", -1), (int)trs_json_num(pj, "sym", 0));
 		if (f[7] >= 0)
 			c->parts[k].fuel = f[7];
+		if (!(f[8] > 0 && f[8] <= 1)) {
+			snprintf(err, errlen, "part %d: thrust limit must be in (0, 1]", i);
+			trs_craft_free(c);
+			trs_json_free(m);
+			return 0;
+		}
+		c->parts[k].limit = f[8];
 	}
 	trs_json_free(m);
 	return 1;

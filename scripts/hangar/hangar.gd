@@ -564,6 +564,8 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 		var n := model.counterparts(i).size()
 		var chip := Button.new()
 		chip.text = Sim.part(p.part).name.get_slice(" ", 0) + ("  x%d" % n if n > 1 else "")
+		if p.has("limit"):
+			chip.text += " %d%%" % roundi(float(p.limit) * 100.0)
 		chip.tooltip_text = Sim.part(p.part).name
 		if (_stats.get("unfed_engines", []) as Array).has(float(i)) or (_stats.get("unfed_engines", []) as Array).has(i):
 			chip.text = "NO FUEL " + chip.text
@@ -814,6 +816,13 @@ func _key(k: InputEventKey) -> void:
 				_rebuild_loose()
 		KEY_ESCAPE:
 			_drop_held()
+		KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_MINUS, KEY_EQUAL:
+			# thrust limit of the hovered engine (and its symmetric copies)
+			if _hover >= 0 and _held.is_empty() and Sim.part(model.parts[_hover].part).has("engine"):
+				var now: float = model.parts[_hover].get("limit", 1.0)
+				var up: bool = k.keycode in [KEY_BRACKETRIGHT, KEY_EQUAL]
+				var v := model.set_limit(_hover, now + (0.05 if up else -0.05) * (4.0 if k.shift_pressed else 1.0))
+				toast("Thrust limit %d%%" % roundi(v * 100.0))
 		KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PAGEUP, KEY_PAGEDOWN:
 			if (_hover <= 0 or not _held.is_empty()) and k.keycode in [KEY_PAGEUP, KEY_PAGEDOWN]:
 				_cam_target.y = clampf(_cam_target.y + (2.0 if k.keycode == KEY_PAGEUP else -2.0), 0.5, 120.0)
@@ -1122,5 +1131,7 @@ func _update_hint() -> void:
 	elif _hover >= 0:
 		var p: Dictionary = model.parts[_hover]
 		_hint.text = "%s — click to pick up · Del removes · Q/E/W/S/A/D rotate · arrows/PgUp/PgDn offset (Shift: bigger steps)" % Sim.part(p.part).name
+		if Sim.part(p.part).has("engine"):
+			_hint.text += " · [ ] thrust limit (now %d%%)" % roundi(float(p.get("limit", 1.0)) * 100.0)
 	else:
 		_hint.text = "Pick a part on the left · click a part on the craft to pick it up · right-drag orbit · wheel zoom · middle-drag or PgUp/PgDn move view up/down · F frame craft · Ctrl+Z/Y undo/redo · Ctrl+S save"

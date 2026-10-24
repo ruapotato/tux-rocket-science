@@ -348,7 +348,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 				continue;
 			lit++;
 			solids += d->propellant == TRS_PROP_SOLID;
-			double full = trs_engine_mdot(d) * trs_engine_isp(d, p) * TRS_G0;
+			double full = trs_part_mdot(c, i) * trs_engine_isp(d, p) * TRS_G0;
 			thrust_max += full;
 			thrust += full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle);
 		}
@@ -530,7 +530,7 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		trs_quat wq = quat_mul(q, p->rot);
 		double thr = 0;
 		if (p->engine_on && def->propellant != TRS_PROP_NONE && trs_craft_engine_fed(c, &vs->fuel, i))
-			thr = def->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle;
+			thr = (def->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle) * p->limit;
 		double *o = d + (size_t)i * RPP;
 		o[0] = p->uid;
 		o[1] = wp.x, o[2] = wp.y, o[3] = wp.z;
@@ -897,16 +897,16 @@ static void m_burn_time(void *self, const trs_val *a, trs_val *r) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, &vs->fuel, i))
 			continue;
-		mdot += trs_engine_mdot(d);
-		f += d->thrust_vac;
+		mdot += trs_part_mdot(c, i);
+		f += trs_part_mdot(c, i) * d->isp_vac * TRS_G0;
 	}
 	if (mdot <= 0) {
 		/* nothing lit: estimate with the next stage's engines */
 		for (int i = 0; i < c->count; i++) {
 			const trs_part_def *d = trs_craft_def(c, i);
 			if (c->parts[i].stage == vs->next_stage && d->propellant != TRS_PROP_NONE) {
-				mdot += trs_engine_mdot(d);
-				f += d->thrust_vac;
+				mdot += trs_part_mdot(c, i);
+				f += trs_part_mdot(c, i) * d->isp_vac * TRS_G0;
 			}
 		}
 	}

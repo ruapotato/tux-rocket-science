@@ -164,7 +164,7 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 			continue;
 		int k = es->n++;
 		es->idx[k] = i;
-		es->mdot[k] = trs_engine_mdot(d) * thr;
+		es->mdot[k] = trs_part_mdot(c, i) * thr;
 		es->dir[k] = part_axis(p);
 		double f = es->mdot[k] * trs_engine_isp(d, pressure) * TRS_G0;
 		trs_v3 fv = v3_scale(es->dir[k], f);
