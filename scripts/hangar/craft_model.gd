@@ -783,6 +783,39 @@ func insert_stage(i: int, s: int) -> void:
 	changed.emit()
 
 
+## Moves every part of stage s into a new stage at g (the gap semantics of
+## insert_stage: the new stage takes number g, g and above shift up).
+func move_stage(s: int, g: int) -> void:
+	if g == s or g == s + 1:
+		return  # the gaps either side of a stage leave it where it is
+	checkpoint()
+	manual_staging = true
+	var moving := []
+	for i in parts.size():
+		if parts[i].stage == s:
+			moving.append(i)
+	for i in parts.size():
+		if parts[i].stage >= g and not moving.has(i):
+			parts[i].stage += 1
+	for i in moving:
+		parts[i].stage = g
+	_compact_stages()
+	changed.emit()
+
+
+## Fires stage s together with stage t (all of s joins t).
+func merge_stage(s: int, t: int) -> void:
+	if s == t:
+		return
+	checkpoint()
+	manual_staging = true
+	for p in parts:
+		if p.stage == s:
+			p.stage = t
+	_compact_stages()
+	changed.emit()
+
+
 func _compact_stages() -> void:
 	var used := {}
 	for p in parts:

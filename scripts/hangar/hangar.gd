@@ -335,7 +335,7 @@ func _build_ui() -> void:
 	_summary.scroll_active = false
 	rv.add_child(_summary)
 	var st := Label.new()
-	st.text = "STAGING — in firing order: the top card goes on the first SPACE. Drag a part onto a card to move it, or onto a + line for a stage of its own (e.g. a decoupler alone)."
+	st.text = "STAGING — in firing order: the top card goes on the first SPACE. Drag a part onto a card to move it, or onto a + line for a stage of its own (e.g. a decoupler alone). ▲▼ or drag a heading moves a whole stage."
 	st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	st.custom_minimum_size = Vector2(320, 0)
 	st.add_theme_color_override("font_color", PartVisual.ICE)
@@ -477,10 +477,27 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 		does.append("ignite" + (" x%d" % ne if ne > 1 else ""))
 	head.text = "SPACE #%d · stage %d · %s%s" % [press, s, " + ".join(does), info]
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.custom_minimum_size = Vector2(300, 0)
+	head.custom_minimum_size = Vector2(240, 0)
 	head.add_theme_font_size_override("font_size", 13)
 	head.add_theme_color_override("font_color", PartVisual.ORANGE if s == model.stage_count() - 1 else Color(0.85, 0.9, 1.0))
-	v.add_child(head)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
+	head.tooltip_text = "Drag this heading to move the whole stage; drop it on another stage to fire both on one press"
+	head.set_drag_forwarding(func(_pos): return _drag_stage(s, head.text), Callable(), Callable())
+	var row := HBoxContainer.new()
+	row.add_child(head)
+	var count := model.stage_count()
+	for dir in [1, -1]:
+		var b := Button.new()
+		b.text = "▲" if dir == 1 else "▼"
+		b.tooltip_text = "Fire this stage one press earlier" if dir == 1 else "Fire this stage one press later"
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", 11)
+		# earlier = higher stage number: the gap above the next card up
+		b.disabled = (dir == 1 and s == count - 1) or (dir == -1 and s == 0)
+		b.pressed.connect(func(): model.move_stage(s, s + 2 if dir == 1 else s - 1))
+		row.add_child(b)
+	v.add_child(row)
 	var flow := HFlowContainer.new()
 	v.add_child(flow)
 	var seen_sym := {}
@@ -506,7 +523,7 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 		chip.mouse_entered.connect(func(): _highlight([i]))
 		chip.mouse_exited.connect(func(): _highlight([]))
 		flow.add_child(chip)
-	panel.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): model.set_stage(data.index, s))
+	panel.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_stage(data, s))
 	return panel
 
 
@@ -522,7 +539,7 @@ func _stage_gap(s: int) -> Control:
 	plus.add_theme_color_override("font_color", Color(0.45, 0.55, 0.7, 0.7))
 	plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gap.add_child(plus)
-	gap.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): model.insert_stage(data.index, s))
+	gap.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_gap(data, s))
 	gap.tooltip_text = "Drop here to make a new stage"
 	return gap
 
@@ -535,8 +552,30 @@ func _drag_chip(i: int, label: String) -> Variant:
 	return {"kind": "stage_part", "index": i}
 
 
+func _drag_stage(s: int, label: String) -> Variant:
+	var preview := Label.new()
+	preview.text = label
+	preview.add_theme_color_override("font_color", PartVisual.ORANGE)
+	_ui.set_drag_preview(preview)
+	return {"kind": "stage", "stage": s}
+
+
 func _can_drop_chip(_pos: Vector2, data: Variant) -> bool:
-	return typeof(data) == TYPE_DICTIONARY and data.get("kind", "") == "stage_part"
+	return typeof(data) == TYPE_DICTIONARY and data.get("kind", "") in ["stage_part", "stage"]
+
+
+func _drop_on_stage(data: Dictionary, s: int) -> void:
+	if data.kind == "stage":
+		model.merge_stage(data.stage, s)
+	else:
+		model.set_stage(data.index, s)
+
+
+func _drop_on_gap(data: Dictionary, g: int) -> void:
+	if data.kind == "stage":
+		model.move_stage(data.stage, g)
+	else:
+		model.insert_stage(data.index, g)
 
 
 func _highlight(ids: Array) -> void:

@@ -299,3 +299,23 @@ func _staging_ops() -> void:
 	var reset := m.stage_count() == n0
 	_check(inserted and dv_ok and moved and back and reset,
 		"staging edits: insert stage %s (dv %.1f m/s), move %s, undo %s, auto reset %s" % [inserted, st.dv_vac, moved, back, reset])
+	# whole-stage moves: the vacuum engine's stage one press earlier swaps it
+	# with the decoupler above it; dragging it back and undo restore the plan
+	var s_alb: int = m.parts[alb].stage
+	var dec_mates := []
+	for i in m.parts.size():
+		if m.parts[i].stage == s_alb + 1:
+			dec_mates.append(i)
+	m.move_stage(s_alb, s_alb + 2)
+	var swapped: bool = m.parts[alb].stage == s_alb + 1 and m.stage_count() == n0
+	for i in dec_mates:
+		swapped = swapped and m.parts[i].stage == s_alb
+	m.move_stage(s_alb + 1, s_alb)
+	var restored: bool = m.parts[alb].stage == s_alb
+	m.undo()
+	m.undo()
+	restored = restored and m.parts[alb].stage == s_alb
+	m.merge_stage(s_alb, s_alb + 1)
+	var merged: bool = m.stage_count() == n0 - 1 and m.parts[alb].stage == s_alb
+	_check(swapped and restored and merged,
+		"stage moves: swap earlier %s, back + undo %s, merge %s" % [swapped, restored, merged])
