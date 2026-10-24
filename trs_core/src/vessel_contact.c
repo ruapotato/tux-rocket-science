@@ -22,7 +22,7 @@
  * instead of falling through, debris bounces off the rocket it came from.
  *
  * Points sampled over each vessel's hull parts are tested against the
- * other vessel's parts as solid cylinders. A point
+ * other vessel's parts as solid cylinders (tapered for cones). A point
  * inside is pushed out through the nearest face by a spring-damper with
  * Coulomb friction, sized from the pair's reduced mass like the ground
  * contact, and the opposite force goes on the other vessel at the same
@@ -37,6 +37,7 @@
 
 #define VC_OMEGA 22.0  /* rad/s, as the ground contact */
 #define VC_ZETA 0.8
+#define VC_ROT_OMEGA 25.0 /* rad/s: cap on the stiffness against turning */
 #define VC_MU 0.5
 #define VC_SLIP 0.08
 #define VC_MAX_DEPTH 0.15 /* m: caps the push from parts that overlapped by design */
@@ -64,6 +65,14 @@ static void state_of(trs_world *w, int id, body_state *s) {
 	}
 }
 
+/* Hull radius of a part at local height y: tapers linearly from the
+ * bottom radius to the top one (cones, capsules), so a nosecone's point
+ * does not reach out like a full cylinder. */
+static double radius_at(const trs_part_def *d, double y) {
+	double f = d->height > 0 ? fmin(1, fmax(0, (y + d->height * 0.5) / d->height)) : 0.5;
+	return d->radius_bottom + (d->radius_top - d->radius_bottom) * f;
+}
+
 /* Is world point p inside a hull part of b? Fills the outward normal
  * (world) and depth, and the part index. Fins, legs and chutes are left out:
  * they are thin or flexible, and the ground already handles legs.
@@ -87,7 +96,7 @@ static int inside(const body_state *b, trs_v3 p, trs_v3 na1, trs_v3 na2, trs_v3 
 		const trs_part *pt = &c->parts[i];
 		trs_v3 lp = quat_rotate(quat_conj(pt->rot), v3_sub(lv, pt->pos));
 		double hh = d->height * 0.5, rho = sqrt(lp.x * lp.x + lp.z * lp.z);
-		double dy = hh - fabs(lp.y), dr = d->radius - rho;
+		double dy = hh - fabs(lp.y), dr = radius_at(d, lp.y) - rho;
 		if (dy <= 0 || dr <= 0)
 			continue;
 		trs_v3 faces[2];
@@ -147,15 +156,19 @@ static int part_points(const trs_part_def *d, trs_v3 *out, trs_v3 *n1, trs_v3 *n
 	if (d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05)
 		return 0;
 	int m = 0;
-	double r = d->radius * 0.999, hh = d->height * 0.5;
+	double hh = d->height * 0.5;
 	double ys[3] = { -hh * 0.98, 0, hh * 0.98 };
-	for (int j = 0; j < 3; j++)
+	for (int j = 0; j < 3; j++) {
+		double r = radius_at(d, ys[j]) * 0.999;
+		if (r < 0.02)
+			continue; /* the point of a cone: the end centre covers it */
 		for (int k = 0; k < 8; k++) {
 			double t = TRS_TAU * k / 8;
 			n1[m] = v3(sin(t), 0, cos(t));
 			n2[m] = j == 1 ? v3(0, 0, 0) : v3(0, j == 0 ? -1 : 1, 0);
 			out[m++] = v3(r * sin(t), ys[j], r * cos(t));
 		}
+	}
 	n1[m] = v3(0, -1, 0), n2[m] = v3(0, 0, 0);
 	out[m++] = v3(0, -hh, 0);
 	n1[m] = v3(0, 1, 0), n2[m] = v3(0, 0, 0);
@@ -205,6 +218,22 @@ static int one_way(body_state *a, body_state *b, contact *cs, int n) {
 static void apply(contact *cs, int n, double mu) {
 	double share = n > 4 ? 4.0 / n : 1.0;
 	double k = mu * VC_OMEGA * VC_OMEGA / 4.0 * share;
+	/* as for the ground: held over the tick, the springs' stiffness against
+	 * turning either body must stay inside what the attitude step follows */
+	double rot[2] = { 0, 0 };
+	for (int i = 0; i < n; i++) {
+		body_state *bs[2] = { cs[i].a, cs[i].b };
+		for (int s = 0; s < 2; s++) {
+			if (!bs[s]->movable)
+				continue;
+			const trs_m3 *I = &bs[s]->vs->inertia;
+			double imin = fmax(fmin(I->m[0][0], fmin(I->m[1][1], I->m[2][2])), 1e-9);
+			rot[s] += k * v3_len2(v3_cross(v3_sub(cs[i].p, bs[s]->r), cs[i].n)) / imin;
+		}
+	}
+	double worst = fmax(rot[0], rot[1]);
+	if (worst > VC_ROT_OMEGA * VC_ROT_OMEGA)
+		k *= VC_ROT_OMEGA * VC_ROT_OMEGA / worst;
 	double c = 2 * VC_ZETA * sqrt(k * mu / 4.0 * share);
 	for (int i = 0; i < n; i++) {
 		contact *ct = &cs[i];
@@ -242,6 +271,42 @@ static void apply(contact *cs, int n, double mu) {
 	}
 }
 
+static int ghosted(const trs_vessel *v, int other) {
+	for (int k = 0; k < v->nghost; k++)
+		if (v->ghost[k] == other)
+			return 1;
+	return 0;
+}
+
+void trs_vessel_add_ghost(trs_vessel *v, int other, double until) {
+	for (int k = 0; k < v->nghost; k++)
+		if (v->ghost[k] == other) {
+			v->ghost_until[k] = fmax(v->ghost_until[k], until);
+			return;
+		}
+	if (v->nghost < 16) {
+		v->ghost_until[v->nghost] = until;
+		v->ghost[v->nghost++] = other;
+	}
+}
+
+static double ghost_until(const trs_vessel *v, int other) {
+	for (int k = 0; k < v->nghost; k++)
+		if (v->ghost[k] == other)
+			return v->ghost_until[k];
+	return 0;
+}
+
+static void drop_ghost(trs_vessel *v, int other) {
+	for (int k = 0; k < v->nghost; k++)
+		if (v->ghost[k] == other) {
+			v->nghost--;
+			v->ghost[k] = v->ghost[v->nghost];
+			v->ghost_until[k] = v->ghost_until[v->nghost];
+			k--;
+		}
+}
+
 void trs_world_vessel_contacts(trs_world *w) {
 	static contact cs[VC_MAX_CONTACTS];
 	for (int i = 0; i < w->nvessels; i++) {
@@ -271,7 +336,25 @@ void trs_world_vessel_contacts(trs_world *w) {
 			double mu = a.movable && b.movable ? x->mass * y->mass / (x->mass + y->mass) : a.movable ? x->mass : y->mass;
 			int n = one_way(&a, &b, cs, 0);
 			n = one_way(&b, &a, cs, n);
-			apply(cs, n, mu);
+			/* pieces that overlapped when they came apart (a booster's
+			 * nose inside its decoupler's reach, debris from one blast)
+			 * pass through each other until they first separate (and boosters
+			 * dropped sideways get a moment to swing clear of the core) */
+			int g = ghosted(x, j);
+			if (n > 0 && !g && (x->fresh || y->fresh)) {
+				trs_vessel_add_ghost(x, j, 0);
+				trs_vessel_add_ghost(y, i, 0);
+				g = 1;
+			}
+			if (g && n == 0 && w->t >= ghost_until(x, j)) {
+				drop_ghost(x, j);
+				drop_ghost(y, i);
+				g = 0;
+			}
+			if (!g)
+				apply(cs, n, mu);
 		}
 	}
+	for (int i = 0; i < w->nvessels; i++)
+		w->vessels[i].fresh = 0;
 }

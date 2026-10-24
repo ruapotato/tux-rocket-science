@@ -47,7 +47,8 @@ func run(runner: Node) -> Dictionary:
 		await tree.process_frame
 	await RenderingServer.frame_post_draw
 	tree.root.get_texture().get_image().save_png("user://dev_shots/separation.png")
-	s.stage()  # drop the transfer stage: lander alone
+	while s.telemetry().next_stage >= 1:
+		s.stage()  # light the transfer engine, drop the transfer stage, light the lander
 	s.set_throttle(0.3)  # nudge away from the spent stage
 	for i in 150:
 		s.step_ticks(4)
@@ -64,7 +65,7 @@ func run(runner: Node) -> Dictionary:
 	var out := PackedStringArray()
 	var vv = flight._views.get(s.active)
 	var feed: PackedFloat64Array = s.core.vessel_render(s.active, s.active)
-	for k in feed.size() / 13:
+	for k in feed.size() / VesselView.RPP:
 		if feed[k * VesselView.RPP + 10] > 0.0:
 			out.append("feed uid %d legs %.1f" % [int(feed[k * VesselView.RPP]), feed[k * VesselView.RPP + 10]])
 	for uid in vv._parts:

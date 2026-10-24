@@ -258,6 +258,18 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 	trs_stage_stats st[64];
 	int ns = trs_craft_stage_stats(&c, trs_craft_max_stage(&c), g, p_sl, st, 64);
 	trs_json_set(out, "name", trs_json_new_str(c.name));
+	/* liquid engines with no tank they can draw from (a decoupler between
+	 * them and every tank blocks the feed): they would light and do nothing */
+	{
+		int *grp = malloc(sizeof(int) * (size_t)(c.count > 0 ? c.count : 1));
+		trs_craft_fuel_groups(&c, grp);
+		trs_json *unfed = trs_json_new(TRS_JSON_ARRAY);
+		for (int i = 0; i < c.count; i++)
+			if (trs_craft_def(&c, i)->propellant == TRS_PROP_LIQUID && trs_craft_group_fuel(&c, grp, grp[i]) <= 0)
+				trs_json_push(unfed, trs_json_new_num(i));
+		trs_json_set(out, "unfed_engines", unfed);
+		free(grp);
+	}
 	trs_json_set(out, "parts", trs_json_new_num(c.count));
 	trs_json_set(out, "mass", trs_json_new_num(mass));
 	trs_json_set(out, "dry_mass", trs_json_new_num(dry));

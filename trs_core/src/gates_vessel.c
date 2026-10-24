@@ -333,7 +333,7 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 				peak_g = fmax(peak_g, v3_len(vs->sensed_accel) / TRS_G0);
 			if (cp->chute == TRS_CHUTE_FULL && prev_state != TRS_CHUTE_FULL) {
 				ground = trs_body_terrain_at(F, w->t, vs->r);
-				full_agl = vs->altitude - fmax(ground, 0);
+				full_agl = vs->altitude - ground;
 				instant_g = q * cd->chute_full_cda / vs->mass / TRS_G0;
 			}
 			prev_state = cp->chute;
@@ -453,6 +453,58 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 			free(w);
 			trs_craft_free(&c);
 		}
+	}
+	/* 5. Fins keep a rocket pointed: the Orbiter coasting through thick fast
+	 *    air (no thrust, no SAS) and knocked 6 deg off the airflow swings
+	 *    back with its fins and tumbles without them (the nose pushes
+	 *    sideways ahead of the centre of mass). */
+	{
+		double end_aoa[2] = { 0, 0 }; /* worst angle: fins after the first 2 s, bare throughout */
+		for (int k = 0; k < 2; k++) {
+			trs_craft c;
+			if (!trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c))
+				return TRS_GATE_FAIL;
+			if (k == 1)
+				for (int i = c.count - 1; i >= 0; i--)
+					if (!strcmp(trs_craft_def(&c, i)->id, "fin")) {
+						trs_craft pieces[4];
+						int n = trs_craft_remove_part(&c, i, pieces, 4);
+						for (int p = 0; p < n; p++)
+							trs_craft_free(&pieces[p]);
+					}
+			/* by 9 km the first stage has burnt most of its propellant (the
+			 * stock ascent arrives there with ~35% left in it) */
+			for (int i = 0; i < c.count; i++)
+				if (trs_craft_def(&c, i)->fuel_liquid > 0 && c.parts[i].pos.y < -4)
+					c.parts[i].fuel *= 0.35;
+			trs_world *w = malloc(sizeof(trs_world));
+			trs_world_init(w, &sys, 0);
+			/* 9 km up at 330 m/s, climbing 45 deg, nose 6 deg above the flow */
+			trs_v3 up = v3(1, 0, 0), east = v3(0, 0, 1);
+			trs_v3 r = v3_scale(up, F->radius + trs_body_terrain_at(F, 0, v3_scale(up, F->radius)) + 9000);
+			trs_v3 dir = v3_norm(v3_add(up, east));
+			trs_v3 v = v3_add(v3_cross(trs_body_omega(F), r), v3_scale(dir, 330));
+			double a6 = 6 * TRS_PI / 180;
+			trs_v3 nose = v3_add(v3_scale(dir, cos(a6)), v3_scale(v3_norm(v3_sub(up, east)), sin(a6)));
+			int id = trs_world_add_craft(w, &c, floe, r, v, quat_from_to(v3(0, 1, 0), nose));
+			trs_vessel *vs = &w->vessels[id];
+			vs->sas = TRS_SAS_OFF;
+			vs->w = trs_body_omega(F);
+			for (int s = 0; s < 50 * 8; s++) {
+				trs_world_step_physics(w);
+				trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(F), vs->r));
+				double aoa = acos(fmax(-1, fmin(1, v3_dot(v3_norm(vair), quat_rotate(vs->q, v3(0, 1, 0)))))) * 180 / TRS_PI;
+				if (k == 1 || s >= 50 * 2) /* fins: once it has swung back */
+					end_aoa[k] = fmax(end_aoa[k], aoa);
+			}
+			trs_world_free(w);
+			free(w);
+			trs_craft_free(&c);
+		}
+		int ok = end_aoa[0] < 6 && end_aoa[1] > 60;
+		failed += !ok;
+		trs_log_printf(log, "%s Orbiter knocked 6 deg off the flow at 9 km, 330 m/s, hands off for 8 s: with fins it swings back "
+				"(worst %.1f deg after 2 s), without it tumbles (worst %.0f deg)\n", ok ? "ok  " : "FAIL", end_aoa[0], end_aoa[1]);
 	}
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
@@ -620,8 +672,15 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 		trs_vessel *vs = &w->vessels[id];
 		vs->sas = TRS_SAS_OFF;
 		vs->q = quat_from_to(v3(0, 1, 0), v3(0, 1, 0)); /* lying along the horizon */
-		for (int s = 0; s < 50 * 10; s++)
+		double fastest = 0;
+		for (int s = 0; s < 50 * 10; s++) {
 			trs_world_step_physics(w);
+			for (int k = 0; k < w->nvessels; k++)
+				if (w->vessels[k].alive && w->vessels[k].craft) {
+					double sp = surface_speed(w, k);
+					fastest = fmax(fastest, sp);
+				}
+		}
 		int pod_lost = 0, blasted = 0, destroyed = 0;
 		for (int e = 0; e < w->nevents; e++)
 			if (w->events[e].kind == TRS_WEV_PART_DESTROYED) {
@@ -629,10 +688,11 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 				pod_lost |= !strcmp(w->events[e].part, "pod_1");
 				blasted += w->events[e].speed < 0;
 			}
-		int ok = pod_lost && blasted > 0;
+		/* the wreckage scatters, but nothing is flung off like a shell */
+		int ok = pod_lost && blasted > 0 && fastest < 60;
 		failed += !ok;
-		trs_log_printf(log, "%s toppled Orbiter: %d parts destroyed (%d by blast), crew pod %s\n", ok ? "ok  " : "FAIL",
-				destroyed, blasted, pod_lost ? "lost" : "survived");
+		trs_log_printf(log, "%s toppled Orbiter: %d parts destroyed (%d by blast), crew pod %s, fastest debris %.0f m/s\n",
+				ok ? "ok  " : "FAIL", destroyed, blasted, pod_lost ? "lost" : "survived", fastest);
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
@@ -691,6 +751,16 @@ static void entry_run(const trs_system *sys, const trs_part_catalog *cat, int sh
 	trs_world_free(w);
 	free(w);
 	trs_craft_free(&c);
+}
+
+/* Stack-attaches part `id` under `parent` (its top node to the parent's
+ * bottom node). Returns the new index. */
+static int stack_below(trs_craft *c, const trs_part_catalog *cat, int parent, const char *id, int stage) {
+	int di = trs_catalog_find(cat, id);
+	const trs_attach_node *pb = trs_part_node(trs_craft_def(c, parent), "bottom");
+	const trs_attach_node *ct = trs_part_node(&cat->defs[di], "top");
+	trs_v3 pos = v3_sub(v3_add(c->parts[parent].pos, pb->pos), ct->pos);
+	return trs_craft_add(c, di, parent, "top", "bottom", pos, quat_identity(), stage, 0);
 }
 
 trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
@@ -790,6 +860,45 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 			if (cases[k].shield)
 				trs_log_printf(log, "     shield peaked at %.0f K\n", ps);
 		}
+	}
+	/* 4. Exhaust: an engine fired straight into another engine below it
+	 *    cooks it within seconds; the same engine with nothing below it
+	 *    heats nothing. In orbit, so the air plays no part. */
+	for (int k = 0; k < 2; k++) {
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		int tank = stack_below(&c, &cat, pod, "tank_l", -1);
+		int eng = stack_below(&c, &cat, tank, "engine_small", 0);
+		if (k == 0)
+			stack_below(&c, &cat, eng, "engine_small", 0);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		trs_v3 r = v3(F->radius + 150000, 0, 0);
+		int id = trs_world_add_craft(w, &c, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+		w->vessels[id].throttle = 1;
+		trs_world_stage(w, id, NULL, 0);
+		double worst = 0, lost_t = -1;
+		for (int s = 0; s < 50 * 20 && lost_t < 0; s++) {
+			trs_world_step_physics(w);
+			const trs_craft *cc = w->vessels[id].craft;
+			for (int i = 0; i < cc->count; i++)
+				worst = fmax(worst, (cc->parts[i].temp - TRS_T_AMBIENT) / (trs_craft_def(cc, i)->max_temp - TRS_T_AMBIENT));
+			for (int e = 0; e < w->nevents; e++)
+				if (w->events[e].kind == TRS_WEV_PART_DESTROYED && lost_t < 0)
+					lost_t = s * TRS_PHYSICS_DT;
+		}
+		int ok = k == 0 ? lost_t > 0 && lost_t < 10 : lost_t < 0 && worst < 0.05;
+		failed += !ok;
+		if (k == 0)
+			trs_log_printf(log, "%s engine firing into a second engine below it: the lower one burns up after %.1f s\n",
+					ok ? "ok  " : "FAIL", lost_t);
+		else
+			trs_log_printf(log, "%s the same engine with nothing below it: 20 s at full thrust, hottest part %.1f%% of its headroom\n",
+					ok ? "ok  " : "FAIL", 100 * worst);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
 	}
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;

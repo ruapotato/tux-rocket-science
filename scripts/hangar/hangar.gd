@@ -429,6 +429,11 @@ func _refresh_readouts() -> void:
 			break
 	var col := "#7fe08a" if launch_twr > 1.0 else "#ff6a5a"
 	t += "[color=#9fb4cc]Liftoff TWR (Floe)[/color] [color=%s]%.2f[/color]" % [col, launch_twr]
+	var unfed: Array = _stats.get("unfed_engines", [])
+	if not unfed.is_empty():
+		t += "\n[color=#ff6a5a]NO FUEL: %d engine%s with no fuel: a decoupler sits between %s and every tank. Give %s a tank of %s own.[/color]" % [
+			unfed.size(), "" if unfed.size() == 1 else "s", "it" if unfed.size() == 1 else "them",
+			"it" if unfed.size() == 1 else "each", "its" if unfed.size() == 1 else "their"]
 	_summary.text = t
 
 
@@ -491,6 +496,10 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 		var chip := Button.new()
 		chip.text = Sim.part(p.part).name.get_slice(" ", 0) + ("  x%d" % n if n > 1 else "")
 		chip.tooltip_text = Sim.part(p.part).name
+		if (_stats.get("unfed_engines", []) as Array).has(float(i)) or (_stats.get("unfed_engines", []) as Array).has(i):
+			chip.text = "NO FUEL " + chip.text
+			chip.tooltip_text += " — no fuel reaches it (a decoupler is in the way)"
+			chip.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
 		chip.add_theme_font_size_override("font_size", 12)
 		chip.focus_mode = Control.FOCUS_NONE
 		chip.set_drag_forwarding(func(_pos): return _drag_chip(i, chip.text), Callable(), Callable())

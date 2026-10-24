@@ -44,6 +44,8 @@ func run(runner: Node) -> Dictionary:
 		await _map(tree)
 	if only == "" or only == "heat":
 		await _heat(tree)
+	if only == "" or only == "heat" or only == "heat_long":
+		await _heat_long(tree)
 	if only == "" or only == "stages":
 		await _stages(tree)
 	if only == "" or only == "chute":
@@ -217,6 +219,7 @@ func _heat(tree: SceneTree) -> void:
 	for k in feed.size() / VesselView.RPP:
 		_log.append("  part %d: %.0f K (%.0f%% of headroom)" % [k, feed[k * VesselView.RPP + 11], 100.0 * feed[k * VesselView.RPP + 12]])
 	await _shot(scene, "reentry_heat")
+	_log.append("fx level %.2f visible %s shell %s scale %s" % [scene._reentry.level, scene._reentry.visible, scene._reentry._shell.position, scene._reentry._shell.scale])
 
 
 ## The editor: stage cards in firing order, a tank set aside.
@@ -271,6 +274,29 @@ func _chute(tree: SceneTree) -> void:
 				break
 		if shots.is_empty():
 			break
+
+
+## A whole rocket diving into the air nose first: the glow belongs on the nose.
+func _heat_long(tree: SceneTree) -> void:
+	var scene := await _flight(tree, "orbiter")
+	var s: FlightSession = scene.session
+	var t := s.telemetry()
+	var up := Vector3(t.up[0], t.up[1], t.up[2])
+	var east := Vector3(t.east[0], t.east[1], t.east[2])
+	var p := Vector3(t.position[0], t.position[1], t.position[2]) + up * 36000.0
+	var v := east * 3000.0 - up * 400.0
+	s.core.vessel_remove(s.active)
+	s.active = s.core.flight_spawn_state(Sim.pending_craft_text, "floe", PackedFloat64Array([p.x, p.y, p.z, v.x, v.y, v.z]))
+	s.set_sas("surface_prograde")
+	scene._clear_views()
+	scene._launched = true
+	scene._cam_dist = 45.0
+	scene._cam_pitch = 0.2
+	scene._cam_yaw = 2.2
+	for i in 120:
+		s.step_ticks(1)
+		await tree.process_frame
+	await _shot(scene, "reentry_long")
 
 
 func _frames(tree: SceneTree, n: int) -> void:

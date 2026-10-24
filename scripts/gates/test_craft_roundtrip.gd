@@ -197,6 +197,13 @@ func _editor_ops() -> void:
 	var fin_idx := m.parts.size() - 1
 	m.remove(fin_idx)
 	var removed_sym := m.parts.size() == n0 - 3
+	# a liquid engine on a radial decoupler with no tank of its own gets no fuel
+	var mu := _build_orbiter()
+	var dr := mu.attach_surface(CraftModel.held_single("decoupler_radial"), 8, 0.0, 0.0, 1)
+	var eg := mu.attach_stack(CraftModel.held_single("engine_small"), dr[0], "outer")
+	var unfed: Array = mu.stats().get("unfed_engines", [])
+	_check(unfed.size() == 1 and int(unfed[0]) == eg[0] and (_build_orbiter().stats().get("unfed_engines", []) as Array).is_empty(),
+		"engine on a bare radial decoupler flagged as unfed (%s), stock Orbiter has none" % [unfed])
 	_check(ok_sym and spread < 1e-9 and after_undo == before and redo_ok and removed_ok and replaced and removed_sym,
 		"editor ops: 6x symmetry, rotate/offset counterparts (spread %s), undo x3 == original %s, redo %s, pick-up/re-attach identical %s, symmetric delete %s" % [
 			String.num_scientific(spread), after_undo == before, redo_ok, replaced, removed_sym])

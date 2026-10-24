@@ -102,6 +102,11 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	d->area_side = trs_json_num(aero, "area_side", 2 * d->radius * d->height);
 	d->cop = trs_json_num(aero, "cop", 0);
 	d->plate = trs_json_bool(aero, "plate", sh && !strcmp(trs_json_str(sh, "type", ""), "fin"));
+	d->lift_slope = trs_json_num(aero, "lift_slope", 0);
+	d->fin_deflect = trs_json_num(aero, "control_deflection_deg", 0) * TRS_PI / 180.0;
+	d->fin_span = trs_json_num(sh, "span", 0.8);
+	d->radius_top = trs_json_num(sh, "radius_top", d->radius);
+	d->radius_bottom = trs_json_num(sh, "radius_bottom", d->radius);
 	const trs_json *th = trs_json_get(j, "thermal");
 	d->max_temp = trs_json_num(th, "max_temp", 1500);
 	d->skin_heat = trs_json_num(th, "skin_heat", 8000);

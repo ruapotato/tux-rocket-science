@@ -63,7 +63,7 @@ typedef struct {
 	/* parachute */
 	int is_parachute;
 	double chute_semi_cda, chute_full_cda, chute_min_pressure, chute_max_speed;
-	double chute_full_alt; /* full deployment height above the ground (or sea) */
+	double chute_full_alt; /* full deployment height above the ground */
 	double chute_inflate;  /* s for the canopy to open from nothing to full size */
 
 	/* landing leg */
@@ -77,6 +77,10 @@ typedef struct {
 	double cd_top, cd_bottom, cd_side, area_axial, area_side;
 	double cop;    /* cross-flow centre of pressure along the axis, fraction of height from the part centre */
 	int plate;     /* flat plate (fins): cross-flow force only along the plate normal (local X) */
+	double lift_slope; /* plates: normal-force slope dCN/dalpha per rad at small angles (fins lift) */
+	double fin_deflect; /* plates: control deflection, rad (0 = fixed fin) */
+	double fin_span;    /* plates: how far the fin stands off its root, m */
+	double radius_top, radius_bottom; /* end radii: a narrow leading end is a nose */
 
 	/* thermal: the hottest skin element (see heat() in vessel_physics.c) */
 	double max_temp;    /* K: the part fails above this */

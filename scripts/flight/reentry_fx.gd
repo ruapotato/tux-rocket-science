@@ -15,9 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-## Reentry plasma: a glowing sheath on the windward side of the active
-## vessel, scaled by the convective heating proxy rho * v^3. Purely visual
-## (heating is not simulated in the slice).
+## Reentry plasma: a glowing bow on the active vessel's most windward
+## point, scaled by the convective heating proxy rho * v^3. Purely visual;
+## the heating itself is simulated per part in trs_core.
 class_name ReentryFX
 extends Node3D
 
@@ -41,7 +41,8 @@ void fragment() {
 	float cap = pow(clamp(ahead, 0.0, 1.0), 3.0);
 	float edge = pow(1.0 - abs(dot(NORMAL, VIEW)), 2.0);
 	float flick = 0.85 + 0.15 * hash(vec2(floor(TIME * 40.0), 3.0));
-	vec3 col = mix(vec3(1.0, 0.45, 0.12), vec3(1.0, 0.92, 0.75), cap) * cap * edge * 1.6;
+	// a hot face-on core plus the brighter limb of the shock layer
+	vec3 col = mix(vec3(1.0, 0.42, 0.1), vec3(1.0, 0.85, 0.6), cap) * cap * (0.45 + edge * 1.4) * 1.6;
 	ALBEDO = col * pow(intensity, 0.6) * flick * 2.2;
 }
 """
@@ -101,7 +102,7 @@ func _ready() -> void:
 	_trail_mat.scale_curve = sct
 	_trail.process_material = _trail_mat
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.22, 1.6)
+	quad.size = Vector2(0.32, 2.4)
 	var qm := StandardMaterial3D.new()
 	qm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	qm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -122,9 +123,10 @@ func _ready() -> void:
 
 
 ## air_vel: velocity of the vessel relative to the air (Godot axes, m/s);
-## the glow sits on the side moving into the air, the trail streams behind;
-## rho: air density; size: vessel bounding radius (m).
-func update_fx(air_vel: Vector3, rho: float, size: float, delta: float) -> void:
+## rho: air density; front: the vessel's most windward point (render space)
+## and width: the hull radius there. The bow glow wraps that point, the
+## trail streams back from it.
+func update_fx(air_vel: Vector3, rho: float, front: Vector3, width: float, delta: float) -> void:
 	var v := air_vel.length()
 	# rho*v^3 in W/m^2-ish units; visible from ~1.5 km/s in the upper air
 	var q := rho * v * v * v
@@ -136,16 +138,17 @@ func update_fx(air_vel: Vector3, rho: float, size: float, delta: float) -> void:
 		return
 	# the air streams past opposite to our motion through it
 	var flow := -air_vel.normalized() if v > 1.0 else Vector3.DOWN
-	# sheath sits on the windward side
-	var r := size * 0.62
+	# a cap wider than the hull, standing off the leading point like a bow
+	# shock (the shell's front is ~0.7 hull radii ahead of the hull)
+	var r := width * 1.5
 	_shell.scale = Vector3.ONE * r
-	_shell.position = -flow * r * 0.15
+	_shell.position = front + flow * r * 0.55
 	_mat.set_shader_parameter("intensity", level)
 	_mat.set_shader_parameter("flow_local", flow)
-	_light.position = -flow * r
+	_light.position = front - flow * r * 0.3
 	_light.light_energy = 6.0 * level
 	# trail: from the windward face, streaming downstream (flow direction)
-	_trail.position = -flow * r * 0.6
+	_trail.position = front + flow * r * 0.4
 	_trail_mat.direction = flow
 	_trail_mat.emission_sphere_radius = r * 0.85
 	_trail.amount_ratio = clampf(level * 1.5, 0.05, 1.0)

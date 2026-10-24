@@ -644,6 +644,25 @@ static void m_to_body_fixed(void *self, const trs_val *a, trs_val *r) {
 	ret_doubles(r, out, 3);
 }
 
+/* ground_clearance(body, origin_vessel, rel[3]) -> height (m) of a point
+ * given relative to the origin vessel's CoM above the body's terrain: keeps
+ * the camera out of hills. */
+static void m_ground_clearance(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->f = 1e30;
+	if (ok_body(h, a[0].i) && ok_vessel(h, a[1].i) && a[2].arr.n >= 3) {
+		trs_world *w = h->world;
+		trs_v3 ro, vo, bo, bvo, bp, bv;
+		trs_vessel_state(w, (int)a[1].i, &ro, &vo);
+		trs_body_state_abs(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
+		trs_body_state_abs(&w->sys, (int)a[0].i, w->t, &bp, &bv);
+		trs_v3 p = v3_sub(v3_add(v3_add(ro, bo), v3(a[2].arr.data[0], a[2].arr.data[1], a[2].arr.data[2])), bp);
+		const trs_body *b = &w->sys.bodies[a[0].i];
+		double g = trs_body_terrain_at(b, w->t, p);
+		r->f = v3_len(p) - b->radius - g;
+	}
+}
+
 /* terrain_lod(body, eye_fixed[3], max_level, split) -> [face, level, i, j]* */
 static void m_terrain_lod(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -989,6 +1008,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_list", m_vessel_list, S, 0, { 0 }, { 0 } },
 	{ "events_drain", m_events_drain, S, 0, { 0 }, { 0 } },
 	{ "to_body_fixed", m_to_body_fixed, A, 3, { I, I, A }, { "body", "origin", "rel" } },
+	{ "ground_clearance", m_ground_clearance, F, 3, { I, I, A }, { "body", "origin", "rel" } },
 	{ "terrain_lod", m_terrain_lod, A, 4, { I, A, I, F }, { "body", "eye", "max_level", "split" } },
 	{ "terrain_patch", m_terrain_patch, A, 3, { I, A, I }, { "body", "patch", "res" } },
 	{ "sas_direction", m_sas_direction, A, 2, { I, S }, { "id", "mode" } },

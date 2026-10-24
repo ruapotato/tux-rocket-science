@@ -116,6 +116,10 @@ typedef struct {
 	double max_impact; /* worst contact speed seen, m/s (telemetry) */
 	trs_v3 ext_force;  /* contact from other vessels this tick, SOI frame, N */
 	trs_v3 ext_torque; /* ... and its torque about the CoM, vessel-local, N m */
+	int fresh;         /* just created or split: overlaps found now are by design */
+	int nghost;        /* vessels it passes through until they first come apart */
+	int ghost[16];
+	double ghost_until[16]; /* ... and not before this time (radial separations) */
 	int npending; /* parts (by uid) to destroy after this tick */
 	int pending_uid[64];
 	double pending_speed[64];
@@ -196,6 +200,8 @@ int trs_vessel_deploy_chutes(trs_world *w, int id);
 void trs_vessel_refresh(trs_world *w, int id);
 /* Vessel-vessel contact forces for this tick (vessel_contact.c). */
 void trs_world_vessel_contacts(trs_world *w);
+/* Lets vessel v pass through `other` until they are apart and t >= until. */
+void trs_vessel_add_ghost(trs_vessel *v, int other, double until);
 /* Linear and angular momentum (about the SOI body centre) of one vessel. */
 void trs_vessel_momentum(const trs_world *w, int id, trs_v3 *p, trs_v3 *L);
 

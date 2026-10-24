@@ -69,7 +69,7 @@ static void build_contacts(trs_vessel *vs) {
 			/* fins: root ends and the tip */
 			local[m++] = v3(0, d->height * 0.5, 0);
 			local[m++] = v3(0, -d->height * 0.5, 0);
-			local[m++] = v3(0, -d->height * 0.5, 0.8);
+			local[m++] = v3(0, -d->height * 0.5, d->fin_span);
 		} else {
 			double r = d->radius, h = d->height * 0.5;
 			for (int k = 0; k < 8; k++) {
@@ -229,8 +229,10 @@ static void burn(trs_vessel *vs, const engine_set *es, double h, int to_empty) {
  * w x arm), so a tumbling craft is damped the way a real one is. A body's
  * force splits into an axial part on the face meeting the air and a
  * cross-flow part (Newtonian, ~sin^2 of the angle of attack) acting at the
- * part's centre of pressure. Fins are flat plates: they push back only along
- * their normal, which is what makes them lift and keeps rockets pointed.
+ * part's centre of pressure, plus, on a tapering nose, a slender-body normal
+ * force linear in the angle. Fins are lifting plates: they push only along
+ * their normal, linearly in the angle until they stall, which is what keeps
+ * rockets pointed.
  * Open parachutes are pure drag. For flow straight along a part's axis this
  * reduces exactly to Cd * A * q on the leading face. */
 static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, trs_v3 *force, trs_v3 *torque_local) {
@@ -255,6 +257,7 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 	trs_v3 wl = quat_rotate(qi, v3_sub(vs->w, omega_b));
 	const trs_craft *c = vs->craft;
 	trs_v3 f_local_total = v3(0, 0, 0);
+	trs_v3 damp = v3(0, 0, 0); /* rotational damping torque, vessel-local */
 	for (int i = 0; i < c->count; i++) {
 		const trs_part *pt = &c->parts[i];
 		const trs_part_def *d = trs_craft_def(c, i);
@@ -271,23 +274,42 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 		/* axial: on the leading face, along the axis */
 		trs_v3 f_axial = v3_scale(ax, -qd * face * cs * fabs(cs));
 		trs_v3 f_cross;
+		trs_v3 f_nose = v3(0, 0, 0), nose_at = arm;
 		if (d->plate) {
+			/* a fin lifts like a low aspect-ratio wing at small angles (normal
+			 * force linear in the angle), going over to flat-plate cross-flow
+			 * as it stalls toward 90 degrees */
 			trs_v3 n = quat_rotate(pt->rot, v3(1, 0, 0));
 			double cn = v3_dot(dl, n);
-			f_cross = v3_scale(n, -qd * d->cd_side * d->area_side * cn * fabs(cn));
+			double cnf = d->lift_slope * cn * sqrt(fmax(0, 1 - cn * cn)) + d->cd_side * cn * fabs(cn);
+			f_cross = v3_scale(n, -qd * d->area_side * cnf);
 		} else {
 			trs_v3 perp = v3_sub(dl, v3_scale(ax, cs));
 			f_cross = v3_scale(perp, -qd * d->cd_side * d->area_side * v3_len(perp));
+			/* a tapering nose meeting the air at an angle pushes sideways in
+			 * proportion to the angle (slender-body theory: N = q dA sin 2a,
+			 * dA the cross-section it grows by), centred two thirds of the way
+			 * down the taper. It sits ahead of the CoM on a rocket, so without
+			 * fins aft to outweigh it a rocket turned off the airflow keeps
+			 * turning. Blunt leading faces (heat shields, flat tops) do not. */
+			double r_lead = cs > 0 ? d->radius_top : d->radius_bottom, r_tail = cs > 0 ? d->radius_bottom : d->radius_top;
+			if (r_lead < r_tail - 1e-9) {
+				double exposed = cs > 0 ? vs->face_top[i] : vs->face_bottom[i];
+				double grow = fmin(exposed, TRS_PI * (r_tail * r_tail - r_lead * r_lead));
+				f_nose = v3_scale(perp, -qd * grow * 2 * fabs(cs));
+				nose_at = v3_add(arm, v3_scale(ax, (cs > 0 ? -1 : 1) * d->height / 6));
+			}
 		}
 		trs_v3 f_chute = v3(0, 0, 0);
 		if (d->is_parachute) {
 			f_chute = v3_scale(dl, -qd * pt->chute_cda);
 		}
-		trs_v3 f = v3_add(v3_add(f_axial, f_cross), f_chute);
+		trs_v3 f = v3_add(v3_add(v3_add(f_axial, f_cross), f_chute), f_nose);
 		f_local_total = v3_add(f_local_total, f);
 		if (torque_local) {
 			trs_v3 cop = v3_add(arm, v3_scale(ax, d->cop * d->height));
 			*torque_local = v3_add(*torque_local, v3_add(v3_cross(arm, v3_add(f_axial, f_chute)), v3_cross(cop, f_cross)));
+			*torque_local = v3_add(*torque_local, v3_cross(nose_at, f_nose));
 			/* the part's own extent resists turning end over end: linearised
 			 * cross-flow on a spinning slab of side area A and length L, with
 			 * an empirical factor standing in for the pitch-damping derivative */
@@ -295,9 +317,21 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 			trs_v3 w_perp = v3_sub(wl, v3_scale(ax, wa));
 			double cq = 0.5 * rho * sp * d->cd_side * d->area_side;
 			double L = fmax(d->height, 2 * d->radius);
-			*torque_local = v3_sub(*torque_local, v3_scale(w_perp, cq * L * L));
-			*torque_local = v3_sub(*torque_local, v3_scale(ax, cq * d->radius * d->radius * 0.1 * wa));
+			damp = v3_sub(damp, v3_scale(w_perp, cq * L * L));
+			damp = v3_sub(damp, v3_scale(ax, cq * d->radius * d->radius * 0.1 * wa));
 		}
+	}
+	if (torque_local) {
+		/* applied over a whole tick, damping may at most halve the spin it
+		 * acts on: more would reverse it and grow (a small, fast-spinning
+		 * piece of debris in thick air) */
+		double lim[3] = { vs->inertia.m[0][0], vs->inertia.m[1][1], vs->inertia.m[2][2] };
+		double wv[3] = { wl.x, wl.y, wl.z }, dv[3] = { damp.x, damp.y, damp.z };
+		for (int k = 0; k < 3; k++) {
+			double cap = 0.5 * lim[k] * fabs(wv[k]) / TRS_PHYSICS_DT;
+			dv[k] = fmax(-cap, fmin(cap, dv[k]));
+		}
+		*torque_local = v3_add(*torque_local, v3(dv[0], dv[1], dv[2]));
 	}
 	*force = quat_rotate(vs->q, f_local_total);
 }
@@ -306,6 +340,8 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 
 #define CONTACT_OMEGA 22.0  /* rad/s: hull stiffness, well inside RK4 stability at 50 Hz */
 #define CONTACT_ZETA 0.8
+#define RADIAL_CLEAR_S 2.0 /* s a radially dropped piece passes through its core */
+#define CONTACT_ROT_OMEGA 25.0 /* rad/s: cap on the contacts' stiffness against turning */
 #define FRICTION_MU 0.5
 #define SLIP_REG 0.08 /* m/s: friction regularisation */
 
@@ -345,6 +381,20 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 	double k_hull = m * CONTACT_OMEGA * CONTACT_OMEGA / 4.0;
 	double c_hull = 2 * CONTACT_ZETA * sqrt(k_hull * m / 4.0);
 	const trs_craft *c = vs->craft;
+	/* The contact torque is held over the tick (attitude steps once), so the
+	 * springs' combined stiffness against turning must stay well inside what
+	 * that step can follow: a long rocket landing on one end would otherwise
+	 * see sum k |arm x n|^2 / I far past 1/h^2 and spin up without bound. */
+	double rot_k = 0, i_min = fmin(vs->inertia.m[0][0], fmin(vs->inertia.m[1][1], vs->inertia.m[2][2]));
+	for (int k = 0; k < vs->ncontact; k++) {
+		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
+		trs_v3 p = v3_add(r, arm);
+		double pl = v3_len(p);
+		double depth = (b->radius + trs_body_terrain_at(b, t, p) - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
+		if (depth > 0)
+			rot_k += (vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_spring : k_hull) * v3_len2(v3_cross(arm, nrm));
+	}
+	double soften = rot_k > 0 ? fmin(1, CONTACT_ROT_OMEGA * CONTACT_ROT_OMEGA * fmax(i_min, 1e-9) / rot_k) : 1;
 	for (int k = 0; k < vs->ncontact; k++) {
 		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
 		trs_v3 p = v3_add(r, arm);
@@ -361,6 +411,8 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 			kk = d->leg_spring;
 			cc = d->leg_damper;
 		}
+		kk *= soften;
+		cc *= sqrt(soften);
 		double fn = kk * depth - cc * vn;
 		if (fn < 0)
 			fn = 0;
@@ -429,8 +481,25 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	double wheel = 0;
 	for (int i = 0; i < c->count; i++)
 		wheel += trs_craft_def(c, i)->torque;
+	/* movable fins steer in the air: each can push q S CNa sin(deflection)
+	 * along its normal at its arm, so a rocket with more (and further aft)
+	 * fins answers the controls better, and none of it works in vacuum */
+	double fin[3] = { 0, 0, 0 };
+	if (vs->density > 0) {
+		const trs_body *b = &world->sys.bodies[vs->body];
+		trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
+		double q = 0.5 * vs->density * v3_len2(vair);
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (!d->plate || d->fin_deflect <= 0)
+				continue;
+			double f = q * d->area_side * d->lift_slope * sin(d->fin_deflect);
+			trs_v3 tq = v3_cross(v3_sub(c->parts[i].pos, vs->cm), quat_rotate(c->parts[i].rot, v3(1, 0, 0)));
+			fin[0] += f * fabs(tq.x), fin[1] += f * fabs(tq.y), fin[2] += f * fabs(tq.z);
+		}
+	}
 	/* available torque per local axis: X pitch, Y roll, Z yaw */
-	trs_v3 avail = v3(wheel + gimbal_authority, wheel, wheel + gimbal_authority);
+	trs_v3 avail = v3(wheel + gimbal_authority + fin[0], wheel + fin[1], wheel + gimbal_authority + fin[2]);
 	trs_v3 wb = quat_rotate(quat_conj(vs->q), vs->w);
 	trs_v3 Iw = m3_mulv(&vs->inertia, wb);
 	double Ix = vs->inertia.m[0][0], Iy = vs->inertia.m[1][1], Iz = vs->inertia.m[2][2];
@@ -545,11 +614,11 @@ static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h
 		if (p->chute == TRS_CHUTE_ARMED && vs->pressure >= d->chute_min_pressure && sp <= d->chute_max_speed)
 			p->chute = TRS_CHUTE_SEMI;
 		if (p->chute == TRS_CHUTE_SEMI) {
-			/* full deployment goes by the ground, not sea level: a capsule
+			/* full deployment goes by the ground, not the datum: a capsule
 			 * coming down on a high plateau must not hit it half-open */
 			if (agl < 0) {
 				double g = trs_body_terrain_at(b, t, vs->r);
-				agl = vs->altitude - (g > 0 ? g : 0);
+				agl = vs->altitude - g;
 			}
 			if (agl <= d->chute_full_alt)
 				p->chute = TRS_CHUTE_FULL;
@@ -576,6 +645,51 @@ static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h
  * it meets the flow) or its side (5% of stagnation head-on, more at angle of
  * attack, less in the wake of a wider part just upstream). No conduction
  * between parts. Over max_temp the part fails. */
+/* Exhaust hitting a part of the same craft (an engine stacked on top of
+ * another, a tank hung under a nozzle): each lit engine's jet carries
+ * P = F ve / 2 out of a nozzle at its bottom end, spreading in a cone of
+ * PLUME_HALF_ANGLE; a part inside it takes PLUME_ETA of the jet power per
+ * unit plume cross-section where the plume first meets it, scaled by how
+ * much of the plume it covers. W/m^2 into the part's skin. */
+#define PLUME_HALF_ANGLE (12.0 * TRS_PI / 180.0)
+#define PLUME_ETA 0.05
+#define PLUME_REACH 40.0
+
+static double plume_flux(const trs_vessel *vs, const engine_set *es, int i) {
+	const trs_craft *c = vs->craft;
+	const trs_part *pt = &c->parts[i];
+	const trs_part_def *dt = trs_craft_def(c, i);
+	double q = 0;
+	for (int k = 0; k < es->n; k++) {
+		int e = es->idx[k];
+		if (e == i)
+			continue;
+		const trs_part *pe = &c->parts[e];
+		const trs_part_def *de = trs_craft_def(c, e);
+		trs_v3 down = v3_neg(es->dir[k]);
+		trs_v3 nozzle = v3_add(pe->pos, v3_scale(down, de->height * 0.5));
+		trs_v3 rel = v3_sub(pt->pos, nozzle);
+		double along = v3_dot(rel, down);
+		/* the part's half-extent along the jet and across it */
+		double ca = fabs(v3_dot(part_axis(pt), down)), sa = sqrt(fmax(0, 1 - ca * ca));
+		double ext = dt->height * 0.5 * ca + dt->radius * sa;
+		double across_ext = dt->radius * ca + dt->height * 0.5 * sa;
+		double near = along - ext;
+		if (along + ext <= 0.02 || near > PLUME_REACH)
+			continue; /* behind the nozzle, or far down the jet */
+		near = fmax(near, 0);
+		double off = v3_len(v3_sub(rel, v3_scale(down, along)));
+		double rp = de->radius * 0.8 + near * tan(PLUME_HALF_ANGLE);
+		if (off >= rp + across_ext)
+			continue;
+		double cover = fmin(1, (rp + across_ext - off) / (2 * fmin(rp, across_ext)));
+		double ve = trs_engine_isp(de, vs->pressure) * TRS_G0;
+		double power = 0.5 * es->mdot[k] * ve * ve;
+		q += PLUME_ETA * power / (TRS_PI * rp * rp) * cover;
+	}
+	return q;
+}
+
 static void heat(const trs_world *w, trs_vessel *vs, double h) {
 	trs_craft *c = vs->craft;
 	const trs_body *b = &w->sys.bodies[vs->body];
@@ -584,10 +698,12 @@ static void heat(const trs_world *w, trs_vessel *vs, double h) {
 	double sp = v3_len(vair);
 	trs_v3 dl = sp > 1e-9 ? quat_rotate(quat_conj(vs->q), v3_scale(vair, 1.0 / sp)) : v3(0, 0, 0);
 	double t_rec = TRS_T_AMBIENT + sp * sp / (2 * CP_AIR);
+	engine_set es;
+	gather_engines(vs, vs->pressure, &es);
 	for (int i = 0; i < c->count; i++) {
 		trs_part *p = &c->parts[i];
 		const trs_part_def *d = trs_craft_def(c, i);
-		double q = 0;
+		double q = plume_flux(vs, &es, i);
 		if (rho > 0 && sp > 1) {
 			double cs = v3_dot(dl, part_axis(p));
 			double exposed = (cs > 0 ? vs->face_top[i] : vs->face_bottom[i]) / fmax(d->area_axial, 1e-6);
@@ -792,6 +908,7 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		*pc = piece;
 		int nid = trs_world_add_vessel(w, vs->body, r_old, v_old);
 		vs = &w->vessels[id];
+		vs->fresh = 1;
 		trs_vessel *nv = &w->vessels[nid];
 		nv->craft = pc;
 		nv->q = q;
@@ -819,6 +936,12 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		trs_m3 IAi = m3_inverse(&IA), IBi = m3_inverse(&IB);
 		nv->w = v3_add(nv->w, m3_mulv(&IBi, v3_cross(v3_sub(P, nv->r), Jv)));
 		vs->w = v3_add(vs->w, m3_mulv(&IAi, v3_cross(v3_sub(P, vs->r), v3_neg(Jv))));
+		/* boosters dropped sideways tumble a little in the core's flow:
+		 * give them a moment to swing clear before they can touch it */
+		if (dd->decoupler == TRS_DECOUPLER_RADIAL) {
+			trs_vessel_add_ghost(&w->vessels[id], nid, w->t + RADIAL_CLEAR_S);
+			trs_vessel_add_ghost(&w->vessels[nid], id, w->t + RADIAL_CLEAR_S);
+		}
 		if (made < max && new_ids)
 			new_ids[made] = nid;
 		if (made < 256)
@@ -874,6 +997,7 @@ static int spawn_piece(trs_world *w, int parent_id, trs_craft *piece, trs_v3 cm_
 	trs_quat q = vs->q;
 	int body = vs->body;
 	int nid = trs_world_add_vessel(w, body, r_old, v_old);
+	w->vessels[parent_id].fresh = 1;
 	if (nid < 0) {
 		trs_craft_free(piece);
 		return -1;

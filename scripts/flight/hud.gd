@@ -520,7 +520,7 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	var tap: String = "—" if o.t_to_ap == null else fmt_time(o.t_to_ap)
 	_right.text = "[color=#9fb4cc]APOAPSIS[/color]  [b]%s[/b]   in %s\n[color=#9fb4cc]PERIAPSIS[/color]  [b]%s[/b]   in %s\n[color=#9fb4cc]Inclination[/color] %.2f°   [color=#9fb4cc]e[/color] %.4f\n[color=#9fb4cc]Period[/color] %s" % [
 		ap, tap, fmt_dist(o.pe_alt), fmt_time(o.t_to_pe), o.inc_deg, o.ecc, fmt_time(o.period) if o.period > 0 else "—"]
-	var st := "[color=#ff8a2a][b]STAGES[/b][/color]  [color=#6f86a6]SPACE fires the top line[/color]\n"
+	var st := "[color=#ff8a2a][b]STAGES[/b][/color]  [color=#6f86a6]next SPACE first[/color]\n"
 	var dv_of := {}
 	var total := 0.0
 	for s in t.get("stages", []):

@@ -30,6 +30,11 @@ var _cam: Camera3D
 var _cam_yaw := 0.4
 var _cam_pitch := 0.08
 var _cam_dist := 30.0
+const CAM_CLEARANCE := 2.5  # m the camera keeps above the ground
+const LOW_WARP_ALT := 3000.0  # m above the ground where a descent drops out of warp
+var _was_in_air := true
+var _was_low := false
+var _slowing_t := 0.0
 var _orbiting := false
 var _terrain: TerrainView
 var _clouds: MeshInstance3D  # real-scale cloud deck, drawn over the near terrain
@@ -120,6 +125,45 @@ func _recover() -> void:
 	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s." % [names, FlightHUD.fmt_dist(_mission.max_altitude),
 		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else ""]
 	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
+
+
+## The point of the active vessel furthest into the oncoming air, and the
+## radius of the hull around it there: where a bow shock would sit. A rocket
+## coming in nose first glows at the nose, one tumbling sideways along its
+## side. flow: the direction the air moves past the vessel (render space).
+func _windward_front(flow: Vector3) -> Array:
+	var r: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
+	var n := r.size() / VesselView.RPP
+	if _front_ids.size() != n:
+		_front_ids = []
+		var ids: Array = JSON.parse_string(session.core.vessel_parts(session.active))
+		for d in ids:
+			var sh: Dictionary = Sim.part(d.part).get("shape", {})
+			var rad: float = sh.get("radius", sh.get("radius_bottom", 0.5))
+			_front_ids.append([rad, CraftModel.part_height(d.part) * 0.5])
+	var into := -flow
+	var lead := -INF
+	var at := Vector3.ZERO
+	for k in n:
+		var p := Frame.vec(r, k * VesselView.RPP + 1)
+		var axis := Frame.local_basis(r, k * VesselView.RPP + 4) * Vector3.UP
+		var rad: float = _front_ids[k][0]
+		var hh: float = _front_ids[k][1]
+		# furthest point of the part's cylinder along `into`
+		var c := absf(axis.dot(into))
+		var reach := hh * c + rad * sqrt(maxf(0.0, 1.0 - c * c))
+		var d := p.dot(into) + reach
+		if d > lead:
+			lead = d
+			at = p + into * reach
+	# the hull's width just behind that point
+	var width := 0.6
+	for k in n:
+		var p := Frame.vec(r, k * VesselView.RPP + 1)
+		if lead - p.dot(into) < 2.0 * maxf(_front_ids[k][0], _front_ids[k][1]) + 0.5:
+			var off := (p - at) - into * (p - at).dot(into)
+			width = maxf(width, off.length() + _front_ids[k][0])
+	return [at, width]
 
 
 func _craft_height() -> float:
@@ -582,6 +626,10 @@ func _render(delta: float) -> void:
 		_wreck += drift
 		focus = _wreck
 	_cam.position = focus + (-horiz * cos(_cam_pitch) + up * sin(_cam_pitch)) * _cam_dist
+	# never below the ground: lift the eye over hills and wreckage pits
+	var clear: float = core.ground_clearance(int(t.body_index), origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
+	if clear < CAM_CLEARANCE:
+		_cam.position += up * (CAM_CLEARANCE - clear)
 	_cam.look_at(focus, up)
 	_update_booms(delta, drift)
 	_update_failure(delta)
@@ -688,9 +736,9 @@ func _render(delta: float) -> void:
 	if _reentry == null:
 		_reentry = ReentryFX.new()
 		add_child(_reentry)
-	if session.ticks % 50 == 1 or _craft_r <= 0.0:
-		_craft_r = maxf(1.5, _craft_height() * 0.5)
-	_reentry.update_fx(Frame.vec_arr(t.surface_velocity), t.density, _craft_r, delta)
+	var air := Frame.vec_arr(t.surface_velocity)
+	var front := _windward_front(-air.normalized() if air.length() > 1.0 else Vector3.DOWN)
+	_reentry.update_fx(air, t.density, front[0], front[1], delta)
 	Sfx.wind_level = maxf(Sfx.wind_level, _reentry.level)
 	var hint := ""
 	if int(t.get("chutes_stowed", 0)) > 0 and _launched and t.in_atmosphere and not t.landed \
@@ -707,12 +755,44 @@ func _render(delta: float) -> void:
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
 	if _map.visible:
 		_map.refresh()
+	_auto_unwarp(t, delta)
 	var warp := ""
 	if session.warp_index > 0:
 		warp = "WARP %s%dx" % ["" if session.warp_kind == "rails" else "physics ",
 			int(FlightSession.RAILS_WARP[session.warp_index]) if session.warp_kind == "rails" else FlightSession.PHYSICS_WARP[session.warp_index]]
+	if _slowing_t > 0.0:
+		warp = "SLOWING ▼ " + (warp if warp != "" else "1x")
 	hud.set_warp_text(warp)
 	hud.update_from(t, session.time() - mission_start if _launched else 0.0)
+
+
+## Time warp backs off to normal speed, a step at a time with a banner, when
+## the flight gets interesting: entering the air (drag and heating matter)
+## or dropping low over the ground. The pilot may warp again afterwards.
+func _auto_unwarp(t: Dictionary, delta: float) -> void:
+	var in_air: bool = t.get("in_atmosphere", false)
+	var low: bool = not t.landed and t.altitude_terrain < LOW_WARP_ALT and t.vertical_speed < -1.0
+	var why := ""
+	if in_air and not _was_in_air:
+		why = "entering the atmosphere"
+	elif low and not _was_low:
+		why = "close to the ground"
+	_was_in_air = in_air
+	_was_low = low
+	if why != "" and session.warp_index > 0:
+		_slowing_t = 0.01
+		hud.toast("Time back to normal: %s" % why, 3.0)
+		Sfx.play("click")
+	if _slowing_t <= 0.0:
+		return
+	_slowing_t += delta
+	if session.warp_index <= 0:
+		if _slowing_t > 1.0:
+			_slowing_t = 0.0
+		return
+	if _slowing_t > 0.25:
+		_slowing_t = 0.01
+		session.set_warp(session.warp_kind, session.warp_index - 1)
 
 
 ## The vessel's "top" axis (local -Z) for the navball's roll reference.
@@ -825,7 +905,7 @@ var _smoke: SmokeTrail
 var _smoke_origin := -1
 var _chutes_open := 0
 var _reentry: ReentryFX
-var _craft_r := 5.0
+var _front_ids: Array = []  # per rendered part: [radius, half height]
 
 
 func _update_audio(t: Dictionary) -> void:

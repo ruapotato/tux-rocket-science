@@ -95,6 +95,14 @@ int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v) {
 	vs->q = quat_identity();
 	vs->mass = 1.0;
 	vs->next_stage = -1;
+	vs->fresh = 1;
+	/* a reused slot is a new vessel: nobody passes through it any more */
+	for (int i = 0; i < w->nvessels; i++) {
+		trs_vessel *o = &w->vessels[i];
+		for (int k = 0; k < o->nghost; k++)
+			if (o->ghost[k] == id)
+				o->ghost[k--] = o->ghost[--o->nghost];
+	}
 	return id;
 }
 
