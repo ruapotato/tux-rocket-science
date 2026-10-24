@@ -70,6 +70,12 @@ func stats(meta: Dictionary, floats: PackedFloat64Array, body_id := "floe") -> D
 	return JSON.parse_string(core.craft_stats_bin(JSON.stringify(meta), floats, body_id))
 
 
+## Where a feed line placed on `parent` at line = pos[3] + rot[4] would pipe
+## to: [target part or -1, end x, y, z] (vessel-local), as the sim decides.
+func feed_aim(meta: Dictionary, floats: PackedFloat64Array, part_id: String, parent: int, line: PackedFloat64Array) -> PackedFloat64Array:
+	return core.feed_aim(JSON.stringify(meta), floats, part_id, parent, line)
+
+
 ## Readouts straight from saved craft text (no GDScript number handling).
 func stats_text(text: String, body_id := "floe") -> String:
 	return core.craft_stats(text, body_id)

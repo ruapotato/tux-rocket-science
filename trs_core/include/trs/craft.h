@@ -110,6 +110,11 @@ typedef struct {
 } trs_fuel_net;
 
 void trs_fuel_net_build(trs_fuel_net *n, const trs_craft *c);
+/* The part feed line i's outlet reaches (-1 = none): marching out along the
+ * line's local +Z (away from the surface it sits on), the first part of
+ * another group; the pipe runs past decouplers, which hold no propellant.
+ * dist (optional) receives how far along it got. */
+int trs_craft_feed_target(const trs_craft *c, const int *group, int i, double *dist);
 void trs_fuel_net_free(trs_fuel_net *n);
 /* Liquid propellant per group (gf[ngroups]). */
 void trs_fuel_levels(const trs_fuel_net *n, const trs_craft *c, double *gf);

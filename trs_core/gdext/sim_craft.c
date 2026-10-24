@@ -200,6 +200,37 @@ static void m_last_error(void *self, const trs_val *a, trs_val *r) {
 	r->s = trs_strdup_printf("%s", H(self)->err);
 }
 
+/* feed_aim(meta, floats, part_id, parent, line[7]) -> [target, x, y, z]:
+ * where a feed line placed on `parent` at pos/rot line[0..6] would pipe to
+ * (target -1 = nothing within reach) and the end of its reach, vessel-local.
+ * The editor's aiming preview: the same march the flight sim does. */
+static void m_feed_aim(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_craft c;
+	char err[256];
+	r->arr.n = 4;
+	r->arr.data = malloc(sizeof(double) * 4);
+	r->arr.data[0] = -1;
+	r->arr.data[1] = r->arr.data[2] = r->arr.data[3] = 0;
+	int def = h->catalog_loaded ? trs_catalog_find(&h->catalog, a[2].s) : -1;
+	if (def < 0 || a[4].arr.n < 7 || !craft_from_bin(h, a[0].s, &a[1], &c, err, sizeof err))
+		return;
+	int parent = (int)a[3].i;
+	if (parent >= 0 && parent < c.count) {
+		const double *f = a[4].arr.data;
+		trs_quat q = { f[3], f[4], f[5], f[6] };
+		int k = trs_craft_add(&c, def, parent, "", "", v3(f[0], f[1], f[2]), q, -1, 0);
+		int *group = malloc(sizeof(int) * (size_t)c.count);
+		trs_craft_fuel_groups(&c, group);
+		double dist = 0;
+		r->arr.data[0] = trs_craft_feed_target(&c, group, k, &dist);
+		trs_v3 end = v3_add(c.parts[k].pos, v3_scale(quat_rotate(q, v3(0, 0, 1)), dist));
+		r->arr.data[1] = end.x, r->arr.data[2] = end.y, r->arr.data[3] = end.z;
+		free(group);
+	}
+	trs_craft_free(&c);
+}
+
 /* craft_stats(json_text, body_id) -> JSON readouts. TWR/SL use that body's
  * surface gravity and sea-level pressure (vacuum figures need no body). */
 static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, trs_val *r);
@@ -327,5 +358,6 @@ const trs_method_def TRS_SIM_CRAFT_METHODS[] = {
 	{ "craft_normalize", m_craft_normalize, S, 1, { S }, { "json" } },
 	{ "craft_stats", m_craft_stats, S, 2, { S, S }, { "json", "body_id" } },
 	{ "last_error", m_last_error, S, 0, { 0 }, { 0 } },
+	{ "feed_aim", m_feed_aim, A, 5, { S, A, S, TRS_T_INT, A }, { "meta", "floats", "part_id", "parent", "line" } },
 };
 const int TRS_SIM_CRAFT_METHOD_COUNT = sizeof(TRS_SIM_CRAFT_METHODS) / sizeof(TRS_SIM_CRAFT_METHODS[0]);

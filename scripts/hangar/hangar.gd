@@ -41,6 +41,9 @@ var _cam: Camera3D
 var _cam_yaw := 0.6
 var _cam_pitch := 0.25
 var _cam_dist := 22.0
+var _aim_root: Node3D  # feed-line aiming rods while one is held
+var _aim_key := ""
+var _aim_text := ""
 var _cam_target := Vector3(0, 6, 0)
 var _orbiting := false
 var _panning := false
@@ -998,6 +1001,7 @@ func _update_hover_and_snap() -> void:
 		placements = [{"pos": [p.x, p.y, p.z], "rot": DMath.q_identity()}]
 		_snap = {"kind": "aside", "pos": [p.x, p.y, p.z]}
 	_show_ghosts(placements, ok)
+	_show_feed_aim(placements if _snap.get("kind", "") == "surface" else [])
 
 
 ## While a part is held, every free attach node shows as a marker; the one
@@ -1048,11 +1052,71 @@ func _show_ghosts(placements: Array, ok: bool) -> void:
 		PartVisual.paint(_ghosts[k], PartVisual.ghost_mat(ok))
 
 
+## Holding a feed line on a hull: a rod from each copy to where it would
+## pipe (green: the part it feeds, lit up; red: nothing within reach).
+func _show_feed_aim(placements: Array) -> void:
+	var feed: bool = not _held.is_empty() and _held.parts.size() == 1 and Sim.part(_held.parts[0].part).has("feed_line")
+	if not feed or placements.is_empty():
+		if _aim_root:
+			_aim_root.queue_free()
+			_aim_root = null
+			_aim_key = ""
+			_aim_text = ""
+			_highlight([])
+		return
+	var key := str(placements)
+	if key == _aim_key:
+		return
+	_aim_key = key
+	if _aim_root:
+		_aim_root.queue_free()
+	_aim_root = Node3D.new()
+	_craft_root.add_child(_aim_root)
+	var meta := model.to_meta()
+	var floats := model.to_floats()
+	var targets := []
+	var misses := 0
+	for pl in placements:
+		var line := PackedFloat64Array(pl.pos + pl.rot)
+		var aim := Sim.feed_aim(meta, floats, _held.parts[0].part, int(pl.parent), line)
+		if aim.size() < 4:
+			continue
+		var hit := int(aim[0]) >= 0
+		if hit:
+			targets.append(int(aim[0]))
+		else:
+			misses += 1
+		var a := DMath.to_v3(pl.pos)
+		var b := Vector3(aim[1], aim[2], aim[3])
+		var rod := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.025
+		cm.bottom_radius = 0.025
+		cm.height = maxf((b - a).length(), 0.01)
+		rod.mesh = cm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(0.3, 1.0, 0.45) if hit else Color(1.0, 0.3, 0.25)
+		m.no_depth_test = true
+		rod.material_override = m
+		var dir := (b - a).normalized() if (b - a).length() > 1e-6 else Vector3.UP
+		var x := dir.cross(Vector3.UP if absf(dir.y) < 0.9 else Vector3.RIGHT).normalized()
+		rod.transform = Transform3D(Basis(x, dir, x.cross(dir)), (a + b) * 0.5)
+		_aim_root.add_child(rod)
+	_highlight(targets)
+	if misses > 0:
+		_aim_text = "Feed line reaches nothing: face it at a tank within %.1f m" % float(Sim.part(_held.parts[0].part).feed_line.reach)
+	else:
+		_aim_text = "Feed line pipes this tank's fuel into %s" % Sim.part(model.parts[targets[0]].part).name
+
+
 func _update_hint() -> void:
 	if not _held.is_empty():
 		var name: String = Sim.part(_held.parts[0].part).name
 		_hint.text = "Holding %s%s — click an orange node (it turns green), a hull, or a joint to slip it in · click empty space to set it aside · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
 			name, "" if _held.parts.size() == 1 else " (+%d)" % (_held.parts.size() - 1), symmetry]
+		if _aim_text != "":
+			_hint.text = _aim_text + " · " + _hint.text
 	elif _hover_loose >= 0:
 		_hint.text = "Set-aside assembly — click to pick it up · Del throws it away"
 	elif _hover >= 0:

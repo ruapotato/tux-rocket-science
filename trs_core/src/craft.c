@@ -278,19 +278,21 @@ static int point_in_part(const trs_craft *c, int j, trs_v3 p) {
 	return lp.x * lp.x + lp.z * lp.z < r * r;
 }
 
-/* The part a feed line's outlet reaches: marching out along the line's
- * local +Z (away from the surface it sits on), the first part of another
- * group. The pipe runs past decouplers, which hold no propellant. */
-static int feed_target(const trs_craft *c, const int *group, int i) {
+int trs_craft_feed_target(const trs_craft *c, const int *group, int i, double *dist) {
 	const trs_part *pl = &c->parts[i];
 	double reach = trs_craft_def(c, i)->feed_reach;
 	trs_v3 dir = quat_rotate(pl->rot, v3(0, 0, 1));
 	for (double s = 0.02; s <= reach + 1e-9; s += 0.02) {
 		trs_v3 p = v3_add(pl->pos, v3_scale(dir, s));
 		for (int j = 0; j < c->count; j++)
-			if (j != i && group[j] != group[i] && !trs_craft_def(c, j)->decoupler && point_in_part(c, j, p))
+			if (j != i && group[j] != group[i] && !trs_craft_def(c, j)->decoupler && point_in_part(c, j, p)) {
+				if (dist)
+					*dist = s;
 				return j;
+			}
 	}
+	if (dist)
+		*dist = reach;
 	return -1;
 }
 
@@ -307,7 +309,7 @@ void trs_fuel_net_build(trs_fuel_net *n, const trs_craft *c) {
 	for (int i = 0; i < c->count; i++) {
 		if (trs_craft_def(c, i)->feed_reach <= 0)
 			continue;
-		int t = feed_target(c, n->group, i);
+		int t = trs_craft_feed_target(c, n->group, i, NULL);
 		n->line_part[n->nlines] = i;
 		n->line_target[n->nlines++] = t;
 		if (t >= 0)

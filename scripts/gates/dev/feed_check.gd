@@ -108,12 +108,31 @@ func run(runner: Node) -> Dictionary:
 				var fp: Array = hangar.model.parts[i].pos
 				hangar._cam_target = hangar._craft_root.global_transform * Vector3(fp[0], fp[1], fp[2])
 				break
+		# holding a feed line on a side tank: facing the core, then facing away
+		var side := -1
+		for i in hangar.model.parts.size():
+			if hangar.model.parts[i].part == "tank_l" and hangar.model.parts[i].parent >= 0 and hangar.model.parts[hangar.model.parts[i].parent].part == "decoupler_radial":
+				side = i
+				break
+		hangar._held = CraftModel.held_single("feed_line")
+		var held: Dictionary = hangar._held
+		var p_in: Array = hangar.model.surface_placements(held, side, PI, -0.6, 1)
+		hangar._show_feed_aim(p_in)
+		var t_in: String = hangar._aim_text
+		var p_out: Array = hangar.model.surface_placements(held, side, 0.0, -0.6, 1)
+		hangar._show_feed_aim(p_out)
+		var t_out: String = hangar._aim_text
+		_log.append("  aim facing the core: '%s'; facing away: '%s'" % [t_in, t_out])
+		_ok = _ok and t_in.contains("pipes") and t_out.contains("reaches nothing")
+		hangar._show_feed_aim(p_in)
 		hangar._cam_dist = 3.0
 		hangar._cam_yaw = 0.3
 		hangar._cam_pitch = 0.15
 		hangar._update_camera()
 		await _frames(tree, 5)
 		await _shot(hangar, "hangar_hose")
+		hangar._show_feed_aim([])
+		hangar._held = {}
 	return {"status": "PASS" if _ok else "FAIL", "log": "\n".join(_log)}
 
 
