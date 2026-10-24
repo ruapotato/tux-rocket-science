@@ -1,0 +1,178 @@
+{
+  "format": "trs-craft",
+  "version": 1,
+  "name": "Rookery Heavy",
+  "description": "Three penguins to orbit: a wide first stage on three engines, an adapter, and a vacuum upper stage. Shield first on the way home, then P for the chute.",
+  "parts": [
+    {
+      "part": "pod_3",
+      "parent": -1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, 0, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "parachute",
+      "parent": 0,
+      "node": "bottom",
+      "parent_node": "top",
+      "pos": [0, 0.975, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "heat_shield",
+      "parent": 0,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -0.88, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "decoupler_stack",
+      "parent": 2,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -1.06, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 0,
+      "sym": 0
+    },
+    {
+      "part": "tank_l",
+      "parent": 3,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -3.035, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "engine_vac",
+      "parent": 4,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -5.41, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 1,
+      "sym": 0
+    },
+    {
+      "part": "decoupler_stack",
+      "parent": 5,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -6.01, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 2,
+      "sym": 0
+    },
+    {
+      "part": "adapter_21",
+      "parent": 6,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -6.61, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "tank_xl",
+      "parent": 7,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -8.985, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "mount_tri",
+      "parent": 8,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -11.01, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 9,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -11.76, 0.73],
+      "rot": [0, 0, 0, 1],
+      "stage": 3,
+      "sym": 1
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 9,
+      "node": "top",
+      "parent_node": "bottom_2",
+      "pos": [0.632199, -11.76, -0.365],
+      "rot": [0, 0, 0, 1],
+      "stage": 3,
+      "sym": 1
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 9,
+      "node": "top",
+      "parent_node": "bottom_3",
+      "pos": [-0.632199, -11.76, -0.365],
+      "rot": [0, 0, 0, 1],
+      "stage": 3,
+      "sym": 1
+    },
+    {
+      "part": "fin",
+      "parent": 8,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.883883476483, -10.385, 0.883883476483],
+      "rot": [0, 0.38268343236509, 0, 0.923879532511287],
+      "stage": -1,
+      "sym": 2
+    },
+    {
+      "part": "fin",
+      "parent": 8,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.883883476483, -10.385, -0.883883476483],
+      "rot": [0, 0.923879532511287, 0, 0.38268343236509],
+      "stage": -1,
+      "sym": 2
+    },
+    {
+      "part": "fin",
+      "parent": 8,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.883883476483, -10.385, -0.883883476483],
+      "rot": [0, 0.923879532511287, 0, -0.38268343236509],
+      "stage": -1,
+      "sym": 2
+    },
+    {
+      "part": "fin",
+      "parent": 8,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.883883476483, -10.385, 0.883883476483],
+      "rot": [0, 0.38268343236509, 0, -0.923879532511287],
+      "stage": -1,
+      "sym": 2
+    }
+  ]
+}

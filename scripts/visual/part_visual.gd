@@ -216,6 +216,12 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_fin(root, sh)
 		"shield":
 			_shield(root, sh)
+		"probe":
+			_probe(root, sh)
+		"adapter":
+			_adapter(root, sh)
+		"mount":
+			_mount(root, d, sh)
 		"leg":
 			_leg(root, d)
 			pose_leg(root, d, opts.get("legs", 0.0))
@@ -305,6 +311,58 @@ static func _capsule(root: Node3D, sh: Dictionary, crew: int, decals: bool) -> v
 	if decals:
 		var y2 := -h * 0.12
 		_decal(root, Basis(Vector3.UP, PI / 2) * Vector3(0, y2, lerpf(rb, rt, (y2 + h * 0.5) / h)), Basis(Vector3.UP, PI / 2) * Vector3(0, 0, 1), 0.42)
+
+
+## Probe core: an eight-sided avionics drum in gold foil between two
+## mounting rings, with a whip antenna and a status light.
+static func _probe(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	var foil := mat("foil", Color(0.86, 0.66, 0.26), 0.9, 0.35)
+	_cyl(root, r * 0.86, r * 0.86, h * 0.7, 0.0, foil, 8)
+	var ring := hull(GRAPHITE, {"panels": 16.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45})
+	_cyl(root, r, r * 0.97, h * 0.15, h * 0.425, ring)
+	_cyl(root, r * 0.97, r, h * 0.15, -h * 0.425, ring)
+	_ring(root, r * 0.99, h * 0.35, 0.02, mat("orange", ORANGE, 0.0, 0.45))
+	# avionics boxes on four faces
+	for k in 4:
+		var a := TAU * k / 4.0 + PI / 8
+		var box := BoxMesh.new()
+		box.size = Vector3(0.26, h * 0.42, 0.05)
+		_mesh(root, box, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis(Vector3.UP, a), Basis(Vector3.UP, a) * Vector3(0, 0, r * 0.84)))
+	var whip := CylinderMesh.new()
+	whip.top_radius = 0.008
+	whip.bottom_radius = 0.012
+	whip.height = 0.55
+	_mesh(root, whip, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(r * 0.7, h * 0.5 + 0.27, 0)))
+	var lamp := SphereMesh.new()
+	lamp.radius = 0.035
+	lamp.height = 0.07
+	_mesh(root, lamp, mat("lamp", Color(0.3, 1.0, 0.45), 0.0, 0.3, Color(0.2, 0.9, 0.35)), Transform3D(Basis.IDENTITY, Vector3(0, 0.02, r * 0.88)))
+
+
+## Adapter: a white frustum between two stack sizes, steel rims at both ends.
+static func _adapter(root: Node3D, sh: Dictionary) -> void:
+	var rb: float = sh.radius_bottom
+	var rt: float = sh.radius_top
+	var h: float = sh.height
+	_cyl(root, rb, rt, h, 0.0, hull(WHITE, {"panels": 12.0, "ring_spacing": 0.0, "grime": 0.3}), 64)
+	_ring(root, rt * 1.01, h * 0.5 - 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
+	_ring(root, rb * 1.005, -h * 0.5 + 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
+	_cyl(root, rb * 1.004, lerpf(rb, rt, 0.12) * 1.004, h * 0.12, -h * 0.44, mat("orange", ORANGE, 0.0, 0.45), 64)
+
+
+## Engine mount: a graphite thrust plate with a collar under each node.
+static func _mount(root: Node3D, d: Dictionary, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r, h * 0.7, h * 0.15, hull(GRAPHITE, {"panels": 12.0, "ring_spacing": 0.0, "metal": 0.5, "roughness_base": 0.45}), 64)
+	_cyl(root, r * 1.006, r * 1.006, h * 0.25, h * 0.2, mat("orange", ORANGE, 0.0, 0.45), 64)
+	for n in d.get("nodes", []):
+		if n.dir[1] > -0.5:
+			continue
+		var at := Vector3(n.pos[0], -h * 0.35, n.pos[2])
+		_cyl(root, n.radius * 0.9, n.radius * 0.95, h * 0.3, at.y, mat("steel", STEEL, 0.75, 0.3)).position = at
 
 
 ## Ablative heat shield: a squat dish with a domed, charred face below.

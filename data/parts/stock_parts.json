@@ -39,6 +39,23 @@
       "surface_attach": false
     },
     {
+      "id": "probe_core",
+      "name": "Snowball SC-1 Probe Core",
+      "category": "pods",
+      "description": "No penguin aboard: a little brain that steers by itself. For satellites, probes and test flights nobody has to sit through.",
+      "mass": 120,
+      "torque": 2500,
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1000, "skin_heat": 7000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "probe", "radius": 0.625, "height": 0.45 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.225, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.225, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    },
+    {
       "id": "tank_s",
       "name": "Icebox-S Propellant Tank",
       "category": "tanks",
@@ -86,6 +103,40 @@
       "nodes": [
         { "name": "top", "pos": [0, 1.875, 0], "dir": [0, 1, 0], "radius": 0.625 },
         { "name": "bottom", "pos": [0, -1.875, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "tank_xm",
+      "name": "Icebox-XM Wide Propellant Tank",
+      "category": "tanks",
+      "description": "Twice as wide as the Icebox line: four times the propellant for its height.",
+      "mass": 1000,
+      "fuel_liquid": 8000,
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 850, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 1.25, "height": 1.875 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.9375, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -0.9375, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "tank_xl",
+      "name": "Icebox-XL Wide Propellant Tank",
+      "category": "tanks",
+      "description": "A whole cold store. Pair it with a big engine, or a mount full of small ones.",
+      "mass": 2000,
+      "fuel_liquid": 16000,
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 850, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 1.25, "height": 3.75 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.875, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.875, 0], "dir": [0, -1, 0], "radius": 1.25 }
       ],
       "surface_attach": true
     },
@@ -159,6 +210,23 @@
       "surface_attach": true
     },
     {
+      "id": "engine_big",
+      "name": "Elephant Seal BE-900 Heavy Engine",
+      "category": "engines",
+      "description": "The wide engine for wide tanks. Shakes the whole glacier.",
+      "mass": 5200,
+      "engine": { "propellant": "liquid", "thrust_vac": 900000, "isp_vac": 305, "isp_sl": 278, "gimbal_deg": 2 },
+      "crash_tolerance": 7,
+      "thermal": { "max_temp": 1600, "skin_heat": 10000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "engine", "radius": 1.25, "radius_bell": 1.1, "height": 2.2 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.1, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.1, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
       "id": "decoupler_stack",
       "name": "Crack-1 Stack Decoupler",
       "category": "structural",
@@ -172,6 +240,23 @@
       "nodes": [
         { "name": "top", "pos": [0, 0.1, 0], "dir": [0, 1, 0], "radius": 0.625 },
         { "name": "bottom", "pos": [0, -0.1, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "decoupler_xl",
+      "name": "Crack-2 Wide Stack Decoupler",
+      "category": "structural",
+      "description": "The Crack-1, twice as wide and twice as loud.",
+      "mass": 200,
+      "decoupler": { "kind": "stack", "impulse": 1500 },
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 1.25, "height": 0.3 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.15, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -0.15, 0], "dir": [0, -1, 0], "radius": 1.25 }
       ],
       "surface_attach": false
     },
@@ -204,6 +289,40 @@
       "shape": { "type": "hose", "radius": 0.05, "height": 0.3, "length": 0.3 },
       "nodes": [],
       "surface_attach": true
+    },
+    {
+      "id": "adapter_21",
+      "name": "Iceberg Adapter",
+      "category": "structural",
+      "description": "Narrows a wide stack down to the 1.25 m parts (or widens it, flipped). Propellant flows straight through.",
+      "mass": 180,
+      "crash_tolerance": 9,
+      "thermal": { "max_temp": 1000, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.45, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "adapter", "radius_bottom": 1.25, "radius_top": 0.625, "height": 1.0 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.5, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "mount_tri",
+      "name": "Rookery Tri-Mount",
+      "category": "structural",
+      "description": "Hangs three 1.25 m engines (or anything else) under a wide stack. Propellant flows through to all three.",
+      "mass": 300,
+      "crash_tolerance": 9,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "mount", "radius": 1.25, "height": 0.3 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.15, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -0.15, 0.73], "dir": [0, -1, 0], "radius": 0.625 },
+        { "name": "bottom_2", "pos": [0.632199, -0.15, -0.365], "dir": [0, -1, 0], "radius": 0.625 },
+        { "name": "bottom_3", "pos": [-0.632199, -0.15, -0.365], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
     },
     {
       "id": "heat_shield",

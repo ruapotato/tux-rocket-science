@@ -138,7 +138,7 @@ func _record(outcome: String) -> void:
 
 func _recover() -> void:
 	_record("recovered")
-	var names := ", ".join(crew_names)
+	var names := ", ".join(crew_names) if not crew_names.is_empty() else "the uncrewed craft"
 	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s." % [names, FlightHUD.fmt_dist(_mission.max_altitude),
 		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else ""]
 	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
@@ -380,6 +380,7 @@ func _stage() -> void:
 		return
 	var lit0 := int(t0.get("engines_lit", 0))
 	var was_clamped: bool = t0.get("clamped", false)
+	session.set_throttle(_throttle)  # a throttle set this frame counts for the engines lit now
 	var created := session.stage()
 	var t1 := session.telemetry()
 	var lit := int(t1.get("engines_lit", 0)) > lit0
@@ -395,7 +396,7 @@ func _stage() -> void:
 		_launched = true
 		mission_start = session.time()
 		if t1.get("thrust", 0.0) > 0.0:
-			hud.toast("Liftoff! The penguins are going to space.", 3.0)
+			hud.toast("Liftoff! The penguins are going to space." if not crew_names.is_empty() else "Liftoff!", 3.0)
 		else:
 			hud.toast("Clamps released, but no engine is burning! (Z for full throttle)", 3.5)
 	elif not created.is_empty():
@@ -531,7 +532,7 @@ func _on_sim_event(e: Dictionary) -> void:
 				var t := session.telemetry()
 				if t.get("body", "") == "krill":
 					_mission.krill_landings += 1
-					hud.toast("The penguins have landed on Krill! One small waddle for a penguin...", 5.0)
+					hud.toast("The penguins have landed on Krill! One small waddle for a penguin..." if not crew_names.is_empty() else "Touchdown on Krill!", 5.0)
 				else:
 					hud.toast("Touchdown! The crew is doing a little waddle.", 3.5)
 		"warp_stopped":

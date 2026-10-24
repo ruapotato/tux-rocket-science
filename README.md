@@ -25,6 +25,14 @@ side tank's fuel into the core: the side tanks run dry first and drop away (see 
 **Sidecar**). The hangar lists anything that won't work (no fuel, TWR below 1, a feed line that
 reaches nothing) and likely surprises (no fins, no parachute) under the readouts.
 
+Boosters go on a **Calving Radial Decoupler**: put the decoupler on the core's flank, then click
+its orange node with a tank, engine or solid booster and it hangs upright beside the core
+(**Q/E** turns it about its own axis). Parts come in two widths: the 1.25 m line and the wide
+2.5 m line (Icebox-XM/XL tanks, Elephant Seal engine, Crack-2 decoupler); an **Iceberg
+Adapter** joins the two, and a **Rookery Tri-Mount** hangs three 1.25 m engines under a wide
+tank (see the stock **Rookery Heavy**). A **Snowball Probe Core** steers a craft with nobody
+aboard.
+
 Press **F1** in flight for the controls (shown automatically the first time). All sound is
 synthesized live (engine rumble that thins out in vacuum, wind, pyros, parachutes); the volume
 is in the pause menu.

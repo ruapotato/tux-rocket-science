@@ -36,13 +36,11 @@ static trs_v3 part_axis(const trs_part *p) {
 }
 
 /* Part attached at part i's node `name`, either as parent or child. */
-static int neighbour_at(const trs_craft *c, int i, const char *name) {
-	if (c->parts[i].parent >= 0 && !strcmp(c->parts[i].node, name))
-		return c->parts[i].parent;
-	for (int k = i + 1; k < c->count; k++)
-		if (c->parts[k].parent == i && !strcmp(c->parts[k].parent_node, name))
-			return k;
-	return -1;
+/* Which end of part i its node `name` sits on: +1 top, -1 bottom, 0 a
+ * side mount or no such node. */
+static int node_end(const trs_craft *c, int i, const char *name) {
+	const trs_attach_node *n = name[0] ? trs_part_node(trs_craft_def(c, i), name) : NULL;
+	return !n ? 0 : n->dir.y > 0.5 ? 1 : n->dir.y < -0.5 ? -1 : 0;
 }
 
 /* Hull contact points: rims of each part's ends (fins: corners; deployed
@@ -108,22 +106,37 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	vs->wake_bottom = malloc(sizeof(double) * (size_t)n);
 	trs_fuel_net_free(&vs->fuel);
 	trs_fuel_net_build(&vs->fuel, c);
+	/* what is stacked on each end of each part: the area it covers there,
+	 * and the widest neighbour (several engines can hang under one mount) */
+	double *cover_top = calloc((size_t)n, sizeof(double)), *cover_bottom = calloc((size_t)n, sizeof(double));
+	double *wide_top = calloc((size_t)n, sizeof(double)), *wide_bottom = calloc((size_t)n, sizeof(double));
+	for (int k = 0; k < c->count; k++) {
+		int p = c->parts[k].parent;
+		if (p < 0)
+			continue;
+		int ek = node_end(c, k, c->parts[k].node), ep = node_end(c, p, c->parts[k].parent_node);
+		double ak = trs_craft_def(c, k)->area_axial, ap = trs_craft_def(c, p)->area_axial;
+		if (ek && ep) {
+			(ek > 0 ? cover_top : cover_bottom)[k] += ap;
+			(ek > 0 ? wide_top : wide_bottom)[k] = fmax((ek > 0 ? wide_top : wide_bottom)[k], ap);
+			(ep > 0 ? cover_top : cover_bottom)[p] += ak;
+			(ep > 0 ? wide_top : wide_bottom)[p] = fmax((ep > 0 ? wide_top : wide_bottom)[p], ak);
+		}
+	}
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
-		double top = d->area_axial, bottom = d->area_axial;
-		int nt = neighbour_at(c, i, "top"), nb = neighbour_at(c, i, "bottom");
-		if (nt >= 0)
-			top = fmax(0, top - trs_craft_def(c, nt)->area_axial);
-		if (nb >= 0)
-			bottom = fmax(0, bottom - trs_craft_def(c, nb)->area_axial);
 		/* parts with no node on a face (nosecone tip, chute) keep it exposed */
-		vs->face_top[i] = top;
-		vs->face_bottom[i] = bottom;
+		vs->face_top[i] = fmax(0, d->area_axial - cover_top[i]);
+		vs->face_bottom[i] = fmax(0, d->area_axial - cover_bottom[i]);
 		/* a part right behind a wider one sits in its wake: side heating
 		 * scales with the share of the frontal area it would present */
-		vs->wake_top[i] = nt >= 0 ? fmin(1, d->area_axial / fmax(trs_craft_def(c, nt)->area_axial, 1e-6)) : 1;
-		vs->wake_bottom[i] = nb >= 0 ? fmin(1, d->area_axial / fmax(trs_craft_def(c, nb)->area_axial, 1e-6)) : 1;
+		vs->wake_top[i] = wide_top[i] > 0 ? fmin(1, d->area_axial / fmax(wide_top[i], 1e-6)) : 1;
+		vs->wake_bottom[i] = wide_bottom[i] > 0 ? fmin(1, d->area_axial / fmax(wide_bottom[i], 1e-6)) : 1;
 	}
+	free(cover_top);
+	free(cover_bottom);
+	free(wide_top);
+	free(wide_bottom);
 	trs_craft_mass_props(c, &vs->mass, &vs->cm, &vs->inertia);
 	build_contacts(vs);
 	vs->dirty = 0;

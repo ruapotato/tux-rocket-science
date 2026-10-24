@@ -25,6 +25,10 @@ var s: FlightSession
 
 func run(_runner: Node) -> Dictionary:
 	s = FlightSession.new()
+	var only := OS.get_environment("LAB")
+	if only != "":
+		call(only)
+		return {"status": "PASS", "log": "\n".join(log)}
 	_liquid_boosters(false)
 	_liquid_boosters(true)
 	_srb_boosters()
@@ -270,3 +274,78 @@ func _reattach_booster() -> void:
 	m.pick_up(back[0])
 	var spun := m.stack_placements(held, dr[0], "outer", PI / 2)
 	log.append("  spun 90 deg: up %s" % [DMath.q_rotate(spun[0].rot, [0.0, 1.0, 0.0])])
+
+
+func _probe() -> void:
+	log.append("probe core, no crew: holds attitude and steers")
+	var m := CraftModel.new()
+	m.place_root(CraftModel.held_single("probe_core"))
+	var t := m.attach_stack(CraftModel.held_single("tank_m"), 0, "bottom")[0]
+	m.attach_stack(CraftModel.held_single("engine_lifter"), t, "bottom")
+	m.attach_surface(CraftModel.held_single("fin"), t, 0.0, -0.6, 3)
+	var t0 := _launch(m)
+	log.append("  crew %d / seats %d" % [t0.get("crew", 0), t0.get("crew_capacity", 0)])
+	s.step_ticks(250)
+	_report("5 s")
+	s.set_input(0.5, 0.0, 0.0)
+	s.step_ticks(100)
+	s.set_input(0.0, 0.0, 0.0)
+	s.step_ticks(100)
+	_report("after 2 s of pitch input")
+
+
+func _tri_mount() -> void:
+	log.append("wide tank on a tri-mount with three Walrus engines")
+	var m := CraftModel.new()
+	m.place_root(CraftModel.held_single("pod_3"))
+	m.attach_stack(CraftModel.held_single("parachute"), 0, "top")
+	var ad := m.attach_stack(CraftModel.held_single("adapter_21"), 0, "bottom")
+	log.append("  adapter under the pod: %s (up %s)" % [ad, DMath.q_rotate(m.parts[ad[0]].rot, [0.0, 1.0, 0.0]) if ad.size() > 0 else "-"])
+	var t := m.attach_stack(CraftModel.held_single("tank_xl"), ad[0], "bottom")[0]
+	var mt := m.attach_stack(CraftModel.held_single("mount_tri"), t, "bottom")[0]
+	for nn in ["bottom", "bottom_2", "bottom_3"]:
+		var e := m.attach_stack(CraftModel.held_single("engine_lifter"), mt, nn)
+		log.append("  engine on %s: %s" % [nn, e])
+	m.attach_surface(CraftModel.held_single("fin"), t, PI / 3, -1.4, 3)
+	var t0 := _launch(m)
+	log.append("  liftoff: %d lit, thrust %.0f kN, TWR %.2f" % [t0.engines_lit, t0.thrust / 1000.0, t0.twr])
+	s.step_ticks(500)
+	_report("10 s")
+
+
+func _heavy() -> void:
+	log.append("heavy lifter: wide first stage under an adapter, flown to orbit by the ascent autopilot")
+	var m := CraftModel.new()
+	m.place_root(CraftModel.held_single("pod_1"))
+	m.attach_stack(CraftModel.held_single("parachute"), 0, "top")
+	var hs := m.attach_stack(CraftModel.held_single("heat_shield"), 0, "bottom")[0]
+	var d0 := m.attach_stack(CraftModel.held_single("decoupler_stack"), hs, "bottom")[0]
+	var ut := m.attach_stack(CraftModel.held_single("tank_l"), d0, "bottom")[0]
+	var ue := m.attach_stack(CraftModel.held_single("engine_vac"), ut, "bottom")[0]
+	var d1 := m.attach_stack(CraftModel.held_single("decoupler_stack"), ue, "bottom")[0]
+	var ad := m.attach_stack(CraftModel.held_single("adapter_21"), d1, "bottom")
+	log.append("  adapter flipped under a 1.25 m decoupler: %s (up %s)" % [ad, DMath.q_rotate(m.parts[ad[0]].rot, [0.0, 1.0, 0.0]) if ad.size() > 0 else "-"])
+	var t := m.attach_stack(CraftModel.held_single("tank_xl"), ad[0], "bottom")[0]
+	m.attach_stack(CraftModel.held_single("engine_big"), t, "bottom")
+	m.attach_surface(CraftModel.held_single("fin"), t, PI / 3, -1.4, 4)
+	m.craft_name = "Heavy"
+	var st: Dictionary = m.stats()
+	log.append("  hangar: %.1f t, dv %.0f m/s, %d stages" % [st.mass / 1000.0, st.dv_vac, m.stage_count()])
+	_stages(m)
+	var api := ControlAPI.new(s)
+	s.launch(m.save_text())
+	var ap := AscentAutopilot.new(api)
+	var guard := 0
+	while guard < 50 * 60 * 30:
+		if ap.step(0.1):
+			break
+		var tel: Dictionary = s.telemetry()
+		if ap.phase == "coast" and not tel.in_atmosphere and tel.orbit.t_to_ap != null and tel.orbit.t_to_ap > 60.0:
+			api.handle({"cmd": "warp_to", "t": tel.t + tel.orbit.t_to_ap - 50.0})
+			continue
+		s.step_ticks(5)
+		guard += 5
+	for line in ap.log:
+		log.append("    " + line)
+	var tf := s.telemetry()
+	log.append("  end: %s, Pe %.1f km, %.0f m/s left, peak heat %.0f%% (%s), destroyed %s" % [tf.situation, tf.orbit.pe_alt / 1000.0, tf.dv_total, ap.max_heat * 100.0, ap.hot_part, _destroyed()])

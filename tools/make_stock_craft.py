@@ -16,7 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Generates the three stock craft from the part catalog's attach nodes.
+"""Generates the stock craft from the part catalog's attach nodes.
 
 The hangar is the real authoring tool. This script only bootstraps the stock
 craft so the gates have something to fly before the editor exists, and it
@@ -207,11 +207,34 @@ def sidecar():
     c.save("sidecar.craft.json")
 
 
+def heavy():
+    c = Craft("Rookery Heavy", "Three penguins to orbit: a wide first stage on three engines, an adapter, and a vacuum upper stage. Shield first on the way home, then P for the chute.")
+    pod = c.add("pod_3")
+    c.above(pod, "parachute")
+    hs = c.below(pod, "heat_shield")
+    d0 = c.below(hs, "decoupler_stack", stage=0)
+    ut = c.below(d0, "tank_l")
+    ue = c.below(ut, "engine_vac", stage=1)
+    d1 = c.below(ue, "decoupler_stack", stage=2)
+    ad = c.below(d1, "adapter_21")
+    t = c.below(ad, "tank_xl")
+    mt = c.below(t, "mount_tri")
+    c.sym += 1
+    for nn in ("bottom", "bottom_2", "bottom_3"):
+        mp = c.parts[mt]["pos"]
+        mn = node("mount_tri", nn)
+        et = node("engine_lifter", "top")
+        c.add("engine_lifter", mt, "top", nn, [mp[i] + mn[i] - et[i] for i in range(3)], stage=3, sym=c.sym)
+    c.radial(t, "fin", 4, -1.4, 45)
+    c.save("rookery_heavy.craft.json")
+
+
 if __name__ == "__main__":
     hopper()
     orbiter()
     lander()
     sidecar()
+    heavy()
     # Rewrite in canonical form: the exact bytes the game itself saves.
     import glob
     import subprocess
