@@ -520,16 +520,31 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	var tap: String = "—" if o.t_to_ap == null else fmt_time(o.t_to_ap)
 	_right.text = "[color=#9fb4cc]APOAPSIS[/color]  [b]%s[/b]   in %s\n[color=#9fb4cc]PERIAPSIS[/color]  [b]%s[/b]   in %s\n[color=#9fb4cc]Inclination[/color] %.2f°   [color=#9fb4cc]e[/color] %.4f\n[color=#9fb4cc]Period[/color] %s" % [
 		ap, tap, fmt_dist(o.pe_alt), fmt_time(o.t_to_pe), o.inc_deg, o.ecc, fmt_time(o.period) if o.period > 0 else "—"]
-	var st := "[color=#ff8a2a][b]STAGES[/b][/color]  [color=#6f86a6]SPACE to stage[/color]\n"
-	var stages: Array = t.get("stages", [])
+	var st := "[color=#ff8a2a][b]STAGES[/b][/color]  [color=#6f86a6]SPACE fires the top line[/color]\n"
+	var dv_of := {}
 	var total := 0.0
-	for s in stages:
-		if s.dv_vac < 0.5:
-			continue
-		var cur: bool = int(s.stage) == int(t.next_stage) + 1
-		st += "%s Stage %d  [b]%.0f m/s[/b]  %s\n" % ["[color=#ffcf6a]▶[/color]" if cur else "  ", s.stage, s.dv if t.in_atmosphere else s.dv_vac,
-			"TWR %.2f" % s.twr if s.twr > 0 else ""]
+	for s in t.get("stages", []):
+		dv_of[int(s.stage)] = s
 		total += s.dv if t.in_atmosphere else s.dv_vac
+	var burning: int = int(t.next_stage) + 1
+	if dv_of.has(burning) and dv_of[burning].dv_vac >= 0.5 and t.get("engines_lit", 0) > 0:
+		var b: Dictionary = dv_of[burning]
+		st += "[color=#ffcf6a]▶ burning[/color]  [b]%.0f m/s[/b]  %s\n" % [b.dv if t.in_atmosphere else b.dv_vac, "TWR %.2f" % b.twr if b.twr > 0 else ""]
+	var first := true
+	for p in t.get("stage_plan", []):
+		var what := PackedStringArray()
+		if p.decouplers > 0:
+			what.append("drop %d" % p.decouplers if p.decouplers > 1 else "drop")
+		if p.engines > 0:
+			what.append("ignite %d" % p.engines)
+		if p.chutes > 0:
+			what.append("chute")
+		var line := "%s [color=#9fb4cc]%d[/color] %s" % ["[color=#ffcf6a]SPACE[/color]" if first else "       ", p.stage, ", ".join(what)]
+		var d: Dictionary = dv_of.get(int(p.stage), {})
+		if p.engines > 0 and not d.is_empty() and d.dv_vac >= 0.5:
+			line += "  [b]%.0f m/s[/b]" % (d.dv if t.in_atmosphere else d.dv_vac)
+		st += line + "\n"
+		first = false
 	st += "[color=#9fb4cc]Total[/color] [b]%.0f m/s[/b] %s" % [total, "(local pressure)" if t.in_atmosphere else "(vacuum)"]
 	_stages.text = st
 	_throttle.set_meta("value", t.throttle)

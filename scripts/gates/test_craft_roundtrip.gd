@@ -64,6 +64,7 @@ func run(_runner: Node) -> Dictionary:
 	_compare_rebuild("orbiter", _build_orbiter())
 	_compare_rebuild("krill_lander", _build_lander())
 	_editor_ops()
+	_insert_ops()
 	_staging_ops()
 	return {"status": "FAIL" if _failed else "PASS", "log": "\n".join(_log)}
 
@@ -202,6 +203,46 @@ func _editor_ops() -> void:
 	_log.append("     sym %s n=%d->%d, removed_ok %s" % [ok_sym, n0, m.parts.size(), removed_ok])
 
 
+## Slipping a tank into the middle of a stack moves everything below it
+## down by exactly the tank's node spacing; fins added to one of two side
+## boosters land on both. Both undo cleanly.
+func _insert_ops() -> void:
+	var m := _build_orbiter()
+	var before := m.save_text()
+	var n0 := m.parts.size()
+	var t1a := -1
+	var eng := -1
+	for i in m.parts.size():
+		if m.parts[i].part == "tank_l":
+			t1a = i
+		if m.parts[i].part == "engine_lifter":
+			eng = i
+	var y0: float = m.parts[eng].pos[1]
+	var dv0: float = m.stats().dv_vac
+	var got := m.insert_stack(CraftModel.held_single("tank_s"), t1a, "bottom")
+	var eng1 := -1
+	for i in m.parts.size():
+		if m.parts[i].part == "engine_lifter":
+			eng1 = i
+	var nodes: Array = Sim.part("tank_s").nodes
+	var span := absf(float(nodes[0].pos[1]) - float(nodes[1].pos[1]))
+	var shift: float = y0 - m.parts[eng1].pos[1]
+	var dv1: float = m.stats().dv_vac
+	var ins_ok: bool = got.size() == 1 and m.parts.size() == n0 + 1 and absf(shift - span) < 1e-9 and dv1 > dv0
+	m.undo()
+	var undo_ok := m.save_text() == before
+	# boosters on two radial decouplers, then one fin on one booster -> two fins
+	var decs := m.attach_surface(CraftModel.held_single("decoupler_radial"), t1a, 0.0, 0.0, 2)
+	var boosters := m.attach_stack(CraftModel.held_single("srb"), decs[0], "outer")
+	var nb := m.parts.size()
+	var fins := m.attach_surface(CraftModel.held_single("fin"), boosters[0], 0.3, -0.8, 1)
+	var mirror_ok: bool = boosters.size() == 2 and fins.size() == 2 and m.parts.size() == nb + 2 \
+		and m.parts[fins[0]].parent != m.parts[fins[1]].parent
+	_check(ins_ok and undo_ok and mirror_ok,
+		"insert/mirror: tank slipped into the stack moves the rest %.3f m (node span %.3f), dv %.0f -> %.0f m/s, undo %s; fin on one of 2 boosters -> %d fins %s" % [
+			shift, span, dv0, dv1, undo_ok, fins.size(), mirror_ok])
+
+
 ## Structural equality: same parts, tree, nodes, stages and symmetry
 ## partition, positions/rotations within 1e-12.
 func _same_craft(a: CraftModel, b: CraftModel) -> bool:
@@ -236,14 +277,14 @@ func _staging_ops() -> void:
 	for i in m.parts.size():
 		if m.parts[i].part == "engine_vac":
 			alb = i
-	# drop the vacuum engine into a brand-new stage just above its decoupler
+	# auto staging gives the decoupler and the vacuum engine a press each:
+	# merge them into one stage, then split them again with an inserted stage
+	m.set_stage(alb, m.parts[alb].stage + 1)
+	var moved: bool = m.stage_count() == n0 - 1 and m.parts[alb].stage == 1
 	m.insert_stage(alb, 1)
-	var inserted: bool = m.stage_count() == n0 + 1 and m.parts[alb].stage == 1
+	var inserted: bool = m.stage_count() == n0 and m.parts[alb].stage == 1
 	var st := m.stats()
-	# engine now lights one stage after its decoupler fires: dv still exists
 	var dv_ok: bool = absf(st.dv_vac - dv0) < 1.0
-	m.set_stage(alb, 0)
-	var moved: bool = m.parts[alb].stage == 0
 	m.undo()
 	m.undo()
 	var back: bool = m.stage_count() == n0 and m.parts[alb].stage == 1

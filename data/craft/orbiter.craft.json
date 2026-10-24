@@ -81,7 +81,7 @@
       "parent_node": "bottom",
       "pos": [0, -3.2975, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 1,
+      "stage": 2,
       "sym": 0
     },
     {
@@ -111,7 +111,7 @@
       "parent_node": "bottom",
       "pos": [0, -9.6225, 0],
       "rot": [0, 0, 0, 1],
-      "stage": 2,
+      "stage": 3,
       "sym": 0
     },
     {

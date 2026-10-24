@@ -19,7 +19,7 @@
 ## CraftModel; all numbers shown come from trs_core via CraftModel.stats().
 extends Node3D
 
-const SYMMETRY_STEPS := [1, 2, 3, 4, 6]
+const SYMMETRY_STEPS := [1, 2, 3, 4, 5, 6, 8]
 const SNAP_PX := 60.0
 ## The craft hangs in the assembly frame at a working height, so there is
 ## always room to build downward from the pod; it only rises when the stack
@@ -53,6 +53,11 @@ var _held_extra: Array = DMath.q_identity()
 var _ghosts: Array[Node3D] = []
 var _snap: Dictionary = {}
 var _hover := -1
+var _hover_loose := -1
+## Assemblies set aside while building: [{held, pos}] (craft-root space).
+## Not part of the craft; they are not saved or launched.
+var _loose: Array = []
+var _loose_root: Node3D
 var _stats: Dictionary = {}
 
 # UI
@@ -188,7 +193,8 @@ func _update_camera() -> void:
 
 func _rebuild_craft() -> void:
 	for c in _craft_root.get_children():
-		c.queue_free()
+		if c != _loose_root and not _ghosts.has(c):
+			c.queue_free()
 	_part_nodes.clear()
 	var min_y := 0.0
 	var shrouds := PartVisual.shroud_heights(model.parts)
@@ -329,7 +335,7 @@ func _build_ui() -> void:
 	_summary.scroll_active = false
 	rv.add_child(_summary)
 	var st := Label.new()
-	st.text = "STAGING — bottom fires first; drag parts between stages"
+	st.text = "STAGING — in firing order: the top card goes on the first SPACE. Drag a part onto a card to move it, or onto a + line for a stage of its own (e.g. a decoupler alone)."
 	st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	st.custom_minimum_size = Vector2(320, 0)
 	st.add_theme_color_override("font_color", PartVisual.ICE)
@@ -433,12 +439,13 @@ func _refresh_staging() -> void:
 	for s in (_stats.get("stages", []) if not _stats.is_empty() else []):
 		by_stage[int(s.stage)] = s
 	var count := model.stage_count()
-	# KSP convention: stage 0 at the top, the first stage to fire at the bottom.
-	# A gap above card s inserts a new stage numbered s.
-	_stage_box.add_child(_stage_gap(0))
-	for s in range(0, count):
+	# firing order, top first: the highest stage number goes on the first
+	# SPACE. The gap above card s makes a new stage s + 1 (fires just
+	# before it); the one below makes a new stage s (fires just after).
+	_stage_box.add_child(_stage_gap(count))
+	for s in range(count - 1, -1, -1):
 		_stage_box.add_child(_stage_card(s, by_stage.get(s, {})))
-		_stage_box.add_child(_stage_gap(s + 1))
+		_stage_box.add_child(_stage_gap(s))
 
 
 func _stage_card(s: int, st: Dictionary) -> Control:
@@ -450,7 +457,20 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 	var info := ""
 	if not st.is_empty() and st.dv_vac > 0.05:
 		info = "   Δv %.0f m/s (SL %.0f)   TWR %.2f   %.0f s" % [st.dv_vac, st.dv_sl, st.twr_sl if st.twr_sl > 0 else st.twr_vac, st.burn_time]
-	head.text = "Stage %d%s" % [s, info]
+	var press := model.stage_count() - s
+	var does := PackedStringArray()
+	var ne := 0
+	var nd := 0
+	for p in model.parts:
+		if p.stage == s:
+			var d := Sim.part(p.part)
+			ne += 1 if d.has("engine") else 0
+			nd += 1 if d.has("decoupler") else 0
+	if nd > 0:
+		does.append("drop" + (" x%d" % nd if nd > 1 else ""))
+	if ne > 0:
+		does.append("ignite" + (" x%d" % ne if ne > 1 else ""))
+	head.text = "SPACE #%d · stage %d · %s%s" % [press, s, " + ".join(does), info]
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	head.custom_minimum_size = Vector2(300, 0)
 	head.add_theme_font_size_override("font_size", 13)
@@ -481,11 +501,18 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 	return panel
 
 
-## Thin drop zone between cards: dropping here inserts a new stage.
+## Drop zone between cards: dropping here inserts a new stage.
 func _stage_gap(s: int) -> Control:
 	var gap := PanelContainer.new()
-	gap.custom_minimum_size = Vector2(0, 10)
+	gap.custom_minimum_size = Vector2(0, 14)
 	gap.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var plus := Label.new()
+	plus.text = "+ new stage"
+	plus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plus.add_theme_font_size_override("font_size", 10)
+	plus.add_theme_color_override("font_color", Color(0.45, 0.55, 0.7, 0.7))
+	plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gap.add_child(plus)
 	gap.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): model.insert_stage(data.index, s))
 	gap.tooltip_text = "Drop here to make a new stage"
 	return gap
@@ -513,6 +540,8 @@ func _highlight(ids: Array) -> void:
 # ---- buttons -------------------------------------------------------------------
 
 func _on_new() -> void:
+	_loose.clear()
+	_rebuild_loose()
 	model.checkpoint()
 	model.parts.clear()
 	model.craft_name = "Untitled"
@@ -552,6 +581,8 @@ func _on_launch() -> void:
 	if model.parts.is_empty():
 		toast("Nothing to launch yet")
 		return
+	if not _loose.is_empty():
+		toast("%d set-aside assembl%s stay in the hangar" % [_loose.size(), "y" if _loose.size() == 1 else "ies"])
 	Sim.pending_craft_text = model.save_text()
 	if ResourceLoader.exists("res://scenes/flight.tscn"):
 		get_tree().change_scene_to_file("res://scenes/flight.tscn")
@@ -677,6 +708,10 @@ func _key(k: InputEventKey) -> void:
 				_drop_held()
 			elif _hover >= 0:
 				model.remove(_hover)
+			elif _hover_loose >= 0:
+				_loose.remove_at(_hover_loose)
+				_hover_loose = -1
+				_rebuild_loose()
 		KEY_ESCAPE:
 			_drop_held()
 		KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PAGEUP, KEY_PAGEDOWN:
@@ -706,6 +741,13 @@ func _click() -> void:
 			_held = model.pick_up(_hover)
 			_held_spin = 0.0
 			_held_extra = DMath.q_identity()
+		elif _hover_loose >= 0:
+			_held = _loose[_hover_loose].held
+			_loose.remove_at(_hover_loose)
+			_hover_loose = -1
+			_held_spin = 0.0
+			_held_extra = DMath.q_identity()
+			_rebuild_loose()
 		return
 	if model.parts.is_empty():
 		model.place_root(_held)
@@ -714,12 +756,43 @@ func _click() -> void:
 	if _snap.is_empty():
 		toast("Attach it to a node or a surface")
 		return
+	if _snap.kind == "aside":
+		_loose.append({"held": _held, "pos": _snap.pos})
+		_rebuild_loose()
+		toast("Set aside — click it to pick it up again (set-aside parts are not launched or saved)")
+		_clear_held()
+		return
 	if _snap.kind == "stack":
 		model.attach_stack(_held, _snap.target, _snap.node, _held_spin)
+	elif _snap.kind == "insert":
+		if model.insert_stack(_held, _snap.target, _snap.node, _held_spin).is_empty():
+			toast("It doesn't fit there")
+			return
 	else:
 		model._commit(_held, model.surface_placements(_held, _snap.target, _snap.angle, _snap.y, symmetry, _held_extra))
 	if not Input.is_key_pressed(KEY_SHIFT):
 		_clear_held()
+
+
+## Shows the set-aside assemblies as pale ghosts that can be picked up.
+func _rebuild_loose() -> void:
+	if _loose_root == null:
+		_loose_root = Node3D.new()
+		_loose_root.name = "Loose"
+		_craft_root.add_child(_loose_root)
+	for c in _loose_root.get_children():
+		_loose_root.remove_child(c)
+		c.queue_free()
+	for k in _loose.size():
+		var g := Node3D.new()
+		for h in _loose[k].held.parts:
+			var v := PartVisual.build(h.part, true)
+			v.transform = PartVisual.xform(h.pos, h.rot)
+			v.get_node("Pick").set_meta("loose_index", k)
+			g.add_child(v)
+		g.transform = PartVisual.xform(_loose[k].pos, DMath.q_identity())
+		PartVisual.paint(g, PartVisual.ghost_mat(true))
+		_loose_root.add_child(g)
 
 
 func _clear_held() -> void:
@@ -758,8 +831,18 @@ func _update_hover_and_snap() -> void:
 	var hit: Dictionary = ray.hit
 	var over_ui := _ui.get_viewport().gui_get_hovered_control() != null
 	var idx := -1
-	if not hit.is_empty() and hit.collider.has_meta("part_index") and not over_ui:
-		idx = hit.collider.get_meta("part_index")
+	var loose := -1
+	if not hit.is_empty() and not over_ui:
+		if hit.collider.has_meta("part_index"):
+			idx = hit.collider.get_meta("part_index")
+		elif hit.collider.has_meta("loose_index"):
+			loose = hit.collider.get_meta("loose_index")
+	if loose != _hover_loose:
+		if _hover_loose >= 0 and _hover_loose < _loose_root.get_child_count():
+			PartVisual.paint(_loose_root.get_child(_hover_loose), PartVisual.ghost_mat(true))
+		_hover_loose = loose if _held.is_empty() else -1
+		if _hover_loose >= 0:
+			PartVisual.paint(_loose_root.get_child(_hover_loose), PartVisual.highlight_mat())
 	if _held.is_empty():
 		if idx != _hover:
 			_hover = idx
@@ -789,6 +872,19 @@ func _update_hover_and_snap() -> void:
 					best = d
 					placements = pl
 					_snap = {"kind": "stack", "target": n.index, "node": n.node}
+		# or slip it between two stacked parts
+		if _snap.is_empty():
+			for j in model.insert_joints():
+				var wp := _craft_root.global_transform * DMath.to_v3(j.pos)
+				if _cam.is_position_behind(wp):
+					continue
+				var d := _cam.unproject_position(wp).distance_to(mp)
+				if d < best:
+					var pl := model.insert_placements(_held, j.index, j.node, _held_spin)
+					if not pl.is_empty():
+						best = d
+						placements = pl
+						_snap = {"kind": "insert", "target": j.index, "node": j.node}
 		if _snap.is_empty() and idx >= 0 and Sim.part(_held.parts[0].part).get("surface_attach", false):
 			var tp: Dictionary = model.parts[idx]
 			var local_hit := (_craft_root.global_transform * PartVisual.xform(tp.pos, tp.rot)).affine_inverse() * (hit.position as Vector3)
@@ -800,9 +896,10 @@ func _update_hover_and_snap() -> void:
 	var ok := not _snap.is_empty() or model.parts.is_empty()
 	_show_node_markers(true)
 	if placements.is_empty():
-		# float in front of the camera
+		# float in front of the camera (a click sets it aside there)
 		var p: Vector3 = ray.from + ray.dir * _cam_dist * 0.7 - _craft_root.global_position
 		placements = [{"pos": [p.x, p.y, p.z], "rot": DMath.q_identity()}]
+		_snap = {"kind": "aside", "pos": [p.x, p.y, p.z]}
 	_show_ghosts(placements, ok)
 
 
@@ -857,8 +954,10 @@ func _show_ghosts(placements: Array, ok: bool) -> void:
 func _update_hint() -> void:
 	if not _held.is_empty():
 		var name: String = Sim.part(_held.parts[0].part).name
-		_hint.text = "Holding %s%s — move to an orange node (it turns green) or onto a hull, then click · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
+		_hint.text = "Holding %s%s — click an orange node (it turns green), a hull, or a joint to slip it in · click empty space to set it aside · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
 			name, "" if _held.parts.size() == 1 else " (+%d)" % (_held.parts.size() - 1), symmetry]
+	elif _hover_loose >= 0:
+		_hint.text = "Set-aside assembly — click to pick it up · Del throws it away"
 	elif _hover >= 0:
 		var p: Dictionary = model.parts[_hover]
 		_hint.text = "%s — click to pick up · Del removes · Q/E/W/S/A/D rotate · arrows/PgUp/PgDn offset (Shift: bigger steps)" % Sim.part(p.part).name

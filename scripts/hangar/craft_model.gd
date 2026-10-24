@@ -484,6 +484,82 @@ func stack_placements(held: Dictionary, target: int, target_node: String, spin :
 	return out
 
 
+# ---- inserting into a stack ---------------------------------------------------------
+
+## Stack joints a single held part could be slipped into: {index, node,
+## child, pos} where `child` hangs from part `index` at `node`. Symmetric
+## joints are left out (inserting would have to happen on every copy).
+func insert_joints() -> Array:
+	var out := []
+	for k in range(1, parts.size()):
+		var p: Dictionary = parts[k]
+		if p.node == "" or p.parent_node == "" or p.sym != 0 or counterparts(int(p.parent)).size() > 1:
+			continue
+		var w := node_world(int(p.parent), p.parent_node)
+		if not w.is_empty():
+			out.append({"index": int(p.parent), "node": p.parent_node, "child": k, "pos": w.pos})
+	return out
+
+
+## Where `held` would sit if inserted at the joint (target, node): only a
+## single part with a node on each end can go between two others.
+func insert_placements(held: Dictionary, target: int, target_node: String, spin := 0.0) -> Array:
+	if held.parts.size() != 1 or target < 0 or target >= parts.size():
+		return []
+	if Sim.part(held.parts[0].part).get("nodes", []).size() < 2:
+		return []
+	var tn := node_world(target, target_node)
+	if tn.is_empty():
+		return []
+	var fit := _stack_fit(held, tn.dir)
+	if fit.is_empty():
+		return []
+	var rot: Array = fit.rot
+	if spin != 0.0:
+		rot = DMath.q_normalized(DMath.q_mul(DMath.q_axis_angle(tn.dir, spin), rot))
+	return [{"parent": target, "node": fit.node, "parent_node": target_node, "pos": DMath.sub(tn.pos, DMath.q_rotate(rot, fit.node_pos)), "rot": rot}]
+
+
+## Slips `held` into the stack at (target, node): whatever hung there is
+## re-hung from the new part's far end, moved along to make room. One undo
+## step. Returns the new part's index, or [] if it does not fit.
+func insert_stack(held: Dictionary, target: int, target_node: String, spin := 0.0) -> Array[int]:
+	var child := -1
+	for k in children_of(target):
+		if parts[k].parent_node == target_node:
+			child = k
+	if child < 0:
+		return attach_stack(held, target, target_node, spin)
+	var pl := insert_placements(held, target, target_node, spin)
+	if pl.is_empty():
+		return []
+	var dir: Array = node_world(target, target_node).dir
+	checkpoint()
+	var keep := _snapshot()
+	var tail := _extract(child)
+	_remove_indices(subtree(child))
+	var ni := _append_held(held, target, pl[0].node, target_node, pl[0].pos, pl[0].rot, 0)
+	# the tail hangs from the new part's node that faces the way the joint did
+	var far := ""
+	var best := -INF
+	for n in Sim.part(parts[ni].part).get("nodes", []):
+		if n.name == parts[ni].node:
+			continue
+		var d := DMath.dot(node_world(ni, n.name).dir, dir)
+		if d > best:
+			best = d
+			far = n.name
+	var tp := stack_placements(tail, ni, far) if far != "" else []
+	if tp.is_empty():
+		_restore(keep)
+		_undo.pop_back()
+		return []
+	_append_held(tail, ni, tp[0].node, far, tp[0].pos, tp[0].rot, 0)
+	_after_structure_change()
+	var out: Array[int] = [ni]
+	return out
+
+
 ## Stack-attaches `held` to part `target` at `target_node`; symmetric copies
 ## go on every counterpart of the target. Returns the new roots' indices.
 func attach_stack(held: Dictionary, target: int, target_node: String, spin := 0.0) -> Array[int]:
@@ -504,7 +580,8 @@ func surface_frame(target: int, angle: float, y: float) -> Dictionary:
 	}
 
 
-## Placements for `count` symmetric surface copies around `target`.
+## Placements for `count` symmetric surface copies around `target`, and the
+## same again on each of the target's symmetric counterparts.
 ## `extra` is a local rotation applied after aligning +Z with the surface
 ## normal (twist/tilt from the player).
 func surface_placements(held: Dictionary, target: int, angle: float, y: float, count := 1, extra: Array = []) -> Array:
@@ -516,8 +593,13 @@ func surface_placements(held: Dictionary, target: int, angle: float, y: float, c
 		return out
 	count = maxi(1, count)
 	var off := surface_offset(root_part)
-	for k in count:
-		var f := surface_frame(target, angle + TAU * k / count, y)
+	# on a part with symmetric copies, every copy gets the same attachment
+	var on: Array = []
+	for t in counterparts(target):
+		for k in count:
+			on.append([t, angle + TAU * k / count])
+	for tk in on:
+		var f := surface_frame(tk[0], tk[1], y)
 		var z: Array = f.normal
 		var yax := DMath.normalized(DMath.sub(f.axis, DMath.scale(z, DMath.dot(f.axis, z))))
 		var x := DMath.cross(yax, z)
@@ -525,7 +607,7 @@ func surface_placements(held: Dictionary, target: int, angle: float, y: float, c
 		if not extra.is_empty():
 			rot = DMath.q_normalized(DMath.q_mul(rot, extra))
 		var pos := DMath.add(f.pos, DMath.scale(z, off))
-		out.append({"parent": target, "node": "", "parent_node": "", "pos": pos, "rot": rot})
+		out.append({"parent": tk[0], "node": "", "parent_node": "", "pos": pos, "rot": rot})
 	return out
 
 
@@ -608,9 +690,9 @@ func detach_set(i: int) -> Array[int]:
 	return out
 
 
-## KSP-style automatic staging: the deepest stack segment lights first,
-## radial boosters drop next, then each stack decoupler fires together with
-## the next segment's engines. Parachutes are not staged: the pilot deploys
+## Automatic staging: the deepest stack segment lights first, radial
+## boosters drop next, then each stack decoupler gets a press of its own
+## and the next segment's engines light on the press after. Parachutes are not staged: the pilot deploys
 ## them (P) when it is safe.
 func auto_stage() -> void:
 	var n := parts.size()
@@ -635,16 +717,20 @@ func auto_stage() -> void:
 		depth = maxi(depth, sd[i])
 	var steps := []  # firing order: arrays of part indices
 	for d in range(depth, -1, -1):
-		var step := []
+		# dropping the spent stage and lighting the next are separate presses
+		var drop := []
 		for i in stack_decs:
 			var s := detach_set(i)
 			if not s.is_empty() and _min_depth(s, sd) == d + 1:
-				step.append(i)
+				drop.append(i)
+		if not drop.is_empty():
+			steps.append(drop)
+		var light := []
 		for i in n:
 			if Sim.part(parts[i].part).has("engine") and sd[i] == d:
-				step.append(i)
-		if not step.is_empty():
-			steps.append(step)
+				light.append(i)
+		if not light.is_empty():
+			steps.append(light)
 		var radial := []
 		for i in radial_decs:
 			if parts[i].parent >= 0 and sd[parts[i].parent] == d:

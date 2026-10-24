@@ -377,6 +377,29 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		}
 		trs_json_set(j, "stages", stages);
 		trs_json_set(j, "dv_total", trs_json_new_num(dv_total));
+		/* what each remaining SPACE press does, next one first:
+		 * [{stage, engines, decouplers, chutes}] */
+		trs_json *plan = trs_json_new(TRS_JSON_ARRAY);
+		for (int sg = vs->next_stage; sg >= 0; sg--) {
+			int ne = 0, nd = 0, nc = 0;
+			for (int i = 0; i < c->count; i++) {
+				if (c->parts[i].stage != sg)
+					continue;
+				const trs_part_def *d = trs_craft_def(c, i);
+				ne += d->propellant != TRS_PROP_NONE;
+				nd += d->decoupler != 0 && !c->parts[i].fired;
+				nc += d->is_parachute;
+			}
+			if (ne + nd + nc == 0)
+				continue;
+			trs_json *pj = trs_json_new(TRS_JSON_OBJECT);
+			trs_json_set(pj, "stage", trs_json_new_num(sg));
+			trs_json_set(pj, "engines", trs_json_new_num(ne));
+			trs_json_set(pj, "decouplers", trs_json_new_num(nd));
+			trs_json_set(pj, "chutes", trs_json_new_num(nc));
+			trs_json_push(plan, pj);
+		}
+		trs_json_set(j, "stage_plan", plan);
 		/* propellant remaining in the current fuel groups */
 		double liquid = 0, solid = 0, liquid_cap = 0, solid_cap = 0;
 		for (int i = 0; i < c->count; i++) {

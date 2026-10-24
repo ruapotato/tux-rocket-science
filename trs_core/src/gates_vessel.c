@@ -794,3 +794,116 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* Two single-tank craft side by side in a low Floe orbit, closing at
+ * `closing` m/s along the line between them. */
+static void pair_in_orbit(trs_world *w, const trs_craft *c, int floe, double closing, int *a, int *b) {
+	const trs_body *F = &w->sys.bodies[floe];
+	trs_v3 r0 = v3(F->radius + 150000, 0, 0);
+	trs_v3 v0 = v3(0, sqrt(F->mu / v3_len(r0)), 0);
+	trs_quat q = quat_from_to(v3(0, 1, 0), v3(1, 0, 0));
+	*a = trs_world_add_craft(w, c, floe, v3_add(r0, v3(0, 0, -0.75)), v3_add(v0, v3(0, 0, closing * 0.5)), q);
+	*b = trs_world_add_craft(w, c, floe, v3_add(r0, v3(0, 0, 0.75)), v3_sub(v0, v3(0, 0, closing * 0.5)), q);
+	w->vessels[*a].sas = TRS_SAS_OFF;
+	w->vessels[*b].sas = TRS_SAS_OFF;
+}
+
+trs_gate_status trs_gate_collision(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	const trs_body *F = &sys.bodies[floe];
+	int failed = 0;
+
+	/* 1. On the pad, a stage that only decouples leaves the rocket clamped,
+	 *    and the capsule it lets go sits back down on it instead of
+	 *    falling through. */
+	{
+		trs_craft c;
+		trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = trs_world_launch(w, &c, floe, F->site_lat, F->site_lon);
+		w->vessels[id].next_stage = 0; /* the capsule decoupler first, as a mis-staged rocket would */
+		int pieces[4];
+		int n = trs_world_stage(w, id, pieces, 4);
+		int pod = -1, base = -1;
+		for (int k = -1; k < n; k++) {
+			int vid = k < 0 ? id : pieces[k];
+			for (int i = 0; i < w->vessels[vid].craft->count; i++) {
+				if (!strcmp(trs_craft_def(w->vessels[vid].craft, i)->id, "pod_1"))
+					pod = vid;
+				if (!strcmp(trs_craft_def(w->vessels[vid].craft, i)->id, "engine_lifter"))
+					base = vid;
+			}
+		}
+		double h0 = pod >= 0 ? agl(w, pod) : 0, low = h0;
+		for (int s = 0; s < 50 * 15; s++) {
+			trs_world_step_physics(w);
+			low = fmin(low, agl(w, pod));
+		}
+		int destroyed = count_events(w, TRS_WEV_PART_DESTROYED);
+		int held = base >= 0 && w->vessels[base].clamped && w->vessels[base].mode == TRS_MODE_LANDED;
+		int ok = n == 1 && pod >= 0 && pod != base && held && low > h0 - 0.3 && fabs(agl(w, pod) - h0) < 0.3 &&
+				surface_speed(w, pod) < 0.05 && destroyed == 0;
+		failed += !ok;
+		trs_log_printf(log, "%s capsule dropped on its clamped rocket: rocket held %s, capsule lowest %+.3f m, rests at %+.3f m "
+				"from where it let go (%.3f m/s), %d parts broken\n", ok ? "ok  " : "FAIL", held ? "yes" : "NO", low - h0,
+				pod >= 0 ? agl(w, pod) - h0 : 0, pod >= 0 ? surface_speed(w, pod) : 0, destroyed);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 2. Two tanks bumping at 2 m/s in orbit: every contact force has its
+	 *    equal and opposite partner, they never sink into each other more
+	 *    than the contact allows, and they come apart again, slower. */
+	{
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		trs_craft_add(&c, trs_catalog_find(&cat, "tank_l"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int a, b;
+		pair_in_orbit(w, &c, floe, 2.0, &a, &b);
+		/* start them just out of reach so they close in */
+		w->vessels[a].r = v3_add(w->vessels[a].r, v3(0, 0, -0.3));
+		w->vessels[b].r = v3_add(w->vessels[b].r, v3(0, 0, 0.3));
+		double worst_sum = 0, worst_f = 0, closest = 1e9;
+		double r_sum = 2 * trs_craft_def(&c, 0)->radius;
+		for (int s = 0; s < 50 * 4; s++) {
+			trs_world_vessel_contacts(w);
+			trs_v3 fs = v3_add(w->vessels[a].ext_force, w->vessels[b].ext_force);
+			worst_sum = fmax(worst_sum, v3_len(fs));
+			worst_f = fmax(worst_f, v3_len(w->vessels[a].ext_force));
+			trs_world_step_physics(w);
+			closest = fmin(closest, v3_len(v3_sub(w->vessels[a].r, w->vessels[b].r)));
+		}
+		double sep = v3_dot(v3_sub(w->vessels[b].v, w->vessels[a].v), v3_norm(v3_sub(w->vessels[b].r, w->vessels[a].r)));
+		int ok = worst_f > 0 && worst_sum <= 1e-9 * worst_f && closest > r_sum - 0.16 && sep > 0.2 && sep < 2.0;
+		failed += !ok;
+		trs_log_printf(log, "%s tanks bumping at 2 m/s in orbit: action-reaction residual %.1e of %.0f N, closest %.3f m "
+				"(touching at %.3f), part again at %.2f m/s\n", ok ? "ok  " : "FAIL", worst_sum, worst_f, closest, r_sum, sep);
+		trs_world_free(w);
+		free(w);
+		/* 3. The same at 30 m/s breaks them. */
+		w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		pair_in_orbit(w, &c, floe, 30.0, &a, &b);
+		w->vessels[a].r = v3_add(w->vessels[a].r, v3(0, 0, -0.3));
+		w->vessels[b].r = v3_add(w->vessels[b].r, v3(0, 0, 0.3));
+		for (int s = 0; s < 50 * 1; s++)
+			trs_world_step_physics(w);
+		int destroyed = count_events(w, TRS_WEV_PART_DESTROYED);
+		ok = destroyed > 0;
+		failed += !ok;
+		trs_log_printf(log, "%s tanks colliding at 30 m/s (crash tolerance %.0f m/s): %d broken\n", ok ? "ok  " : "FAIL",
+				trs_craft_def(&c, 0)->crash_tolerance, destroyed);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

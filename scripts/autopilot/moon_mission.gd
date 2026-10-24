@@ -274,8 +274,9 @@ func capture() -> void:
 ## Braking from orbit, then a guided vertical descent onto the surface.
 func land() -> bool:
 	var t := tel()
-	if t.next_stage == LANDER_STAGE:
-		api.handle({"cmd": "stage"})
+	if t.next_stage >= LANDER_STAGE:
+		while tel().next_stage >= LANDER_STAGE:
+			api.handle({"cmd": "stage"})  # drop the transfer stage, then light the lander
 		note("lander separated from the transfer stage")
 	api.handle({"cmd": "legs", "deployed": true})
 	var g: float = body_info("krill").surface_gravity
@@ -524,13 +525,16 @@ func return_home() -> bool:
 	api.handle({"cmd": "sas", "mode": "surface_retrograde"})
 	var chute_armed := false
 	var max_g := 0.0
+	var max_g_at := 0.0
 	var max_heat := 0.0
 	var hot_part := ""
 	for i in 50 * 3600:
 		var t := tel()
 		if not t.alive:
 			return false
-		max_g = maxf(max_g, t.g_force)
+		if t.g_force > max_g and not t.landed and t.altitude_terrain > 30.0:  # flight loads; touchdown is "worst contact"
+			max_g = t.g_force
+			max_g_at = t.altitude
 		if t.get("heat_frac", 0.0) > max_heat:
 			max_heat = t.heat_frac
 			hot_part = t.heat_part
@@ -547,6 +551,7 @@ func return_home() -> bool:
 	landed_home = t.landed and t.body == "floe" and t.get("crew_capacity", 0) > 0
 	peak_g = max_g
 	peak_heat = max_heat
+	note("peak %.1f g in flight at %.1f km" % [max_g, max_g_at / 1000.0])
 	note("splashdown on the ice: landed %s, peak %.1f g, peak heat %.0f%% (%s), worst contact %.1f m/s, %d parts" % [
 		t.landed, max_g, 100.0 * max_heat, hot_part, t.get("max_impact", 0.0), t.parts])
 	return landed_home

@@ -44,6 +44,8 @@ func run(runner: Node) -> Dictionary:
 		await _map(tree)
 	if only == "" or only == "heat":
 		await _heat(tree)
+	if only == "" or only == "stages":
+		await _stages(tree)
 	if only == "" or only == "chute":
 		await _chute(tree)
 	return {"status": "PASS", "log": "\n".join(_log)}
@@ -215,6 +217,22 @@ func _heat(tree: SceneTree) -> void:
 	for k in feed.size() / VesselView.RPP:
 		_log.append("  part %d: %.0f K (%.0f%% of headroom)" % [k, feed[k * VesselView.RPP + 11], 100.0 * feed[k * VesselView.RPP + 12]])
 	await _shot(scene, "reentry_heat")
+
+
+## The editor: stage cards in firing order, a tank set aside.
+func _stages(tree: SceneTree) -> void:
+	for c in tree.root.get_children():
+		if c is Node3D:
+			c.queue_free()
+	Sim.pending_craft_text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "krill_lander.craft.json")
+	var hangar: Node3D = load("res://scenes/hangar.tscn").instantiate()
+	tree.root.add_child(hangar)
+	await _frames(tree, 5)
+	hangar._frame_craft()
+	hangar._loose.append({"held": CraftModel.held_single("tank_m"), "pos": [5.0, 2.0, 0.0]})
+	hangar._rebuild_loose()
+	await _frames(tree, 8)
+	await _shot(hangar, "hangar_stages")
 
 
 ## The capsule's chute opening: the drogue, the main mid-inflation, full.

@@ -152,6 +152,8 @@ func step(delta: float, nozzles: Array, air_vel: Vector3, air: float, light: flo
 				_s0.append(s0)
 				_s1.append(r * (28.0 if solid else 20.0) * randf_range(0.8, 1.2))
 				_a.append((0.6 if solid else 0.4) * dens * clampf(float(nz.thr), 0.35, 1.0))
+				_soot.append(0.0)
+				_rise.append(0.0)
 	# upload
 	var mm := multimesh
 	var m := _pos.size()

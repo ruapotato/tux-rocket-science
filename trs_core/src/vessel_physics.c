@@ -635,7 +635,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	if (rep.touching)
 		vs->max_impact = fmax(vs->max_impact, rep.max_speed);
 	trs_v3 torque = v3_add(v3_add(control_torque(w, vs, es.gimbal_authority), aero_torque), es.torque_local);
-	torque = v3_add(torque, ground_torque);
+	torque = v3_add(v3_add(torque, ground_torque), vs->ext_torque);
 	if (es.n) {
 		/* gimbal trims out thrust misalignment up to its authority */
 		double tm = v3_len(es.torque_local);
@@ -657,7 +657,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 				to_empty = 1;
 			}
 		}
-		dyn_ctx cx = { w, vs, quat_rotate(vs->q, es.force_local), vs->mass, es.total_mdot, t + done };
+		dyn_ctx cx = { w, vs, v3_add(quat_rotate(vs->q, es.force_local), vs->ext_force), vs->mass, es.total_mdot, t + done };
 		trs_v3 s;
 		rk4_mass(&cx, vs, t + done, sub, &s);
 		if (es.n) {
@@ -721,12 +721,19 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		return 0;
 	if (vs->mode != TRS_MODE_PHYSICS)
 		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
-	if (vs->clamped) {
+	int s = vs->next_stage--;
+	trs_craft *c = vs->craft;
+	/* the launch clamps let go on the first stage that lights an engine; a
+	 * stage that only decouples leaves the rest held on the pad */
+	int lights = 0;
+	for (int i = 0; i < c->count; i++)
+		lights |= c->parts[i].stage == s && trs_craft_def(c, i)->propellant != TRS_PROP_NONE;
+	int keep_clamped = vs->clamped && !lights;
+	int pieces[256];
+	if (vs->clamped && lights) {
 		vs->clamped = 0;
 		vs->sas_hold = vs->q;
 	}
-	int s = vs->next_stage--;
-	trs_craft *c = vs->craft;
 	for (int i = 0; i < c->count; i++) {
 		if (c->parts[i].stage != s)
 			continue;
@@ -814,7 +821,33 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		vs->w = v3_add(vs->w, m3_mulv(&IAi, v3_cross(v3_sub(P, vs->r), v3_neg(Jv))));
 		if (made < max && new_ids)
 			new_ids[made] = nid;
+		if (made < 256)
+			pieces[made] = nid;
 		made++;
+	}
+	if (keep_clamped) {
+		/* the piece standing lowest on the pad is the one the clamps hold */
+		int best = id;
+		double low = 1e30;
+		for (int k = -1; k < (made < 256 ? made : 256); k++) {
+			int vid = k < 0 ? id : pieces[k];
+			trs_vessel *pv = &w->vessels[vid];
+			if (pv->dirty)
+				trs_vessel_refresh(w, vid);
+			trs_v3 up = v3_norm(pv->r);
+			for (int q = 0; q < pv->ncontact; q++) {
+				double hgt = v3_dot(world_point(pv, pv->contact_pt[q]), up);
+				if (hgt < low) {
+					low = hgt;
+					best = vid;
+				}
+			}
+		}
+		trs_vessel *held = &w->vessels[best];
+		held->v = v3_cross(trs_body_omega(&w->sys.bodies[held->body]), held->r);
+		held->w = trs_body_omega(&w->sys.bodies[held->body]);
+		trs_vessel_set_mode(w, best, TRS_MODE_LANDED);
+		held->clamped = 1;
 	}
 	return made < max ? made : max;
 }

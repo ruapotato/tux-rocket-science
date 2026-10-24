@@ -114,6 +114,8 @@ typedef struct {
 	int contacts;     /* contact points touching the ground last tick */
 	int landed;       /* resting on the surface (contacts, slow) */
 	double max_impact; /* worst contact speed seen, m/s (telemetry) */
+	trs_v3 ext_force;  /* contact from other vessels this tick, SOI frame, N */
+	trs_v3 ext_torque; /* ... and its torque about the CoM, vessel-local, N m */
 	int npending; /* parts (by uid) to destroy after this tick */
 	int pending_uid[64];
 	double pending_speed[64];
@@ -192,6 +194,8 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
 int trs_vessel_deploy_chutes(trs_world *w, int id);
 /* Refreshes mass properties and caches after editing vessel->craft. */
 void trs_vessel_refresh(trs_world *w, int id);
+/* Vessel-vessel contact forces for this tick (vessel_contact.c). */
+void trs_world_vessel_contacts(trs_world *w);
 /* Linear and angular momentum (about the SOI body centre) of one vessel. */
 void trs_vessel_momentum(const trs_world *w, int id, trs_v3 *p, trs_v3 *L);
 

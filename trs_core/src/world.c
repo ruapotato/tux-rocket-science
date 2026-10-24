@@ -349,6 +349,7 @@ static void physics_soi_check(trs_world *w, trs_vessel *vs) {
 void trs_world_step_physics(trs_world *w) {
 	const double h = TRS_PHYSICS_DT;
 	double t = w->t;
+	trs_world_vessel_contacts(w);
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
 		if (!vs->alive || vs->mode != TRS_MODE_PHYSICS)
