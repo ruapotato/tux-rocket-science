@@ -262,7 +262,7 @@ func free_nodes() -> Array:
 static func surface_offset(part_id: String) -> float:
 	var sh: Dictionary = Sim.part(part_id).get("shape", {})
 	match sh.get("type", ""):
-		"fin", "leg":
+		"fin", "leg", "hose":
 			return 0.0
 		"pylon":
 			return sh.get("depth", 0.3) * 0.5

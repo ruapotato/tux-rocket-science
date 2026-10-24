@@ -204,6 +204,16 @@ func _editor_ops() -> void:
 	var unfed: Array = mu.stats().get("unfed_engines", [])
 	_check(unfed.size() == 1 and int(unfed[0]) == eg[0] and (_build_orbiter().stats().get("unfed_engines", []) as Array).is_empty(),
 		"engine on a bare radial decoupler flagged as unfed (%s), stock Orbiter has none" % [unfed])
+	# a feed line from the core tank to it feeds it; one facing open space reaches nothing
+	var fl := mu.attach_surface(CraftModel.held_single("feed_line"), 8, 0.0, 0.4, 1)
+	var loose := mu.attach_surface(CraftModel.held_single("feed_line"), 8, PI, 0.4, 1)
+	var st_fl := mu.stats()
+	var lines: Array = st_fl.get("feed_lines", [])
+	var targets := {}
+	for l in lines:
+		targets[int(l[0])] = int(l[1])
+	var piped: bool = (st_fl.get("unfed_engines", []) as Array).is_empty() and targets.get(fl[0], -2) == eg[0] and targets.get(loose[0], -2) == -1
+	_check(piped, "feed line from the core tank feeds that engine (lines %s, unfed %s), one facing away reaches nothing" % [lines, st_fl.get("unfed_engines", [])])
 	_check(ok_sym and spread < 1e-9 and after_undo == before and redo_ok and removed_ok and replaced and removed_sym,
 		"editor ops: 6x symmetry, rotate/offset counterparts (spread %s), undo x3 == original %s, redo %s, pick-up/re-attach identical %s, symmetric delete %s" % [
 			String.num_scientific(spread), after_undo == before, redo_ok, replaced, removed_sym])

@@ -337,14 +337,17 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	/* craft: mass, thrust, and live per-stage readouts from the current state */
 	if (vs->craft) {
 		trs_craft *c = vs->craft;
+		if (vs->dirty)
+			trs_vessel_refresh(w, id);
 		double g_local = b->mu / (rl * rl);
 		double thrust = 0, thrust_max = 0;
-		int lit = 0;
+		int lit = 0, solids = 0;
 		for (int i = 0; i < c->count; i++) {
 			const trs_part_def *d = trs_craft_def(c, i);
-			if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, vs->fuel_group, i))
+			if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, &vs->fuel, i))
 				continue;
 			lit++;
+			solids += d->propellant == TRS_PROP_SOLID;
 			double full = trs_engine_mdot(d) * trs_engine_isp(d, p) * TRS_G0;
 			thrust_max += full;
 			thrust += full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle);
@@ -354,6 +357,24 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "thrust", trs_json_new_num(thrust));
 		trs_json_set(j, "thrust_max", trs_json_new_num(thrust_max));
 		trs_json_set(j, "engines_lit", trs_json_new_num(lit));
+		trs_json_set(j, "solids_lit", trs_json_new_num(solids));
+		/* engines switched on that get nothing: [{part, tank}], tank false
+		 * when no tank can reach it at all (true: its tanks ran dry) */
+		trs_json *starved = trs_json_new(TRS_JSON_ARRAY);
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || trs_craft_engine_fed(c, &vs->fuel, i))
+				continue;
+			int tank = d->propellant == TRS_PROP_SOLID;
+			for (int k = 0; k < c->count && !tank; k++)
+				tank = trs_craft_def(c, k)->fuel_liquid > 0 &&
+						trs_fuel_reaches(&vs->fuel, vs->fuel.group[k], vs->fuel.group[i]);
+			trs_json *sj = trs_json_new(TRS_JSON_OBJECT);
+			trs_json_set(sj, "part", trs_json_new_str(d->id));
+			trs_json_set(sj, "tank", trs_json_new_bool(tank));
+			trs_json_push(starved, sj);
+		}
+		trs_json_set(j, "starved", starved);
 		trs_json_set(j, "twr", trs_json_new_num(thrust / (vs->mass * g_local)));
 		trs_json_set(j, "twr_max", trs_json_new_num(thrust_max / (vs->mass * g_local)));
 		int crew = 0;
@@ -415,8 +436,6 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "solid_capacity", trs_json_new_num(solid_cap));
 		/* the current stage: propellant feeding the lit engines (or, between
 		 * stages, the engines the next stage will light) */
-		if (vs->dirty)
-			trs_vessel_refresh(w, id);
 		unsigned char *grp = calloc((size_t)c->count + 1, 1);
 		int any_lit = 0;
 		for (int i = 0; i < c->count; i++)
@@ -431,7 +450,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			grp[i] = 1; /* solids carry their own propellant */
 			if (d->propellant == TRS_PROP_LIQUID)
 				for (int k = 0; k < c->count; k++)
-					if (vs->fuel_group[k] == vs->fuel_group[i])
+					if (trs_fuel_reaches(&vs->fuel, vs->fuel.group[k], vs->fuel.group[i]))
 						grp[k] = 1;
 		}
 		double sl = 0, slc = 0, ss = 0, ssc = 0;
@@ -510,7 +529,7 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		trs_v3 wp = v3_add(base, quat_rotate(q, v3_sub(p->pos, vs->cm)));
 		trs_quat wq = quat_mul(q, p->rot);
 		double thr = 0;
-		if (p->engine_on && def->propellant != TRS_PROP_NONE && trs_craft_engine_fed(c, vs->fuel_group, i))
+		if (p->engine_on && def->propellant != TRS_PROP_NONE && trs_craft_engine_fed(c, &vs->fuel, i))
 			thr = def->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle;
 		double *o = d + (size_t)i * RPP;
 		o[0] = p->uid;
@@ -876,7 +895,7 @@ static void m_burn_time(void *self, const trs_val *a, trs_val *r) {
 	double mdot = 0, f = 0;
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
-		if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, vs->fuel_group, i))
+		if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, &vs->fuel, i))
 			continue;
 		mdot += trs_engine_mdot(d);
 		f += d->thrust_vac;

@@ -18,6 +18,12 @@ orbit, plan a burn to the moon, land, and come home.
 | Map | centred on your vessel · click the trajectory to add a maneuver node, drag its handles (Shift = fine) · **Tab** vessel / planet focus · **Skip to burn** fast-forwards to just before the node · **MNV** SAS points at the burn |
 | Hangar | the craft hangs at a working height; while holding a part, free attach nodes show orange and the one it will snap to turns green · **F** frame craft · **PgUp/PgDn** move the view |
 
+Fuel flows between parts that touch, but never through a decoupler, so an engine on a radial
+decoupler needs its own tank. A **Siphon Feed Line** on a side tank, facing the core, pipes the
+side tank's fuel into the core: the side tanks run dry first and drop away (see the stock
+**Sidecar**). The hangar lists anything that won't work (no fuel, TWR below 1, a feed line that
+reaches nothing) and likely surprises (no fins, no parachute) under the readouts.
+
 Press **F1** in flight for the controls (shown automatically the first time). All sound is
 synthesized live (engine rumble that thins out in vacuum, wind, pyros, parachutes); the volume
 is in the pause menu.

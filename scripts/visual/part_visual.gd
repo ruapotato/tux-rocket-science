@@ -210,6 +210,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_cone(root, d, sh)
 		"pylon":
 			_pylon(root, sh)
+		"hose":
+			_hose(root, sh)
 		"fin":
 			_fin(root, sh)
 		"shield":
@@ -458,6 +460,26 @@ static func _pylon(root: Node3D, sh: Dictionary) -> void:
 	_mesh(root, arm, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, -sh.height * 0.3, 0)))
 
 
+## Feed line: a short pipe from the surface it sits on out along +Z to the
+## part it feeds, with a clamp flange at each end.
+static func _hose(root: Node3D, sh: Dictionary) -> void:
+	var length: float = sh.get("length", 0.3)
+	var along := Basis(Vector3.RIGHT, PI / 2)
+	var pipe := CylinderMesh.new()
+	pipe.top_radius = 0.045
+	pipe.bottom_radius = 0.045
+	pipe.height = length
+	pipe.radial_segments = 16
+	_mesh(root, pipe, mat("hose", ORANGE, 0.2, 0.5), Transform3D(along, Vector3(0, 0, length * 0.5)))
+	var flange := CylinderMesh.new()
+	flange.top_radius = 0.09
+	flange.bottom_radius = 0.09
+	flange.height = 0.04
+	flange.radial_segments = 16
+	for z in [0.02, length - 0.02]:
+		_mesh(root, flange, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(along, Vector3(0, 0, z)))
+
+
 static func _fin(root: Node3D, sh: Dictionary) -> void:
 	# swept trapezoid in the local YZ plane: root chord along Y at z=0, span +Z
 	var span: float = sh.span
@@ -583,6 +605,11 @@ static func _add_pick(root: Node3D, sh: Dictionary) -> void:
 			var b := BoxShape3D.new()
 			b.size = Vector3(sh.radius * 2.0, sh.height, sh.get("depth", 0.3))
 			cs.shape = b
+		"hose":
+			var b := BoxShape3D.new()
+			b.size = Vector3(0.2, 0.2, sh.get("length", 0.3))
+			cs.shape = b
+			cs.position = Vector3(0, 0, sh.get("length", 0.3) * 0.5)
 		_:
 			var c := CylinderShape3D.new()
 			c.radius = sh.get("radius", sh.get("radius_bottom", 0.5))

@@ -66,6 +66,9 @@ typedef struct {
 	double chute_full_alt; /* full deployment height above the ground */
 	double chute_inflate;  /* s for the canopy to open from nothing to full size */
 
+	/* feed line: pipes propellant from its group to what its outlet reaches */
+	double feed_reach; /* m along local +Z from the attach point (0 = not a feed line) */
+
 	/* landing leg */
 	int is_leg;
 	double leg_length, leg_spring, leg_damper, leg_max_speed;

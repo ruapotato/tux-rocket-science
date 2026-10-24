@@ -185,7 +185,7 @@ func _build_world() -> void:
 
 func _update_camera() -> void:
 	_cam_pitch = clampf(_cam_pitch, -0.2, 1.35)
-	_cam_dist = clampf(_cam_dist, 4.0, 120.0)
+	_cam_dist = clampf(_cam_dist, 2.5, 120.0)
 	var off := Vector3(sin(_cam_yaw) * cos(_cam_pitch), sin(_cam_pitch), cos(_cam_yaw) * cos(_cam_pitch)) * _cam_dist
 	_cam.position = _cam_target + off
 	_cam.look_at(_cam_target, Vector3.UP)
@@ -429,12 +429,61 @@ func _refresh_readouts() -> void:
 			break
 	var col := "#7fe08a" if launch_twr > 1.0 else "#ff6a5a"
 	t += "[color=#9fb4cc]Liftoff TWR (Floe)[/color] [color=%s]%.2f[/color]" % [col, launch_twr]
+	for w in craft_warnings():
+		t += "\n[color=%s]%s[/color]" % ["#ff6a5a" if w.bad else "#ffcf5a", w.text]
+	_summary.text = t
+
+
+## Things a new player would want to know before launching: [{bad, text}]
+## (bad = it will not work; otherwise a likely surprise).
+func craft_warnings() -> Array:
+	var out := []
+	if _stats.is_empty() or _stats.has("error"):
+		return out
+	var n_eng := 0
+	var fins := 0
+	var chutes := 0
+	var top_engines := 0
+	var top := model.stage_count() - 1
+	for p in model.parts:
+		var d := Sim.part(p.part)
+		if d.has("engine"):
+			n_eng += 1
+			if p.stage == top:
+				top_engines += 1
+		if d.get("shape", {}).get("type", "") == "fin":
+			fins += 1
+		if d.has("parachute"):
+			chutes += 1
 	var unfed: Array = _stats.get("unfed_engines", [])
 	if not unfed.is_empty():
-		t += "\n[color=#ff6a5a]NO FUEL: %d engine%s with no fuel: a decoupler sits between %s and every tank. Give %s a tank of %s own.[/color]" % [
-			unfed.size(), "" if unfed.size() == 1 else "s", "it" if unfed.size() == 1 else "them",
-			"it" if unfed.size() == 1 else "each", "its" if unfed.size() == 1 else "their"]
-	_summary.text = t
+		var one := unfed.size() == 1
+		out.append({"bad": true, "text": "NO FUEL: %d engine%s can't reach any tank (a decoupler is in the way). Put a tank above %s, or run a Siphon Feed Line to %s from a tank." % [
+			unfed.size(), "" if one else "s", "it" if one else "each", "it" if one else "them"]})
+	var loose := 0
+	for fl in _stats.get("feed_lines", []):
+		if int(fl[1]) < 0:
+			loose += 1
+	if loose > 0:
+		out.append({"bad": true, "text": "%d feed line%s reach%s nothing. A feed line pipes fuel the way it faces, up to 0.6 m: put it on a side tank, facing the tank it should feed." % [
+			loose, "" if loose == 1 else "s", "es" if loose == 1 else ""]})
+	if n_eng == 0:
+		out.append({"bad": true, "text": "No engines: it won't leave the pad."})
+	else:
+		var launch_twr := 0.0
+		for st in _stats.stages:
+			if st.thrust_sl > 0:
+				launch_twr = st.twr_sl
+				break
+		if launch_twr < 1.0:
+			out.append({"bad": true, "text": "Liftoff TWR %.2f is below 1: the first engines can't lift it. Add engines or boosters to the first stage, or make it lighter." % launch_twr})
+		if top_engines == 0 and top >= 0:
+			out.append({"bad": false, "text": "SPACE #1 lights no engine, so it only drops parts while the launch clamps hold the rocket. Use ▲ to move the first engines' stage to the top."})
+		if fins == 0:
+			out.append({"bad": false, "text": "No fins: in the air the rocket will try to flip over. Fins near the bottom keep it pointed."})
+	if int(_stats.get("crew", 0)) > 0 and chutes == 0:
+		out.append({"bad": false, "text": "No parachute: the crew can't land softly. Put one on top of the pod (P opens it in flight)."})
+	return out
 
 
 func _refresh_staging() -> void:

@@ -93,8 +93,35 @@ int trs_craft_fuel_groups(const trs_craft *c, int *group);
 double trs_craft_group_fuel(const trs_craft *c, const int *group, int g);
 /* Removes `amount` kg evenly (proportionally) from group g's liquid tanks. */
 void trs_craft_group_draw(trs_craft *c, const int *group, int g, double amount);
+
+/* Fuel network. Groups (above) are linked by feed lines: a feed line takes
+ * propellant from its own group into the group of the first part its outlet
+ * reaches. A liquid engine draws from the farthest-upstream groups that
+ * still hold propellant, split evenly between them, and only reaches its own
+ * group once everything feeding it is dry, so side tanks piped into the core
+ * empty first. Within a group, tanks drain proportionally. */
+typedef struct {
+	int count;           /* parts */
+	int ngroups;
+	int *group;          /* per part */
+	int nlines;
+	int *line_part, *line_target; /* per feed line part; target -1 = reaches nothing */
+	unsigned char *up;   /* ngroups^2: up[a * ngroups + b] = a feeds b, directly or through others */
+} trs_fuel_net;
+
+void trs_fuel_net_build(trs_fuel_net *n, const trs_craft *c);
+void trs_fuel_net_free(trs_fuel_net *n);
+/* Liquid propellant per group (gf[ngroups]). */
+void trs_fuel_levels(const trs_fuel_net *n, const trs_craft *c, double *gf);
+/* Groups an engine in group g draws from right now (out[ngroups]); returns the count. */
+int trs_fuel_sources(const trs_fuel_net *n, const double *gf, int g, int *out);
+/* Whether group a's propellant can reach group g (a == g, or upstream of it). */
+int trs_fuel_reaches(const trs_fuel_net *n, int a, int g);
+/* Liquid draw per group (kg/s) for per-part engine flows mdot[count] (0 =
+ * not drawing); rate[ngroups] is overwritten. */
+void trs_fuel_rates(const trs_fuel_net *n, const trs_craft *c, const double *mdot, double *rate);
 /* Whether engine part i currently has propellant available. */
-int trs_craft_engine_fed(const trs_craft *c, const int *group, int i);
+int trs_craft_engine_fed(const trs_craft *c, const trs_fuel_net *n, int i);
 
 /* Splitting. For decoupler part d, moves the detached piece into `out`
  * (initialised here) and removes it from c. Returns 0 if nothing detached. */

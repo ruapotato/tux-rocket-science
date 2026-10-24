@@ -265,12 +265,129 @@ void trs_craft_group_draw(trs_craft *c, const int *group, int g, double amount) 
 
 #define FUEL_EPS 1e-9
 
-int trs_craft_engine_fed(const trs_craft *c, const int *group, int i) {
+static int point_in_part(const trs_craft *c, int j, trs_v3 p) {
+	const trs_part_def *d = trs_craft_def(c, j);
+	if (d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05)
+		return 0;
+	trs_v3 lp = quat_rotate(quat_conj(c->parts[j].rot), v3_sub(p, c->parts[j].pos));
+	double hh = d->height * 0.5;
+	if (fabs(lp.y) >= hh)
+		return 0;
+	double f = d->height > 0 ? (lp.y + hh) / d->height : 0.5;
+	double r = d->radius_bottom + (d->radius_top - d->radius_bottom) * f;
+	return lp.x * lp.x + lp.z * lp.z < r * r;
+}
+
+/* The part a feed line's outlet reaches: marching out along the line's
+ * local +Z (away from the surface it sits on), the first part of another
+ * group. The pipe runs past decouplers, which hold no propellant. */
+static int feed_target(const trs_craft *c, const int *group, int i) {
+	const trs_part *pl = &c->parts[i];
+	double reach = trs_craft_def(c, i)->feed_reach;
+	trs_v3 dir = quat_rotate(pl->rot, v3(0, 0, 1));
+	for (double s = 0.02; s <= reach + 1e-9; s += 0.02) {
+		trs_v3 p = v3_add(pl->pos, v3_scale(dir, s));
+		for (int j = 0; j < c->count; j++)
+			if (j != i && group[j] != group[i] && !trs_craft_def(c, j)->decoupler && point_in_part(c, j, p))
+				return j;
+	}
+	return -1;
+}
+
+void trs_fuel_net_build(trs_fuel_net *n, const trs_craft *c) {
+	memset(n, 0, sizeof(*n));
+	int cnt = c->count > 0 ? c->count : 1;
+	n->count = c->count;
+	n->group = malloc(sizeof(int) * (size_t)cnt);
+	n->ngroups = trs_craft_fuel_groups(c, n->group);
+	int ng = n->ngroups > 0 ? n->ngroups : 1;
+	n->up = calloc((size_t)ng * (size_t)ng, 1);
+	n->line_part = malloc(sizeof(int) * (size_t)cnt);
+	n->line_target = malloc(sizeof(int) * (size_t)cnt);
+	for (int i = 0; i < c->count; i++) {
+		if (trs_craft_def(c, i)->feed_reach <= 0)
+			continue;
+		int t = feed_target(c, n->group, i);
+		n->line_part[n->nlines] = i;
+		n->line_target[n->nlines++] = t;
+		if (t >= 0)
+			n->up[n->group[i] * ng + n->group[t]] = 1;
+	}
+	/* transitive closure (Warshall) */
+	for (int k = 0; k < n->ngroups; k++)
+		for (int a = 0; a < n->ngroups; a++)
+			if (n->up[a * ng + k])
+				for (int b = 0; b < n->ngroups; b++)
+					if (n->up[k * ng + b])
+						n->up[a * ng + b] = 1;
+	for (int a = 0; a < n->ngroups; a++)
+		n->up[a * ng + a] = 0;
+}
+
+void trs_fuel_net_free(trs_fuel_net *n) {
+	free(n->group);
+	free(n->up);
+	free(n->line_part);
+	free(n->line_target);
+	memset(n, 0, sizeof(*n));
+}
+
+void trs_fuel_levels(const trs_fuel_net *n, const trs_craft *c, double *gf) {
+	for (int g = 0; g < n->ngroups; g++)
+		gf[g] = 0;
+	for (int i = 0; i < c->count; i++)
+		if (trs_craft_def(c, i)->fuel_liquid > 0)
+			gf[n->group[i]] += c->parts[i].fuel;
+}
+
+int trs_fuel_reaches(const trs_fuel_net *n, int a, int g) {
+	return a == g || n->up[a * n->ngroups + g];
+}
+
+int trs_fuel_sources(const trs_fuel_net *n, const double *gf, int g, int *out) {
+	int m = 0, ng = n->ngroups;
+	for (int h = 0; h < ng; h++) {
+		if (gf[h] <= FUEL_EPS || !trs_fuel_reaches(n, h, g))
+			continue;
+		/* skip h while something still full sits upstream of it (groups
+		 * piped both ways round a loop share alike) */
+		int blocked = 0;
+		for (int a = 0; a < ng && !blocked; a++)
+			if (a != h && gf[a] > FUEL_EPS && n->up[a * ng + h] && !n->up[h * ng + a])
+				blocked = 1;
+		if (!blocked)
+			out[m++] = h;
+	}
+	return m;
+}
+
+void trs_fuel_rates(const trs_fuel_net *n, const trs_craft *c, const double *mdot, double *rate) {
+	int ng = n->ngroups > 0 ? n->ngroups : 1;
+	double *gf = malloc(sizeof(double) * (size_t)ng);
+	int *src = malloc(sizeof(int) * (size_t)ng);
+	trs_fuel_levels(n, c, gf);
+	for (int g = 0; g < n->ngroups; g++)
+		rate[g] = 0;
+	for (int i = 0; i < c->count; i++) {
+		if (mdot[i] <= 0 || trs_craft_def(c, i)->propellant != TRS_PROP_LIQUID)
+			continue;
+		int m = trs_fuel_sources(n, gf, n->group[i], src);
+		for (int k = 0; k < m; k++)
+			rate[src[k]] += mdot[i] / m;
+	}
+	free(gf);
+	free(src);
+}
+
+int trs_craft_engine_fed(const trs_craft *c, const trs_fuel_net *n, int i) {
 	const trs_part_def *d = trs_craft_def(c, i);
 	if (d->propellant == TRS_PROP_SOLID)
 		return c->parts[i].fuel > FUEL_EPS;
-	if (d->propellant == TRS_PROP_LIQUID)
-		return trs_craft_group_fuel(c, group, group[i]) > FUEL_EPS;
+	if (d->propellant != TRS_PROP_LIQUID)
+		return 0;
+	for (int g = 0; g < n->ngroups; g++)
+		if (trs_fuel_reaches(n, g, n->group[i]) && trs_craft_group_fuel(c, n->group, g) > FUEL_EPS)
+			return 1;
 	return 0;
 }
 
@@ -434,12 +551,18 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 		int max) {
 	trs_craft c;
 	trs_craft_copy(&c, src);
-	int *group = malloc(sizeof(int) * (size_t)(c.count ? c.count : 1));
+	trs_fuel_net net;
+	memset(&net, 0, sizeof net);
 	unsigned char *drop = malloc((size_t)(c.count ? c.count : 1));
 	int n = 0;
 	for (int s = next_stage; s >= 0 && n < max; s--) {
 		trs_craft_activate_stage_root_only(&c, s);
-		trs_craft_fuel_groups(&c, group);
+		trs_fuel_net_free(&net);
+		trs_fuel_net_build(&net, &c);
+		int ngs = net.ngroups > 0 ? net.ngroups : 1;
+		double *md = calloc((size_t)(c.count ? c.count : 1), sizeof(double));
+		double *rate = calloc((size_t)ngs, sizeof(double));
+		double *gf = calloc((size_t)ngs, sizeof(double));
 		/* parts the next stage will drop */
 		memset(drop, 0, (size_t)c.count);
 		unsigned char *tmp = malloc((size_t)c.count);
@@ -465,7 +588,7 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 					continue;
 				if (drop[i])
 					drop_has_engines = 1;
-				if (!trs_craft_engine_fed(&c, group, i))
+				if (!trs_craft_engine_fed(&c, &net, i))
 					continue;
 				any = 1;
 				if (drop[i])
@@ -486,23 +609,18 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 				st->isp_sl = f_sl / (mdot * TRS_G0);
 				first = 0;
 			}
-			/* time until the first fed engine group (or solid) runs dry */
+			/* time until the first drawn group (or solid) runs dry */
 			double tau = INFINITY;
-			int ngroups = 0;
-			for (int i = 0; i < c.count; i++)
-				if (group[i] + 1 > ngroups)
-					ngroups = group[i] + 1;
-			for (int g = 0; g < ngroups; g++) {
-				double gm = 0;
-				for (int i = 0; i < c.count; i++) {
-					const trs_part_def *d = trs_craft_def(&c, i);
-					if (group[i] == g && c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID &&
-							trs_craft_engine_fed(&c, group, i))
-						gm += trs_engine_mdot(d);
-				}
-				if (gm > 0)
-					tau = fmin(tau, trs_craft_group_fuel(&c, group, g) / gm);
+			for (int i = 0; i < c.count; i++) {
+				const trs_part_def *d = trs_craft_def(&c, i);
+				md[i] = c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID && trs_craft_engine_fed(&c, &net, i)
+						? trs_engine_mdot(d) : 0;
 			}
+			trs_fuel_rates(&net, &c, md, rate);
+			trs_fuel_levels(&net, &c, gf);
+			for (int g = 0; g < net.ngroups; g++)
+				if (rate[g] > 0)
+					tau = fmin(tau, gf[g] / rate[g]);
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				if (c.parts[i].engine_on && d->propellant == TRS_PROP_SOLID && c.parts[i].fuel > FUEL_EPS)
@@ -513,17 +631,9 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			st->dv_sl += f_sl / mdot * log(m0 / m1);
 			st->burn_time += tau;
 			/* burn the propellant */
-			for (int g = 0; g < ngroups; g++) {
-				double gm = 0;
-				for (int i = 0; i < c.count; i++) {
-					const trs_part_def *d = trs_craft_def(&c, i);
-					if (group[i] == g && c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID &&
-							trs_craft_engine_fed(&c, group, i))
-						gm += trs_engine_mdot(d);
-				}
-				if (gm > 0)
-					trs_craft_group_draw(&c, group, g, gm * tau * (1 + 1e-12));
-			}
+			for (int g = 0; g < net.ngroups; g++)
+				if (rate[g] > 0)
+					trs_craft_group_draw(&c, net.group, g, rate[g] * tau * (1 + 1e-12));
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				if (c.parts[i].engine_on && d->propellant == TRS_PROP_SOLID && c.parts[i].fuel > FUEL_EPS) {
@@ -534,9 +644,12 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			}
 		}
 		st->mass_end = trs_craft_mass(&c);
+		free(md);
+		free(rate);
+		free(gf);
 	}
 	free(drop);
-	free(group);
+	trs_fuel_net_free(&net);
 	trs_craft_free(&c);
 	return n;
 }

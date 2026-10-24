@@ -192,6 +192,20 @@
       "surface_attach": true
     },
     {
+      "id": "feed_line",
+      "name": "Siphon Feed Line",
+      "category": "structural",
+      "description": "Pipes propellant from the tank it sits on into the tank it points at. Put it on a side tank facing the core: the side tank runs dry first, so you can drop it early.",
+      "mass": 20,
+      "feed_line": { "reach": 0.6 },
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 1000, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.3, "cd_bottom": 0.3, "cd_side": 0.3, "area_axial": 0.01, "area_side": 0.03 },
+      "shape": { "type": "hose", "radius": 0.05, "height": 0.3, "length": 0.3 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
       "id": "heat_shield",
       "name": "Toastmaster Heat Shield",
       "category": "utility",

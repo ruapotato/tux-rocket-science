@@ -161,10 +161,57 @@ def lander():
     c.save("krill_lander.craft.json")
 
 
+def sidecar():
+    c = Craft("Sidecar", "Feed lines: the side tanks pipe into the core, so they run dry first and drop away while the core is still full.")
+    pod = c.add("pod_1")
+    c.above(pod, "parachute")
+    rw = c.below(pod, "reaction_wheel")
+    hs = c.below(rw, "heat_shield")
+    d0 = c.below(hs, "decoupler_stack", stage=0)
+    ut = c.below(d0, "tank_m")
+    c.below(ut, "engine_vac", stage=1)
+    d1 = c.below(len(c.parts) - 1, "decoupler_stack", stage=2)
+    ca = c.below(d1, "tank_l")
+    cb = c.below(ca, "tank_l")
+    c.below(cb, "engine_lifter", stage=4)
+    c.radial(cb, "fin", 3, -1.4)
+    decs = c.radial(cb, "decoupler_radial", 2, 0.0, 90, 3, outward=0.15)
+    c.sym += 1
+    side_sym = c.sym
+    sides = []
+    for d in decs:
+        dp = c.parts[d]["pos"]
+        rot = c.parts[d]["rot"]
+        ang = 2 * math.atan2(rot[1], rot[3])
+        ox, oz = math.sin(ang), math.cos(ang)
+        off = 0.15 + DEFS["tank_l"]["shape"]["radius"]
+        pos = [dp[0] + ox * off, dp[1], dp[2] + oz * off]
+        sides.append((c.add("tank_l", d, "", "outer", pos, rot, -1, side_sym), ang, pos, rot))
+    c.sym += 1
+    for kind, stage in (("engine_lifter", 4), ("nosecone", -1)):
+        c.sym += 1
+        for t, _, pos, rot in sides:
+            if kind == "engine_lifter":
+                tb, et = node("tank_l", "bottom"), node(kind, "top")
+                c.add(kind, t, "top", "bottom", [pos[0], pos[1] + tb[1] - et[1], pos[2]], rot, stage, c.sym)
+            else:
+                tt, nb = node("tank_l", "top"), node(kind, "bottom")
+                c.add(kind, t, "bottom", "top", [pos[0], pos[1] + tt[1] - nb[1], pos[2]], rot, stage, c.sym)
+    # a feed line high on each side tank, facing the core
+    c.sym += 1
+    r = DEFS["tank_l"]["shape"]["radius"]
+    for t, ang, pos, rot in sides:
+        a = math.radians(math.degrees(ang) + 180)
+        fp = [pos[0] + r * math.sin(a), pos[1] + 1.2, pos[2] + r * math.cos(a)]
+        c.add("feed_line", t, "", "", fp, yrot(math.degrees(ang) + 180), -1, c.sym)
+    c.save("sidecar.craft.json")
+
+
 if __name__ == "__main__":
     hopper()
     orbiter()
     lander()
+    sidecar()
     # Rewrite in canonical form: the exact bytes the game itself saves.
     import glob
     import subprocess

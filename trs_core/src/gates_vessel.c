@@ -28,8 +28,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *STOCK_CRAFT[] = { "hopper", "orbiter", "krill_lander" };
-#define NSTOCK 3
+static const char *STOCK_CRAFT[] = { "hopper", "orbiter", "krill_lander", "sidecar" };
+#define NSTOCK 4
 
 int trs_gate_load_catalog(trs_log *log, const char *data_dir, trs_part_catalog *cat) {
 	char path[1024], err[256];
@@ -86,7 +86,7 @@ static int stage_burn_done(const trs_vessel *vs) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (!c->parts[i].engine_on || d->propellant == TRS_PROP_NONE)
 			continue;
-		int fed = trs_craft_engine_fed(c, vs->fuel_group, i);
+		int fed = trs_craft_engine_fed(c, &vs->fuel, i);
 		if (drop[i]) {
 			drop_engines = 1;
 			drop_lit |= fed;
@@ -144,6 +144,38 @@ trs_gate_status trs_gate_deltav(trs_log *log, const char *data_dir) {
 			}
 			double meas = v3_len(v3_sub(w->vessels[id].v, v0));
 			total_meas += meas;
+			if (i == 0 && w->vessels[id].fuel.nlines > 0) {
+				/* feed lines: the side tanks run dry first, the core is untouched */
+				const trs_vessel *vs = &w->vessels[id];
+				const trs_craft *vc = vs->craft;
+				double side = 0, core = 0, core_cap = 0, core_mdot = 0;
+				unsigned char *fed = calloc((size_t)vc->count, 1);
+				for (int k = 0; k < vs->fuel.nlines; k++)
+					for (int q = 0; q < vc->count; q++)
+						if (vs->fuel.group[q] == vs->fuel.group[vs->fuel.line_part[k]])
+							fed[q] = 1;
+				int core_g = vs->fuel.line_target[0] >= 0 ? vs->fuel.group[vs->fuel.line_target[0]] : -1;
+				for (int q = 0; q < vc->count; q++) {
+					if (vs->fuel.group[q] == core_g && vc->parts[q].engine_on && trs_craft_def(vc, q)->propellant == TRS_PROP_LIQUID)
+						core_mdot += trs_engine_mdot(trs_craft_def(vc, q));
+					if (trs_craft_def(vc, q)->fuel_liquid <= 0)
+						continue;
+					if (fed[q])
+						side += vc->parts[q].fuel;
+					else if (vs->fuel.group[q] == core_g) {
+						core += vc->parts[q].fuel;
+						core_cap += trs_craft_def(vc, q)->fuel_liquid;
+					}
+				}
+				free(fed);
+				/* the core only ever burns its own tanks in the remainder of
+				 * the tick in which the side tanks ran dry */
+				double tick = core_mdot * TRS_PHYSICS_DT;
+				int ok = core_g >= 0 && side == 0 && core_cap > 0 && core <= core_cap && core_cap - core <= tick;
+				failed += !ok;
+				trs_log_printf(log, "  %s feed lines: side tanks %.3f kg left when their engines quit, core %.2f of %.0f kg (one tick of core flow %.2f kg)\n",
+						ok ? "ok  " : "FAIL", side, core, core_cap, tick);
+			}
 			double e = st[i].dv_vac > 1 ? fabs(meas - st[i].dv_vac) / st[i].dv_vac : fabs(meas - st[i].dv_vac);
 			int ok = st[i].dv_vac > 1 ? e < 0.005 : meas < 0.05;
 			if (st[i].dv_vac > 1 && e > worst)

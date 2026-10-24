@@ -384,7 +384,25 @@ func _stage() -> void:
 	elif not created.is_empty():
 		hud.toast("Staging: separation confirmed", 1.5)
 	elif lit:
-		hud.toast("Ignition", 1.2)
+		hud.toast("Ignition" if _throttle > 0.0 or int(t1.get("engines_lit", 0)) == _solids_lit(t1) else "Ignition, but the throttle is at 0 (Z for full, Shift/Ctrl to adjust)", 1.2 if _throttle > 0.0 else 3.5)
+	# an engine this press switched on that no tank can reach
+	if _no_tank(t1).size() > _no_tank(t0).size():
+		var name: String = Sim.part(_no_tank(t1)[0]).get("name", "An engine")
+		hud.toast("%s lit, but no tank reaches it: no fuel, no thrust" % name, 4.0)
+		Sfx.play("alarm", 0.4)
+
+
+func _no_tank(t: Dictionary) -> Array:
+	var out := []
+	for e in t.get("starved", []):
+		if not e.tank:
+			out.append(e.part)
+	return out
+
+
+## Lit solid boosters (they ignore the throttle).
+func _solids_lit(t: Dictionary) -> int:
+	return int(t.get("solids_lit", 0))
 
 
 func _deploy_chutes() -> void:
@@ -741,6 +759,16 @@ func _render(delta: float) -> void:
 	_reentry.update_fx(air, t.density, front[0], front[1], delta)
 	Sfx.wind_level = maxf(Sfx.wind_level, _reentry.level)
 	var hint := ""
+	var no_tank := _no_tank(t)
+	var dry := (t.get("starved", []) as Array).size() - no_tank.size()
+	var plan: Array = t.get("stage_plan", [])
+	if dry > _dry_seen and int(t.get("engines_lit", 0)) == 0 and _launched:
+		hud.toast("Flameout: out of fuel", 2.0)
+	_dry_seen = dry
+	if not no_tank.is_empty():
+		hint = "%s has no fuel: no tank reaches it. In the hangar, put a tank above it, or run a Siphon Feed Line to it from a tank" % Sim.part(no_tank[0]).get("name", "An engine")
+	elif dry > 0 and int(t.get("engines_lit", 0)) == 0 and not plan.is_empty() and not t.landed:
+		hint = "Out of fuel: SPACE %s" % ("drops the empty stage" if int(plan[0].decouplers) > 0 else "lights the next stage")
 	if int(t.get("chutes_stowed", 0)) > 0 and _launched and t.in_atmosphere and not t.landed \
 			and t.vertical_speed < -20.0 and t.altitude_terrain < 12000.0:
 		hint = "Falling with the parachute packed: press P to deploy it"
@@ -892,6 +920,7 @@ func _update_failure(delta: float) -> void:
 var _last_up := Vector3.UP
 var _fail_in := 0.0
 var _heat_alarm_t := -100.0
+var _dry_seen := 0
 var _smoke_t := 0.0
 var _wreck := Vector3.ZERO
 var _wreck_set := false

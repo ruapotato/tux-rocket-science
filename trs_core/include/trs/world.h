@@ -129,7 +129,7 @@ typedef struct {
 	double mass;
 	trs_v3 cm;        /* vessel-local */
 	trs_m3 inertia;   /* about cm, vessel-local */
-	int *fuel_group;
+	trs_fuel_net fuel;
 	double *face_top, *face_bottom; /* exposed axial area per part */
 	double *wake_top, *wake_bottom; /* side-heating factor with the flow from that end (1 = in the open) */
 	int ncontact;

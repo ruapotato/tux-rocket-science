@@ -80,6 +80,9 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->chute_max_speed = trs_json_num(pc, "max_speed", 1e9);
 		d->chute_inflate = trs_json_num(pc, "inflate_time", 2.5);
 	}
+	const trs_json *fl = trs_json_get(j, "feed_line");
+	if (fl)
+		d->feed_reach = trs_json_num(fl, "reach", 0.6);
 	const trs_json *lg = trs_json_get(j, "leg");
 	if (lg) {
 		d->is_leg = 1;

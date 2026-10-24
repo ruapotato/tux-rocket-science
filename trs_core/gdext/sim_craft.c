@@ -261,14 +261,23 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 	/* liquid engines with no tank they can draw from (a decoupler between
 	 * them and every tank blocks the feed): they would light and do nothing */
 	{
-		int *grp = malloc(sizeof(int) * (size_t)(c.count > 0 ? c.count : 1));
-		trs_craft_fuel_groups(&c, grp);
+		trs_fuel_net net;
+		trs_fuel_net_build(&net, &c);
 		trs_json *unfed = trs_json_new(TRS_JSON_ARRAY);
 		for (int i = 0; i < c.count; i++)
-			if (trs_craft_def(&c, i)->propellant == TRS_PROP_LIQUID && trs_craft_group_fuel(&c, grp, grp[i]) <= 0)
+			if (trs_craft_def(&c, i)->propellant == TRS_PROP_LIQUID && !trs_craft_engine_fed(&c, &net, i))
 				trs_json_push(unfed, trs_json_new_num(i));
 		trs_json_set(out, "unfed_engines", unfed);
-		free(grp);
+		/* feed lines: [line part, part its outlet reaches or -1] */
+		trs_json *lines = trs_json_new(TRS_JSON_ARRAY);
+		for (int k = 0; k < net.nlines; k++) {
+			trs_json *pair = trs_json_new(TRS_JSON_ARRAY);
+			trs_json_push(pair, trs_json_new_num(net.line_part[k]));
+			trs_json_push(pair, trs_json_new_num(net.line_target[k]));
+			trs_json_push(lines, pair);
+		}
+		trs_json_set(out, "feed_lines", lines);
+		trs_fuel_net_free(&net);
 	}
 	trs_json_set(out, "parts", trs_json_new_num(c.count));
 	trs_json_set(out, "mass", trs_json_new_num(mass));

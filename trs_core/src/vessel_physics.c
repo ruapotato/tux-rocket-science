@@ -97,18 +97,17 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	trs_craft *c = vs->craft;
 	if (!c)
 		return;
-	free(vs->fuel_group);
 	free(vs->face_top);
 	free(vs->face_bottom);
 	free(vs->wake_top);
 	free(vs->wake_bottom);
 	int n = c->count ? c->count : 1;
-	vs->fuel_group = malloc(sizeof(int) * (size_t)n);
 	vs->face_top = malloc(sizeof(double) * (size_t)n);
 	vs->face_bottom = malloc(sizeof(double) * (size_t)n);
 	vs->wake_top = malloc(sizeof(double) * (size_t)n);
 	vs->wake_bottom = malloc(sizeof(double) * (size_t)n);
-	trs_craft_fuel_groups(c, vs->fuel_group);
+	trs_fuel_net_free(&vs->fuel);
+	trs_fuel_net_build(&vs->fuel, c);
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		double top = d->area_axial, bottom = d->area_axial;
@@ -158,7 +157,7 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 	for (int i = 0; i < c->count && es->n < 64; i++) {
 		const trs_part *p = &c->parts[i];
 		const trs_part_def *d = trs_craft_def(c, i);
-		if (!p->engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, vs->fuel_group, i))
+		if (!p->engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, &vs->fuel, i))
 			continue;
 		double thr = d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle;
 		if (thr <= 0)
@@ -177,50 +176,57 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 	}
 }
 
-/* Seconds until the first fed propellant pool among the lit engines runs dry. */
+/* Liquid draw per fuel group (kg/s) for the lit engines; rate[ngroups]. */
+static void group_rates(const trs_vessel *vs, const engine_set *es, double *rate) {
+	const trs_craft *c = vs->craft;
+	double *md = calloc((size_t)(c->count ? c->count : 1), sizeof(double));
+	for (int k = 0; k < es->n; k++)
+		md[es->idx[k]] = es->mdot[k];
+	trs_fuel_rates(&vs->fuel, c, md, rate);
+	free(md);
+}
+
+/* Seconds until the first drawn propellant pool among the lit engines runs dry. */
 static double time_to_flameout(const trs_vessel *vs, const engine_set *es) {
 	const trs_craft *c = vs->craft;
 	double tau = INFINITY;
 	for (int k = 0; k < es->n; k++) {
 		int i = es->idx[k];
-		const trs_part_def *d = trs_craft_def(c, i);
-		if (d->propellant == TRS_PROP_SOLID) {
+		if (trs_craft_def(c, i)->propellant == TRS_PROP_SOLID)
 			tau = fmin(tau, c->parts[i].fuel / es->mdot[k]);
-			continue;
-		}
-		int g = vs->fuel_group[i];
-		double gm = 0;
-		for (int j = 0; j < es->n; j++)
-			if (trs_craft_def(c, es->idx[j])->propellant == TRS_PROP_LIQUID && vs->fuel_group[es->idx[j]] == g)
-				gm += es->mdot[j];
-		tau = fmin(tau, trs_craft_group_fuel(c, vs->fuel_group, g) / gm);
 	}
+	int ng = vs->fuel.ngroups > 0 ? vs->fuel.ngroups : 1;
+	double *rate = calloc((size_t)ng, sizeof(double));
+	double *gf = calloc((size_t)ng, sizeof(double));
+	group_rates(vs, es, rate);
+	trs_fuel_levels(&vs->fuel, c, gf);
+	for (int g = 0; g < vs->fuel.ngroups; g++)
+		if (rate[g] > 0)
+			tau = fmin(tau, gf[g] / rate[g]);
+	free(rate);
+	free(gf);
 	return tau;
 }
 
 static void burn(trs_vessel *vs, const engine_set *es, double h, int to_empty) {
 	trs_craft *c = vs->craft;
-	int ng = 0;
-	for (int i = 0; i < c->count; i++)
-		if (vs->fuel_group[i] + 1 > ng)
-			ng = vs->fuel_group[i] + 1;
-	double *draw = calloc((size_t)(ng ? ng : 1), sizeof(double));
+	int ng = vs->fuel.ngroups > 0 ? vs->fuel.ngroups : 1;
+	double *rate = calloc((size_t)ng, sizeof(double));
+	group_rates(vs, es, rate);
 	for (int k = 0; k < es->n; k++) {
 		int i = es->idx[k];
 		if (trs_craft_def(c, i)->propellant == TRS_PROP_SOLID) {
 			c->parts[i].fuel -= es->mdot[k] * h;
 			if (c->parts[i].fuel < FUEL_EPS * 10 || (to_empty && c->parts[i].fuel < 1e-6))
 				c->parts[i].fuel = 0;
-		} else {
-			draw[vs->fuel_group[i]] += es->mdot[k] * h;
 		}
 	}
-	for (int g = 0; g < ng; g++)
-		if (draw[g] > 0) {
-			double f = trs_craft_group_fuel(c, vs->fuel_group, g);
-			trs_craft_group_draw(c, vs->fuel_group, g, (to_empty && draw[g] > f * (1 - 1e-9)) ? f : draw[g]);
+	for (int g = 0; g < vs->fuel.ngroups; g++)
+		if (rate[g] > 0) {
+			double f = trs_craft_group_fuel(c, vs->fuel.group, g), draw = rate[g] * h;
+			trs_craft_group_draw(c, vs->fuel.group, g, (to_empty && draw > f * (1 - 1e-9)) ? f : draw);
 		}
-	free(draw);
+	free(rate);
 }
 
 /* Total aerodynamic force (SOI frame) and torque about the CoM (vessel-local).

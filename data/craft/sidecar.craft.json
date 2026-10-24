@@ -1,0 +1,248 @@
+{
+  "format": "trs-craft",
+  "version": 1,
+  "name": "Sidecar",
+  "description": "Feed lines: the side tanks pipe into the core, so they run dry first and drop away while the core is still full.",
+  "parts": [
+    {
+      "part": "pod_1",
+      "parent": -1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, 0, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "parachute",
+      "parent": 0,
+      "node": "bottom",
+      "parent_node": "top",
+      "pos": [0, 0.675, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "reaction_wheel",
+      "parent": 0,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -0.7, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "heat_shield",
+      "parent": 2,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -0.98, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "decoupler_stack",
+      "parent": 3,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -1.16, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 0,
+      "sym": 0
+    },
+    {
+      "part": "tank_m",
+      "parent": 4,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -2.1975, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "engine_vac",
+      "parent": 5,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -3.635, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 1,
+      "sym": 0
+    },
+    {
+      "part": "decoupler_stack",
+      "parent": 6,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -4.235, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 2,
+      "sym": 0
+    },
+    {
+      "part": "tank_l",
+      "parent": 7,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -6.21, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "tank_l",
+      "parent": 8,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -9.96, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 9,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -12.435, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 4,
+      "sym": 0
+    },
+    {
+      "part": "fin",
+      "parent": 9,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, -11.36, 0.625],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 1
+    },
+    {
+      "part": "fin",
+      "parent": 9,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.541265877365, -11.36, -0.3125],
+      "rot": [0, 0.866025403784439, 0, 0.5],
+      "stage": -1,
+      "sym": 1
+    },
+    {
+      "part": "fin",
+      "parent": 9,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.541265877365, -11.36, -0.3125],
+      "rot": [0, 0.866025403784439, 0, -0.5],
+      "stage": -1,
+      "sym": 1
+    },
+    {
+      "part": "decoupler_radial",
+      "parent": 9,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.775, -9.96, 0],
+      "rot": [0, 0.707106781186547, 0, 0.707106781186548],
+      "stage": 3,
+      "sym": 2
+    },
+    {
+      "part": "decoupler_radial",
+      "parent": 9,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.775, -9.96, 0],
+      "rot": [0, 0.707106781186548, 0, -0.707106781186547],
+      "stage": 3,
+      "sym": 2
+    },
+    {
+      "part": "tank_l",
+      "parent": 14,
+      "node": "",
+      "parent_node": "outer",
+      "pos": [1.55, -9.96, 0],
+      "rot": [0, 0.707106781186547, 0, 0.707106781186548],
+      "stage": -1,
+      "sym": 3
+    },
+    {
+      "part": "tank_l",
+      "parent": 15,
+      "node": "",
+      "parent_node": "outer",
+      "pos": [-1.55, -9.96, 0],
+      "rot": [0, 0.707106781186548, 0, -0.707106781186547],
+      "stage": -1,
+      "sym": 3
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 16,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [1.55, -12.435, 0],
+      "rot": [0, 0.707106781186547, 0, 0.707106781186548],
+      "stage": 4,
+      "sym": 5
+    },
+    {
+      "part": "engine_lifter",
+      "parent": 17,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [-1.55, -12.435, 0],
+      "rot": [0, 0.707106781186548, 0, -0.707106781186547],
+      "stage": 4,
+      "sym": 5
+    },
+    {
+      "part": "nosecone",
+      "parent": 16,
+      "node": "bottom",
+      "parent_node": "top",
+      "pos": [1.55, -7.535, 0],
+      "rot": [0, 0.707106781186547, 0, 0.707106781186548],
+      "stage": -1,
+      "sym": 6
+    },
+    {
+      "part": "nosecone",
+      "parent": 17,
+      "node": "bottom",
+      "parent_node": "top",
+      "pos": [-1.55, -7.535, 0],
+      "rot": [0, 0.707106781186548, 0, -0.707106781186547],
+      "stage": -1,
+      "sym": 6
+    },
+    {
+      "part": "feed_line",
+      "parent": 16,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.925, -8.76, 0],
+      "rot": [0, 0.707106781186548, 0, -0.707106781186547],
+      "stage": -1,
+      "sym": 7
+    },
+    {
+      "part": "feed_line",
+      "parent": 17,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.925, -8.76, 0],
+      "rot": [0, -0.707106781186547, 0, -0.707106781186548],
+      "stage": -1,
+      "sym": 7
+    }
+  ]
+}
