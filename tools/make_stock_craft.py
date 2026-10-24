@@ -139,22 +139,25 @@ def orbiter():
 
 
 def lander():
-    c = Craft("Krill Lander", "Boosters, transfer stage, and a lander that can touch Krill and come home.")
+    c = Craft("Krill Lander", "Boosters, transfer stage, and a lander that can touch Krill and come home; drop the lander and come in shield first, then P for the chute.")
     pod = c.add("pod_1")
     c.above(pod, "parachute")
     rw = c.below(pod, "reaction_wheel")
-    lt = c.below(rw, "tank_m")
+    hs = c.below(rw, "heat_shield")
+    d0 = c.below(hs, "decoupler_stack", stage=0)
+    ls = c.below(d0, "tank_s")
+    lt = c.below(ls, "tank_m")
     c.radial(lt, "landing_leg", 4, -0.5, 45)
-    le = c.below(lt, "engine_small", stage=0)
-    d1 = c.below(le, "decoupler_stack", stage=0)
+    le = c.below(lt, "engine_small", stage=1)
+    d1 = c.below(le, "decoupler_stack", stage=1)
     tt = c.below(d1, "tank_l")
-    te = c.below(tt, "engine_vac", stage=1)
-    d2 = c.below(te, "decoupler_stack", stage=1)
+    te = c.below(tt, "engine_vac", stage=2)
+    d2 = c.below(te, "decoupler_stack", stage=2)
     ca = c.below(d2, "tank_l")
     cb = c.below(ca, "tank_l")
-    c.below(cb, "engine_lifter", stage=3)
+    c.below(cb, "engine_lifter", stage=4)
     c.radial(cb, "fin", 3, -1.4)
-    c.boosters(cb, 2, 0.0, dec_stage=2, srb_stage=3)
+    c.boosters(cb, 2, 0.0, dec_stage=3, srb_stage=4)
     c.save("krill_lander.craft.json")
 
 

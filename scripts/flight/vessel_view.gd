@@ -20,11 +20,12 @@
 class_name VesselView
 extends Node3D
 
-const RPP := 13
+const RPP := 14
 
 var core: TrsSim
 var vessel_id := -1
 var _parts := {}   # uid -> {node, part, plume, canopy, legs, shroud}
+var air_vel := Vector3.ZERO  # render-space velocity through the air; canopies stream behind it (zero: hang along the part)
 var _shrouds := {}
 var _last_count := -1
 var _dt := 1.0 / 60.0
@@ -267,7 +268,7 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 		if e.plume:
 			_update_plume(e.plume, feed[o + 8], pressure, flicker)
 		if e.canopy:
-			_update_canopy(e.canopy, int(feed[o + 9]))
+			_update_canopy(e.canopy, int(feed[o + 9]), feed[o + 13])
 		_update_heat(e, feed[o + 11])
 		if Sim.part(e.part).has("leg"):
 			var target := feed[o + 10]
@@ -326,13 +327,15 @@ func _update_plume(p: Node3D, thr: float, pressure: float, flicker: float) -> vo
 	glow.light_energy = 3.0 * thr
 
 
-func _update_canopy(c: Node3D, state: int) -> void:
+## open: canopy radius as a fraction of fully open (the core inflates it
+## over a few seconds), so the drogue and the main grow as their drag does.
+func _update_canopy(c: Node3D, state: int, open: float) -> void:
 	# 2 = semi-deployed, 3 = fully deployed (trs_chute_state)
-	c.visible = state == 2 or state == 3
+	c.visible = (state == 2 or state == 3) and open > 0.0
 	if not c.visible:
 		return
-	var r := 1.4 if state == 2 else 6.5
-	var lift := 3.0 if state == 2 else 9.0
+	var r := maxf(6.5 * open, 0.9)
+	var lift := lerpf(3.0, 9.0, clampf((open - 0.11) / 0.89, 0.0, 1.0))
 	var dome: MeshInstance3D = c.get_child(0)
 	dome.scale = Vector3(r, r * 0.7, r)
 	dome.position = Vector3(0, lift, 0)
@@ -343,5 +346,11 @@ func _update_canopy(c: Node3D, state: int) -> void:
 		var mid := top * 0.5
 		line.position = mid
 		var len := top.length()
-		line.scale = Vector3(1, len, 1)
-		line.basis = Basis(Quaternion(Vector3.UP, top.normalized())).scaled(Vector3(1, len, 1))
+		line.basis = Basis(Quaternion(Vector3.UP, top.normalized())) * Basis.from_scale(Vector3(1, len, 1))
+	# an open canopy trails straight back along the airflow, whatever the capsule's attitude
+	if air_vel.length() > 2.0 and c.is_inside_tree():
+		var want := Basis(Quaternion(Vector3.UP, -air_vel.normalized()))
+		var gb := c.global_basis.orthonormalized()
+		c.global_basis = Basis(gb.get_rotation_quaternion().slerp(want.get_rotation_quaternion(), 0.25))
+	else:
+		c.basis = Basis.IDENTITY

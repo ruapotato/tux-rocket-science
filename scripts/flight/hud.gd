@@ -465,6 +465,12 @@ func toast(msg: String, secs := 3.0) -> void:
 	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.8)
 
 
+func clear_toast() -> void:
+	if _toast_tween:
+		_toast_tween.kill()
+	_toast.modulate.a = 0.0
+
+
 func set_node_text(s: String) -> void:
 	_node_label.text = s
 

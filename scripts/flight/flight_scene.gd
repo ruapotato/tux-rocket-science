@@ -519,7 +519,10 @@ func _view_steer(away: float, right: float) -> Vector2:
 	return Vector2(clampf(axis.dot(x), -1.0, 1.0), clampf(axis.dot(z), -1.0, 1.0))
 
 
+## Drops every vessel visual (the scene is about to show a new situation),
+## and any toast about the old one, like "on the pad" after a respawn.
 func _clear_views() -> void:
+	hud.clear_toast()
 	for id in _views:
 		_views[id].queue_free()
 	_views.clear()
@@ -555,6 +558,7 @@ func _render(delta: float) -> void:
 			vv.setup(core, id)
 			add_child(vv)
 			_views[id] = vv
+		_views[id].air_vel = Frame.vec_arr(t.surface_velocity) if id == session.active else Vector3.ZERO
 		_views[id].refresh(origin, t.pressure, _flicker, delta)
 	for id in _views.keys():
 		if not alive.has(id):

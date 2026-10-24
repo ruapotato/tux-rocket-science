@@ -44,6 +44,8 @@ func run(runner: Node) -> Dictionary:
 		await _map(tree)
 	if only == "" or only == "heat":
 		await _heat(tree)
+	if only == "" or only == "chute":
+		await _chute(tree)
 	return {"status": "PASS", "log": "\n".join(_log)}
 
 
@@ -213,6 +215,44 @@ func _heat(tree: SceneTree) -> void:
 	for k in feed.size() / VesselView.RPP:
 		_log.append("  part %d: %.0f K (%.0f%% of headroom)" % [k, feed[k * VesselView.RPP + 11], 100.0 * feed[k * VesselView.RPP + 12]])
 	await _shot(scene, "reentry_heat")
+
+
+## The capsule's chute opening: the drogue, the main mid-inflation, full.
+func _chute(tree: SceneTree) -> void:
+	var scene := await _flight(tree, "orbiter")
+	var s: FlightSession = scene.session
+	var craft: Dictionary = JSON.parse_string(Sim.pending_craft_text)
+	craft.parts = craft.parts.slice(0, 4)
+	var t := s.telemetry()
+	var up := Vector3(t.up[0], t.up[1], t.up[2])
+	var p := Vector3(t.position[0], t.position[1], t.position[2]) + up * 1300.0
+	var v := Vector3(t.velocity[0], t.velocity[1], t.velocity[2]) - up * 70.0
+	s.core.vessel_remove(s.active)
+	s.active = s.core.flight_spawn_state(JSON.stringify(craft), "floe", PackedFloat64Array([p.x, p.y, p.z, v.x, v.y, v.z]))
+	s.set_sas("stability")
+	s.core.vessel_deploy_chutes(s.active)
+	scene._clear_views()
+	scene._launched = true
+	scene._cam_dist = 30.0
+	scene._cam_pitch = 0.1
+	scene._cam_yaw = 1.0
+	var shots := {"chute_drogue": 0.0, "chute_inflating": 0.3, "chute_full": 0.99}
+	for i in 3000:
+		s.step_ticks(1)
+		await tree.process_frame
+		var feed: PackedFloat64Array = s.core.vessel_render(s.active, s.active)
+		var open := 0.0
+		for k in feed.size() / VesselView.RPP:
+			open = maxf(open, feed[k * VesselView.RPP + 13])
+		for name in shots.keys():
+			if open > shots[name]:
+				await _frames(tree, 2)
+				await _shot(scene, name)
+				_log.append("  %s: canopy %.0f%% open, %.0f m/s" % [name, 100.0 * open, s.telemetry().surface_speed])
+				shots.erase(name)
+				break
+		if shots.is_empty():
+			break
 
 
 func _frames(tree: SceneTree, n: int) -> void:

@@ -463,11 +463,12 @@ static trs_v3 rel_to_origin(const trs_world *w, int id, int origin) {
 	return v3_sub(r, ro);
 }
 
-#define RPP 13
+#define RPP 14
 
 /* vessel_render(id, origin_id) -> per part: uid, pos(3) rel. origin CoM,
  * quat(4), thrust fraction, chute state, legs, skin temperature (K) and the
- * share of its heat headroom used (0 ambient .. 1 failing): RPP doubles each. */
+ * share of its heat headroom used (0 ambient .. 1 failing), and how far a
+ * chute's canopy has opened (radius fraction of full): RPP doubles each. */
 static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	if (!ok_vessel(h, a[0].i) || !ok_vessel(h, a[1].i) || !h->world->vessels[a[0].i].craft) {
@@ -497,6 +498,7 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		o[10] = p->legs_deployed;
 		o[11] = p->temp;
 		o[12] = heat_share(c, i);
+		o[13] = def->is_parachute && def->chute_full_cda > 0 ? sqrt(p->chute_cda / def->chute_full_cda) : 0;
 	}
 	ret_doubles(r, d, (int64_t)c->count * RPP);
 	free(d);

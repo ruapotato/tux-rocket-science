@@ -281,8 +281,7 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 		}
 		trs_v3 f_chute = v3(0, 0, 0);
 		if (d->is_parachute) {
-			double cda = pt->chute == TRS_CHUTE_SEMI ? d->chute_semi_cda : pt->chute == TRS_CHUTE_FULL ? d->chute_full_cda : 0;
-			f_chute = v3_scale(dl, -qd * cda);
+			f_chute = v3_scale(dl, -qd * pt->chute_cda);
 		}
 		trs_v3 f = v3_add(v3_add(f_axial, f_cross), f_chute);
 		f_local_total = v3_add(f_local_total, f);
@@ -528,11 +527,16 @@ static void rk4_mass(const dyn_ctx *cx, trs_vessel *vs, double t, double h, trs_
 
 /* ---- parachutes ---------------------------------------------------------------- */
 
-static void update_chutes(const trs_world *w, trs_vessel *vs) {
+/* Canopies open over chute_inflate seconds rather than instantly: the drag
+ * area grows linearly toward the state's size (at full_cda / chute_inflate
+ * m^2 per second), so the opening shock is spread out the way a real
+ * canopy's is. */
+static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h) {
 	trs_craft *c = vs->craft;
 	const trs_body *b = &w->sys.bodies[vs->body];
 	trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
 	double sp = v3_len(vair);
+	double agl = -1; /* height above the ground below, found only when a chute needs it */
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		trs_part *p = &c->parts[i];
@@ -540,8 +544,19 @@ static void update_chutes(const trs_world *w, trs_vessel *vs) {
 			continue;
 		if (p->chute == TRS_CHUTE_ARMED && vs->pressure >= d->chute_min_pressure && sp <= d->chute_max_speed)
 			p->chute = TRS_CHUTE_SEMI;
-		if (p->chute == TRS_CHUTE_SEMI && vs->altitude <= d->chute_full_alt)
-			p->chute = TRS_CHUTE_FULL;
+		if (p->chute == TRS_CHUTE_SEMI) {
+			/* full deployment goes by the ground, not sea level: a capsule
+			 * coming down on a high plateau must not hit it half-open */
+			if (agl < 0) {
+				double g = trs_body_terrain_at(b, t, vs->r);
+				agl = vs->altitude - (g > 0 ? g : 0);
+			}
+			if (agl <= d->chute_full_alt)
+				p->chute = TRS_CHUTE_FULL;
+		}
+		double target = p->chute == TRS_CHUTE_SEMI ? d->chute_semi_cda : p->chute == TRS_CHUTE_FULL ? d->chute_full_cda : 0;
+		double rate = d->chute_inflate > 0 ? d->chute_full_cda / d->chute_inflate : 1e12;
+		p->chute_cda = target < p->chute_cda ? target : fmin(target, p->chute_cda + rate * h);
 	}
 }
 
@@ -605,7 +620,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	const trs_body *b = &w->sys.bodies[vs->body];
 	vs->altitude = v3_len(vs->r) - b->radius;
 	trs_atmosphere_at(b, vs->altitude, &vs->pressure, &vs->density);
-	update_chutes(w, vs);
+	update_chutes(w, vs, t, h);
 
 	engine_set es;
 	gather_engines(vs, vs->pressure, &es);

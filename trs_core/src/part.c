@@ -78,6 +78,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->chute_min_pressure = trs_json_num(pc, "min_pressure", 0);
 		d->chute_full_alt = trs_json_num(pc, "full_altitude", 1000);
 		d->chute_max_speed = trs_json_num(pc, "max_speed", 1e9);
+		d->chute_inflate = trs_json_num(pc, "inflate_time", 2.5);
 	}
 	const trs_json *lg = trs_json_get(j, "leg");
 	if (lg) {

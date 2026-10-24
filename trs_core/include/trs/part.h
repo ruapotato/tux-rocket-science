@@ -62,7 +62,9 @@ typedef struct {
 
 	/* parachute */
 	int is_parachute;
-	double chute_semi_cda, chute_full_cda, chute_min_pressure, chute_full_alt, chute_max_speed;
+	double chute_semi_cda, chute_full_cda, chute_min_pressure, chute_max_speed;
+	double chute_full_alt; /* full deployment height above the ground (or sea) */
+	double chute_inflate;  /* s for the canopy to open from nothing to full size */
 
 	/* landing leg */
 	int is_leg;

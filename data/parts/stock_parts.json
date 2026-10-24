@@ -226,7 +226,7 @@
       "category": "utility",
       "description": "Opens the sky's softest pillow.",
       "mass": 100,
-      "parachute": { "semi_cda": 25, "full_cda": 480, "min_pressure": 4000, "full_altitude": 1000, "max_speed": 300 },
+      "parachute": { "semi_cda": 6, "full_cda": 480, "min_pressure": 4000, "full_altitude": 1000, "max_speed": 300, "inflate_time": 4 },
       "crash_tolerance": 12,
       "thermal": { "max_temp": 700, "skin_heat": 6000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.4, "cd_bottom": 0.8, "cd_side": 0.8 },

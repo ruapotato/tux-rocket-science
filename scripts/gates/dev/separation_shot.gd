@@ -65,8 +65,8 @@ func run(runner: Node) -> Dictionary:
 	var vv = flight._views.get(s.active)
 	var feed: PackedFloat64Array = s.core.vessel_render(s.active, s.active)
 	for k in feed.size() / 13:
-		if feed[k * 13 + 10] > 0.0:
-			out.append("feed uid %d legs %.1f" % [int(feed[k * 13]), feed[k * 13 + 10]])
+		if feed[k * VesselView.RPP + 10] > 0.0:
+			out.append("feed uid %d legs %.1f" % [int(feed[k * VesselView.RPP]), feed[k * VesselView.RPP + 10]])
 	for uid in vv._parts:
 		var e: Dictionary = vv._parts[uid]
 		if Sim.part(e.part).has("leg"):

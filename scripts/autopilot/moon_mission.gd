@@ -17,11 +17,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 ## Scripted Krill mission, flown blind through ControlAPI only:
 ## ascent -> transfer burn (maneuver node) -> SOI change -> capture ->
-## powered landing -> liftoff -> escape back into Floe's SOI.
+## powered landing -> liftoff -> parking orbit -> return burn (planned on
+## the patched trajectory) -> capsule separation -> shield-first entry.
 class_name MoonMission
 extends RefCounted
 
 const KRILL_PE := 40000.0
+const KRILL_PARK := 30000.0   # parking orbit after liftoff
+const FLOE_PE := 34000.0      # return periapsis: deep enough to capture, shallow enough to stay gentle
+const LANDER_STAGE := 1       # stage 0 drops the capsule; nothing powered ever fires it
 
 var api: ControlAPI
 var log := PackedStringArray()
@@ -30,6 +34,8 @@ var landed_on_krill := false
 var landed_home := false
 var soi_path := PackedStringArray(["floe"])
 var _nodes_burnt := 0
+var peak_g := 0.0
+var peak_heat := 0.0
 
 
 func _init(control: ControlAPI) -> void:
@@ -71,7 +77,7 @@ func aligned(dir: Vector3, deg := 3.0) -> bool:
 
 
 ## Stage while the current stage is spent, never past `min_stage`.
-func stage_if_spent(min_stage := 0) -> void:
+func stage_if_spent(min_stage := LANDER_STAGE) -> void:
 	var t := tel()
 	if t.next_stage >= min_stage and t.get("thrust_max", 0.0) <= 0.0:
 		api.handle({"cmd": "stage"})
@@ -87,7 +93,7 @@ func body_info(id: String) -> Dictionary:
 
 ## Burns `dv` m/s along fixed direction `dir` (sim frame) and returns what
 ## was delivered (from trs_core's integrated thrust acceleration).
-func burn(dir: Vector3, dv: float, min_stage := 0) -> float:
+func burn(dir: Vector3, dv: float, min_stage := LANDER_STAGE) -> float:
 	point(dir)
 	for i in 50 * 40:
 		if aligned(dir):
@@ -114,7 +120,7 @@ func burn(dir: Vector3, dv: float, min_stage := 0) -> float:
 
 
 ## Executes maneuver node [t, pro, nrm, rad]: warp, point, burn centred on t.
-func execute_node(node: Array, min_stage := 0) -> void:
+func execute_node(node: Array, min_stage := LANDER_STAGE) -> void:
 	var dir := v3(api.handle({"cmd": "node_vector", "nodes": [node], "index": 0}).vector)
 	var dv := dir.length()
 	var bt: float = api.handle({"cmd": "burn_time", "dv": dv}).seconds
@@ -257,7 +263,7 @@ func capture() -> void:
 		var tt := tel()
 		if tt.orbit.ap_alt != null and tt.orbit.ap_alt < tt.orbit.pe_alt + 25000.0:
 			break
-		stage_if_spent(0)
+		stage_if_spent()
 		api.handle({"cmd": "throttle", "value": 1.0})
 		step(5)
 	api.handle({"cmd": "throttle", "value": 0.0})
@@ -268,7 +274,7 @@ func capture() -> void:
 ## Braking from orbit, then a guided vertical descent onto the surface.
 func land() -> bool:
 	var t := tel()
-	if t.next_stage == 0:
+	if t.next_stage == LANDER_STAGE:
 		api.handle({"cmd": "stage"})
 		note("lander separated from the transfer stage")
 	api.handle({"cmd": "legs", "deployed": true})
@@ -337,25 +343,69 @@ func land() -> bool:
 func leave_krill() -> bool:
 	var t := tel()
 	note("liftoff from Krill")
-	for i in 50 * 600:
+	# 1. clear the ground, then fly east holding a climb toward the parking
+	#    altitude: no air, so nearly all the thrust can go into orbital speed
+	var g: float = body_info("krill").surface_gravity
+	for i in 50 * 900:
 		t = tel()
 		if not t.alive:
+			note("lost climbing from Krill")
 			return false
 		var o: Dictionary = t.orbit
-		if o.ap_alt == null or o.ap_alt > 2.6e6 or o.ecc >= 1.0:
+		if o.ap_alt != null and o.ap_alt > KRILL_PARK:
 			break
-		var agl: float = t.altitude_terrain
+		var accel: float = t.get("thrust_max", 0.0) / t.mass
+		if accel <= 0.0:
+			if t.next_stage < LANDER_STAGE:
+				note("out of propellant climbing from Krill: Pe %.1f km, %.0f m/s" % [o.pe_alt / 1000.0, t.surface_speed])
+				return false
+			stage_if_spent()
+			continue
 		var up := v3(t.up)
 		var east := v3(t.east)
-		var th := clampf((agl - 400.0) / 6000.0, 0.0, 1.0) * deg_to_rad(84.0)
-		if t.vertical_speed < 5.0 and agl < 3000.0:
-			th = minf(th, deg_to_rad(45.0))
-		point(up * cos(th) + east * sin(th))
-		stage_if_spent(0)
+		var r: float = t.altitude + body_info("krill").radius
+		var vs: float = t.vertical_speed
+		var vh: Vector3 = v3(t.velocity) - up * vs
+		var dir := up
+		if t.altitude_terrain > 250.0:
+			var vs_t := clampf((KRILL_PARK - t.altitude) / 25.0, -15.0, 60.0)
+			var a_up: float = g - vh.length_squared() / r + 0.8 * (vs_t - vs)
+			var s_up := clampf(a_up / accel, 0.0, 0.97)
+			var fwd: Vector3 = vh.normalized() if vh.length() > 20.0 else east
+			dir = fwd * sqrt(1.0 - s_up * s_up) + up * s_up
+		point(dir)
 		api.handle({"cmd": "throttle", "value": 1.0})
-		step(5)
+		step(2)
 	api.handle({"cmd": "throttle", "value": 0.0})
-	note("escape trajectory: e %.3f" % tel().orbit.ecc)
+	# 2. coast up, then circularize: thrust horizontally until the periapsis clears the hills
+	api.handle({"cmd": "sas", "mode": "prograde"})
+	for i in 50 * 600:
+		t = tel()
+		if t.orbit.t_to_ap == null or t.orbit.t_to_ap < 15.0 or t.vertical_speed < 0.0:
+			break
+		step(5)
+	for i in 50 * 300:
+		t = tel()
+		if t.orbit.pe_alt > KRILL_PARK - 8000.0 or t.get("thrust_max", 0.0) <= 0.0:
+			break
+		var up := v3(t.up)
+		var vel := v3(t.velocity)
+		var horiz := (vel - up * vel.dot(up)).normalized()
+		var lift := clampf(-t.vertical_speed * 0.03, -0.2, 0.5)
+		point(horiz * cos(lift) + up * sin(lift))
+		api.handle({"cmd": "throttle", "value": 1.0})
+		step(2)
+	api.handle({"cmd": "throttle", "value": 0.0})
+	var po: Dictionary = tel().orbit
+	note("parking orbit: %.1f x %.1f km, %.0f m/s left" % [po.pe_alt / 1000.0, po.ap_alt / 1000.0 if po.ap_alt != null else -1.0, tel().dv_total])
+	if po.pe_alt < 8000.0:
+		return false
+	# 3. the return burn, planned on the patched trajectory
+	var node := plan_return()
+	if node.is_empty():
+		note("no return trajectory found")
+		return false
+	execute_node(node)
 	for k in 200:
 		if tel().body != "krill":
 			break
@@ -364,51 +414,139 @@ func leave_krill() -> bool:
 	return tel().body == "floe"
 
 
-## Drop the Floe periapsis into the air, reenter, chute down.
-func return_home() -> bool:
+## Floe periapsis of the first Floe patch after `node`, or null when the
+## trajectory never gets home.
+func floe_pe(node: Array):
+	var patches: Array = api.handle({"cmd": "trajectory", "nodes": [node], "patches": 6, "horizon": 6.0e5}).patches
+	for p in patches:
+		if p.body == "floe" and p.t_start >= float(node[0]) - 1e-6:
+			return p.pe_alt
+	return null
+
+
+func _return_score(node: Array) -> float:
+	var pe = floe_pe(node)
+	return 1e12 if pe == null else absf(pe - FLOE_PE)
+
+
+## A prograde burn from the parking orbit that leaves Krill backwards along
+## its orbit, so the capsule falls straight into Floe's air.
+func plan_return() -> Array:
 	var t := tel()
-	# burn retrograde (relative to Floe) near apoapsis until the periapsis dips in
-	if t.orbit.t_to_ap != null and t.orbit.t_to_ap > 600.0:
-		api.handle({"cmd": "warp_to", "t": t.t + t.orbit.t_to_ap - 120.0})
-	api.handle({"cmd": "sas", "mode": "retrograde"})
-	for i in 50 * 40:
-		if aligned(-v3(tel().velocity).normalized(), 3.0):
+	var krill := body_info("krill")
+	var floe := body_info("floe")
+	# patched-conic estimate: the excess speed that drops a Krill-distance
+	# orbit's periapsis to the target, then the burn that leaves with it
+	var rk: float = krill.sma
+	var rp: float = floe.radius + FLOE_PE
+	var v_ap := sqrt(floe.mu * (2.0 / rk - 2.0 / (rk + rp)))
+	var v_inf := sqrt(floe.mu / rk) - v_ap
+	var r0: float = t.orbit.sma
+	var dv := sqrt(v_inf * v_inf + 2.0 * krill.mu / r0) - sqrt(krill.mu / r0)
+	var period: float = t.orbit.period
+	var best := []
+	var best_s := INF
+	for k in 120:
+		var node := [t.t + 120.0 + k * period / 120.0, dv, 0.0, 0.0]
+		var s := _return_score(node)
+		if s < best_s:
+			best_s = s
+			best = node
+	if best.is_empty() or best_s >= 1e12:
+		return []
+	var steps := [period / 120.0, 5.0]
+	for it in 60:
+		var improved := false
+		for dim in [0, 1]:
+			for sgn in [-1.0, 1.0]:
+				var cand: Array = best.duplicate()
+				cand[dim] += sgn * steps[dim]
+				var s := _return_score(cand)
+				if s < best_s:
+					best_s = s
+					best = cand
+					improved = true
+		if not improved:
+			steps[0] *= 0.5
+			steps[1] *= 0.5
+		if best_s < 500.0:
 			break
-		step(5)
-	for i in 50 * 900:
-		t = tel()
-		if t.orbit.pe_alt < 32000.0 or t.get("thrust_max", 0.0) <= 0.0:
-			break
-		api.handle({"cmd": "throttle", "value": 1.0 if t.orbit.pe_alt > 60000.0 else 0.3})
-		step(5)
-	api.handle({"cmd": "throttle", "value": 0.0})
-	note("deorbit: Floe periapsis %.1f km, %.0f m/s left" % [tel().orbit.pe_alt / 1000.0, tel().dv_total])
-	if tel().orbit.pe_alt > 65000.0:
+	note("return planned: %.1f m/s prograde in %.0f s (estimate %.0f), Floe periapsis %.1f km" % [best[1], best[0] - t.t, dv, floe_pe(best) / 1000.0])
+	return best
+
+
+## Trims the Floe periapsis with a small burn, if the return drifted.
+func return_correct() -> void:
+	var t := tel()
+	var base := [t.t + 600.0, 0.0, 0.0, 0.0]
+	var best := base
+	var best_s := _return_score(base)
+	if best_s < 1500.0:
+		note("no return correction needed (Floe Pe %.1f km)" % (floe_pe(base) / 1000.0))
+		return
+	var step_v := 2.0
+	for it in 80:
+		var improved := false
+		for dim in [1, 2, 3]:
+			for sgn in [-1.0, 1.0]:
+				var cand: Array = best.duplicate()
+				cand[dim] += sgn * step_v
+				var s := _return_score(cand)
+				if s < best_s:
+					best_s = s
+					best = cand
+					improved = true
+		if not improved:
+			step_v *= 0.5
+			if step_v < 0.02:
+				break
+	note("return correction: [%.2f, %.2f, %.2f] m/s -> Floe Pe %.1f km" % [best[1], best[2], best[3], floe_pe(best) / 1000.0])
+	if absf(best[1]) + absf(best[2]) + absf(best[3]) > 0.02:
+		execute_node(best)
+
+
+## Trim the periapsis, drop the lander, come in shield first, chute down.
+func return_home() -> bool:
+	return_correct()
+	note("on the way home: Floe periapsis %.1f km, %.0f m/s left" % [tel().orbit.pe_alt / 1000.0, tel().dv_total])
+	if tel().orbit.pe_alt > 65000.0 or tel().orbit.pe_alt < 0.0:
 		return false
+	# coast to an hour out, separate the capsule, then on to the air
+	var patches: Array = api.handle({"cmd": "predict", "patches": 2, "horizon": 3.0e6}).patches
+	if not patches.is_empty() and patches[0].end == "atmosphere":
+		api.handle({"cmd": "warp_to", "t": float(patches[0].t_end) - 3600.0})
+	api.handle({"cmd": "throttle", "value": 0.0})
+	api.handle({"cmd": "stage"})
+	note("capsule separated: %d parts" % tel().parts)
+	api.handle({"cmd": "sas", "mode": "retrograde"})
 	var r: Dictionary = api.handle({"cmd": "warp_to", "t": tel().t + 3.0e6})
-	note("entry interface (%s)" % r.stopped)
+	note("entry interface (%s) at %.0f m/s" % [r.stopped, tel().surface_speed])
 	api.handle({"cmd": "sas", "mode": "surface_retrograde"})
 	var chute_armed := false
 	var max_g := 0.0
 	var max_heat := 0.0
 	var hot_part := ""
 	for i in 50 * 3600:
-		t = tel()
+		var t := tel()
 		if not t.alive:
 			return false
 		max_g = maxf(max_g, t.g_force)
 		if t.get("heat_frac", 0.0) > max_heat:
 			max_heat = t.heat_frac
 			hot_part = t.heat_part
-		if not chute_armed and t.altitude < 30000.0:
+		if not chute_armed and t.altitude < 30000.0 and t.vertical_speed < 0.0:
 			api.handle({"cmd": "chute"})  # arms the chute; it opens once slow enough
 			chute_armed = true
 			note("chute armed")
 		if t.landed and t.surface_speed < 0.3:
 			break
+		if OS.get_environment("TRS_TRACE") != "" and i % 20 == 0:
+			note("  %.0f m/s, %.1f g, %d parts, heat %.0f%% %s" % [t.surface_speed, t.g_force, t.parts, 100.0 * t.get("heat_frac", 0.0), t.get("heat_part", "")])
 		step(5)
-	t = tel()
+	var t := tel()
 	landed_home = t.landed and t.body == "floe" and t.get("crew_capacity", 0) > 0
+	peak_g = max_g
+	peak_heat = max_heat
 	note("splashdown on the ice: landed %s, peak %.1f g, peak heat %.0f%% (%s), worst contact %.1f m/s, %d parts" % [
 		t.landed, max_g, 100.0 * max_heat, hot_part, t.get("max_impact", 0.0), t.parts])
 	return landed_home

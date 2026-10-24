@@ -55,6 +55,7 @@ typedef struct {
 	int legs_deployed;
 	int fired; /* decoupler already fired */
 	double temp; /* K, skin temperature (runtime only, not saved) */
+	double chute_cda; /* m^2, canopy drag area while it inflates (runtime only) */
 } trs_part;
 
 typedef struct {

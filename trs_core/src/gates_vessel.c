@@ -300,6 +300,53 @@ trs_gate_status trs_gate_aero(trs_log *log, const char *data_dir) {
 		free(w);
 		trs_craft_free(&c);
 	}
+	/* 1b. The canopy inflates rather than snapping open: every tick its drag
+	 *     area grows by exactly full_cda / inflate_time * dt (capped at the
+	 *     state's size), full deployment comes at full_altitude above the
+	 *     ground (not sea level), and the opening shock stays far below what
+	 *     an instant opening would give. */
+	{
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&c, trs_catalog_find(&cat, "parachute"), pod, "bottom", "top", v3(0, 0.675, 0), quat_identity(),
+				0, 0);
+		const trs_part_def *cd = &cat.defs[trs_catalog_find(&cat, "parachute")];
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = drop_at(w, &c, floe, 9000, 280);
+		trs_vessel_deploy_chutes(w, id);
+		trs_vessel *vs = &w->vessels[id];
+		double rate = cd->chute_full_cda / cd->chute_inflate, worst = 0, peak_g = 0, instant_g = 0;
+		double full_agl = -1, ground = 0;
+		int prev_state = vs->craft->parts[1].chute;
+		for (int s = 0; s < 50 * 900 && !vs->landed; s++) {
+			double before = vs->craft->parts[1].chute_cda;
+			trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(F), vs->r));
+			double q = 0.5 * vs->density * v3_len2(vair);
+			trs_world_step_physics(w);
+			const trs_part *cp = &vs->craft->parts[1];
+			double target = cp->chute == TRS_CHUTE_SEMI ? cd->chute_semi_cda : cp->chute == TRS_CHUTE_FULL ? cd->chute_full_cda : 0;
+			double want = fmin(target, before + rate * TRS_PHYSICS_DT);
+			worst = fmax(worst, fabs(cp->chute_cda - want));
+			if (vs->altitude - trs_body_terrain_at(F, w->t, vs->r) > 30) /* not the touchdown */
+				peak_g = fmax(peak_g, v3_len(vs->sensed_accel) / TRS_G0);
+			if (cp->chute == TRS_CHUTE_FULL && prev_state != TRS_CHUTE_FULL) {
+				ground = trs_body_terrain_at(F, w->t, vs->r);
+				full_agl = vs->altitude - fmax(ground, 0);
+				instant_g = q * cd->chute_full_cda / vs->mass / TRS_G0;
+			}
+			prev_state = cp->chute;
+		}
+		int ok = worst < 1e-12 && full_agl <= cd->chute_full_alt && full_agl > cd->chute_full_alt - 5 &&
+				peak_g < 0.5 * instant_g && peak_g < 10 && vs->landed;
+		failed += !ok;
+		trs_log_printf(log, "%s chute inflation: area law err %.1e m^2, full at %.0f m above ground (%.0f m terrain), "
+				"peak %.1f g vs %.1f g if it snapped open\n", ok ? "ok  " : "FAIL", worst, full_agl, ground, peak_g, instant_g);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
 	/* 2. Bare pod: in-flight aero acceleration equals the analytic force from
 	 *    the part data, F = -q (Cd A cos|cos| along the axis + Cd_side A_side
 	 *    sin^2 across it), checked directly every tick of a 15 s fall (the pod
@@ -451,8 +498,8 @@ static int lander_only(trs_log *log, const char *data_dir, const trs_part_catalo
 	for (int i = 0; i < c->count; i++) {
 		if (trs_craft_def(c, i)->is_leg)
 			c->parts[i].legs_deployed = 1;
-		if (c->parts[i].stage > 0)
-			c->parts[i].stage = -1; /* nothing to fire */
+		if (c->parts[i].stage > 1)
+			c->parts[i].stage = -1; /* nothing to fire past the lander */
 	}
 	return 1;
 }
