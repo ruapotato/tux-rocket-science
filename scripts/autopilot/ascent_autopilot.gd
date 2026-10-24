@@ -28,7 +28,7 @@ var api: ControlAPI
 var target_ap := 84000.0
 var target_pe := 78500.0
 var turn_start := 250.0   # m AGL: kick over before the air gets thick, then follow prograde
-var turn_end := 42000.0   # m, nose horizontal by here
+var turn_end := 50000.0   # m, nose horizontal by here
 var keep_stage := 1  # stages below this are never fired during ascent
 var phase := "liftoff"
 var log := PackedStringArray()

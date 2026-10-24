@@ -197,6 +197,26 @@ func _editor_ops() -> void:
 	var fin_idx := m.parts.size() - 1
 	m.remove(fin_idx)
 	var removed_sym := m.parts.size() == n0 - 3
+	# what hangs on a radial decoupler rides beside the core, upright, and a
+	# decoupler added under hand-made staging fires after the engines it carries
+	for manual in [false, true]:
+		var mb := CraftModel.new()
+		mb.place_root(CraftModel.held_single("pod_1"))
+		var ct := mb.attach_stack(CraftModel.held_single("tank_l"), 0, "bottom")[0]
+		var ce := mb.attach_stack(CraftModel.held_single("engine_lifter"), ct, "bottom")[0]
+		mb.manual_staging = manual
+		var rd := mb.attach_surface(CraftModel.held_single("decoupler_radial"), ct, PI / 2, 0.0, 2)
+		var bt := mb.attach_stack(CraftModel.held_single("tank_m"), rd[0], "outer")
+		var be := mb.attach_stack(CraftModel.held_single("engine_lifter"), bt[0], "bottom")
+		var upright := true
+		for k in bt + be:
+			var up := DMath.q_rotate(mb.parts[k].rot, [0.0, 1.0, 0.0])
+			var off: Array = DMath.sub(mb.parts[k].pos, mb.parts[ct].pos)
+			upright = upright and up[1] > 0.9999 and absf(sqrt(off[0] * off[0] + off[2] * off[2]) - 1.55) < 1e-9
+		var order: bool = bt.size() == 2 and mb.parts[be[0]].stage == mb.parts[ce].stage and mb.parts[be[1]].stage == mb.parts[ce].stage \
+			and mb.parts[rd[0]].stage == mb.parts[rd[1]].stage and mb.parts[rd[0]].stage == mb.parts[ce].stage - 1
+		_check(upright and order, "%s staging: boosters on radial decouplers stand upright 1.55 m off the axis (%s), light with the core and drop on the next press (%s)" % [
+			"hand-made" if manual else "automatic", upright, order])
 	# a liquid engine on a radial decoupler with no tank of its own gets no fuel
 	var mu := _build_orbiter()
 	var dr := mu.attach_surface(CraftModel.held_single("decoupler_radial"), 8, 0.0, 0.0, 1)
@@ -205,8 +225,8 @@ func _editor_ops() -> void:
 	_check(unfed.size() == 1 and int(unfed[0]) == eg[0] and (_build_orbiter().stats().get("unfed_engines", []) as Array).is_empty(),
 		"engine on a bare radial decoupler flagged as unfed (%s), stock Orbiter has none" % [unfed])
 	# a feed line from the core tank to it feeds it; one facing open space reaches nothing
-	var fl := mu.attach_surface(CraftModel.held_single("feed_line"), 8, 0.0, 0.4, 1)
-	var loose := mu.attach_surface(CraftModel.held_single("feed_line"), 8, PI, 0.4, 1)
+	var fl := mu.attach_surface(CraftModel.held_single("feed_line"), 8, 0.0, 0.1, 1)
+	var loose := mu.attach_surface(CraftModel.held_single("feed_line"), 8, PI, 0.1, 1)
 	var st_fl := mu.stats()
 	var lines: Array = st_fl.get("feed_lines", [])
 	var targets := {}

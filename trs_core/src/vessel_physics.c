@@ -489,6 +489,11 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
 	}
 }
 
+/* SAS gains: target-rate per radian of error, and the rate loop's 1/s. The
+ * rate loop is explicit, so SAS_KR * TRS_PHYSICS_DT stays well under 1. */
+#define SAS_KP 4.0
+#define SAS_KR 15.0
+
 static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimbal_authority) {
 	if (vs->sas >= TRS_SAS_PROGRADE) {
 		trs_v3 d = trs_sas_direction(world, (int)(vs - world->vessels), vs->sas);
@@ -541,13 +546,19 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 			double ang = 2 * atan2(s, dq.w);
 			err = s > 1e-12 ? v3_scale(v3(dq.x, dq.y, dq.z), ang / s) : v3(0, 0, 0);
 		}
-		/* PD per axis with a bandwidth the actuators can deliver */
+		/* per axis: turn toward the target at a rate that shrinks with the
+		 * error and that half the available torque can always brake to rest
+		 * in time, then drive the spin rate to it hard. The stiff inner loop
+		 * is what holds a rocket whose nose lift wants to turn it off the
+		 * airflow; the braking cap keeps big turns from overshooting. */
 		double I[3] = { Ix, Iy, Iz }, a[3] = { avail.x, avail.y, avail.z };
 		double e[3] = { err.x, err.y, err.z }, om[3] = { wb.x, wb.y, wb.z }, out[3];
 		for (int k = 0; k < 3; k++) {
-			double wn = fmin(2.5, sqrt(fmax(a[k], 1e-9) / fmax(I[k], 1e-9) * 0.6));
-			double t = I[k] * (wn * wn * e[k] - 2.0 * 0.9 * wn * om[k]);
-			out[k] = clampd(t, -a[k], a[k]);
+			double amax = fmax(a[k], 1e-9) / fmax(I[k], 1e-9); /* rad/s^2 */
+			double kp = fmin(SAS_KP, sqrt(amax)); /* 1/s */
+			double rate = fmin(kp * fabs(e[k]), sqrt(amax * fabs(e[k])));
+			double want = e[k] < 0 ? -rate : rate;
+			out[k] = clampd(I[k] * SAS_KR * (want - om[k]), -a[k], a[k]);
 		}
 		cmd = v3(out[0], out[1], out[2]);
 	}
@@ -864,6 +875,7 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		lights |= c->parts[i].stage == s && trs_craft_def(c, i)->propellant != TRS_PROP_NONE;
 	int keep_clamped = vs->clamped && !lights;
 	int pieces[256];
+	unsigned char radial_piece[256];
 	if (vs->clamped && lights) {
 		vs->clamped = 0;
 		vs->sas_hold = vs->q;
@@ -960,6 +972,17 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 			trs_vessel_add_ghost(&w->vessels[id], nid, w->t + RADIAL_CLEAR_S);
 			trs_vessel_add_ghost(&w->vessels[nid], id, w->t + RADIAL_CLEAR_S);
 		}
+		/* boosters dropped by one press tumble in the same airflow, and a
+		 * pair of them may swing across the core at once: they pass
+		 * through each other as they do the core */
+		if (dd->decoupler == TRS_DECOUPLER_RADIAL)
+			for (int k = 0; k < (made < 256 ? made : 256); k++)
+				if (w->vessels[pieces[k]].alive && radial_piece[k]) {
+					trs_vessel_add_ghost(&w->vessels[pieces[k]], nid, w->t + RADIAL_CLEAR_S);
+					trs_vessel_add_ghost(&w->vessels[nid], pieces[k], w->t + RADIAL_CLEAR_S);
+				}
+		if (made < 256)
+			radial_piece[made] = dd->decoupler == TRS_DECOUPLER_RADIAL;
 		if (made < max && new_ids)
 			new_ids[made] = nid;
 		if (made < 256)

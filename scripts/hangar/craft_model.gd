@@ -447,6 +447,8 @@ func _stack_fit(held: Dictionary, target_dir: Array) -> Dictionary:
 	var best_dot := -INF
 	var prefer: String = held.get("root_node", "")
 	for n in Sim.part(root_part).get("nodes", []):
+		if n.get("side", false):
+			continue  # a side mount only carries things, it is not an end
 		# a held subtree can't reuse nodes its own children occupy
 		var used := false
 		for k in range(1, held.parts.size()):
@@ -474,6 +476,8 @@ func stack_placements(held: Dictionary, target: int, target_node: String, spin :
 	var tn := node_world(target, target_node)
 	if tn.is_empty():
 		return out
+	if Sim.node_of(parts[target].part, target_node).get("side", false):
+		return _side_placements(held, target, target_node, spin)
 	var fit := _stack_fit(held, tn.dir)
 	if fit.is_empty():
 		return out
@@ -489,6 +493,25 @@ func stack_placements(held: Dictionary, target: int, target_node: String, spin :
 		var rot := DMath.q_normalized(DMath.q_mul(rel, base_rot))
 		var pos := DMath.sub(w.pos, DMath.q_rotate(rot, fit.node_pos))
 		out.append({"parent": t, "node": fit.node, "parent_node": target_node, "pos": pos, "rot": rot})
+	return out
+
+
+## A side node (a radial decoupler's outer face) carries the held assembly
+## standing parallel to the part it hangs from, its flank against the
+## node, the way a booster rides beside the core. `spin` turns it about
+## its own long axis.
+func _side_placements(held: Dictionary, target: int, target_node: String, spin: float) -> Array:
+	var out := []
+	var root_part: String = held.parts[0].part
+	var gap := radius_at(root_part, 0.0)
+	var local := DMath.q_identity() if spin == 0.0 else DMath.q_axis_angle(UP, spin)
+	for t in counterparts(target):
+		if node_occupied(t, target_node):
+			continue
+		var w := node_world(t, target_node)
+		var rot := DMath.q_normalized(DMath.q_mul(parts[t].rot, local))
+		out.append({"parent": t, "node": "", "parent_node": target_node,
+			"pos": DMath.add(w.pos, DMath.scale(w.dir, gap)), "rot": rot})
 	return out
 
 
@@ -703,6 +726,14 @@ func detach_set(i: int) -> Array[int]:
 ## and the next segment's engines light on the press after. Parachutes are not staged: the pilot deploys
 ## them (P) when it is safe.
 func auto_stage() -> void:
+	var st := _auto_stages()
+	for i in parts.size():
+		parts[i].stage = st[i]
+	changed.emit()
+
+
+## The stage auto_stage would give each part (-1 = not staged).
+func _auto_stages() -> Array:
 	var n := parts.size()
 	var sd := []  # stack-decoupler depth per part
 	sd.resize(n)
@@ -745,12 +776,13 @@ func auto_stage() -> void:
 				radial.append(i)
 		if not radial.is_empty():
 			steps.append(radial)
-	for p in parts:
-		p.stage = -1
+	var out := []
+	out.resize(n)
+	out.fill(-1)
 	for k in steps.size():
 		for i in steps[k]:
-			parts[i].stage = steps.size() - 1 - k
-	changed.emit()
+			out[i] = steps.size() - 1 - k
+	return out
 
 
 func _min_depth(ids: Array, sd: Array) -> int:
@@ -840,6 +872,46 @@ func set_limit(i: int, limit: float) -> float:
 	return limit
 
 
+## With hand-made staging, a newly added engine or decoupler goes where
+## automatic staging would put it relative to what is already staged: with
+## the parts auto staging would fire it alongside, or else in a stage of
+## its own just after everything that would fire before it.
+func _stage_new_parts() -> void:
+	var fresh := {}
+	for i in parts.size():
+		if activatable(i) and parts[i].stage < 0:
+			fresh[i] = true
+	if not fresh.is_empty():
+		var auto := _auto_stages()
+		var ids := fresh.keys()
+		ids.sort_custom(func(a, b): return auto[a] > auto[b])
+		for i in ids:
+			if parts[i].stage >= 0:
+				continue  # placed with a counterpart already
+			var a: int = auto[i]
+			var join := -1
+			var before := 1 << 30  # lowest stage among parts that fire earlier
+			var top := -1
+			for k in parts.size():
+				if fresh.has(k) or parts[k].stage < 0:
+					continue
+				top = maxi(top, parts[k].stage)
+				if auto[k] == a and join < 0:
+					join = parts[k].stage
+				elif auto[k] > a:
+					before = mini(before, parts[k].stage)
+			var g := join
+			if g < 0:
+				g = before if before < (1 << 30) else top + 1
+				for p in parts:
+					if p.stage >= g:
+						p.stage += 1
+			for c in counterparts(i):
+				parts[c].stage = g
+				fresh.erase(c)
+	_compact_stages()
+
+
 func _compact_stages() -> void:
 	var used := {}
 	for p in parts:
@@ -865,9 +937,5 @@ func _after_structure_change() -> void:
 	if not manual_staging:
 		auto_stage()
 	else:
-		# new activatable parts still need a stage
-		for i in parts.size():
-			if activatable(i) and parts[i].stage < 0:
-				parts[i].stage = 0
-		_compact_stages()
+		_stage_new_parts()
 	changed.emit()

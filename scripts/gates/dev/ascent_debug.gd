@@ -25,11 +25,16 @@ func run(_r: Node) -> Dictionary:
 	var ap := AscentAutopilot.new(api)
 	var out := PackedStringArray()
 	var last := -100.0
+	var last_ev := -1.0
 	for i in 50 * 60 * 10:
 		if ap.step(0.1):
 			break
 		var t: Dictionary = api.session.telemetry()
-		if t.t - last >= 10.0:
+		for e in api.session.events:
+			if e.kind == "part_destroyed" and e.t > last_ev:
+				out.append("  destroyed %s" % [e])
+				last_ev = e.t
+		if t.t - last >= (1.0 if t.t > 30.0 and t.t < 45.0 else 10.0):
 			last = t.t
 			var nose := Vector3(t.nose[0], t.nose[1], t.nose[2])
 			var tgt: PackedFloat64Array = api.session.core.sas_direction(api.session.active, "target")

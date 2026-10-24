@@ -181,13 +181,13 @@
       "category": "structural",
       "description": "Lets boosters drift off like icebergs.",
       "mass": 50,
-      "decoupler": { "kind": "radial", "impulse": 250 },
+      "decoupler": { "kind": "radial", "impulse": 2000 },
       "crash_tolerance": 8,
       "thermal": { "max_temp": 1000, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.5, "cd_bottom": 0.5, "cd_side": 0.5 },
       "shape": { "type": "pylon", "radius": 0.15, "height": 0.6, "depth": 0.3 },
       "nodes": [
-        { "name": "outer", "pos": [0, 0, 0.15], "dir": [0, 0, 1], "radius": 0.2 }
+        { "name": "outer", "pos": [0, 0, 0.15], "dir": [0, 0, 1], "radius": 0.2, "side": true }
       ],
       "surface_attach": true
     },
