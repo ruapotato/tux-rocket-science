@@ -20,7 +20,8 @@
 ## flying and saves; a restart loads it back identically; the next launch
 ## clears the pad (crew home); reverting to the hangar undoes a launch;
 ## flying a craft left in orbit resumes it; a crewed wreck dropped from the
-## world loses its crew; and you can't walk away from a craft in the air.
+## world loses its crew; switching craft shows who is aboard; and you can't
+## walk away from a craft in the air.
 extends RefCounted
 
 var _log := PackedStringArray()
@@ -91,6 +92,18 @@ func run(runner: Node) -> Dictionary:
 		and scene.crew_names == Sim.crew_of(oid) and scene.leave_refusal() == "",
 		"resumed in orbit: vessel %d %s at %.0f km, clock %.2f s on from leaving (the frames since), crew %s" % [oid, tel.situation, tel.altitude / 1000.0,
 			scene.session.time() - t_left, scene.crew_names])
+
+	# 7. switching to another crewed craft shows its crew
+	var o2: int = g.core.flight_spawn_orbit(orbiter, "floe", 150100.0, 0.0)
+	var c2 := Crew.assign(1)
+	Sim.seat_crew(o2, c2)
+	scene.session.switch_to(o2)
+	var shown: Array = scene.crew_names.duplicate()
+	scene.session.switch_to(oid)
+	_check(shown == c2 and scene.crew_names == Sim.crew_of(oid) and scene._portraits.size() == 1,
+		"switching vessels: portraits show %s, then %s again" % [shown, scene.crew_names])
+	g.core.vessel_remove(o2)
+	Sim.sync_crew()
 
 	# 6. a crewed wreck dropped from the world takes its crew with it
 	var lost_names: Array = Sim.crew_of(oid)

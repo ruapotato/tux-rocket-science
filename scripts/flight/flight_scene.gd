@@ -81,6 +81,7 @@ func _ready() -> void:
 			session.launch(text, "floe", false)
 		Sim.pending_vessel = -1
 	session.sim_event.connect(_on_sim_event)
+	session.vessel_switched.connect(func(_id): _refresh_crew())
 	var cs := get_node_or_null("/root/ControlSocket")
 	if cs:
 		cs.attach(session)
@@ -133,6 +134,23 @@ func _assign_crew() -> void:
 		crew_names = Crew.assign(seats, Sim.pending_crew)
 		if persistent:
 			Sim.seat_crew(session.active, crew_names)
+	_show_crew()
+	if _recover_btn == null:
+		_recover_btn = Button.new()
+		_recover_btn.text = "  Recover vessel  "
+		_recover_btn.visible = false
+		_recover_btn.focus_mode = Control.FOCUS_NONE
+		_recover_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+		_recover_btn.position.y = 112  # just under the clock panel
+		_recover_btn.pressed.connect(_recover)
+		hud.add_child(_recover_btn)
+
+
+## Portraits of whoever is aboard the vessel we fly now.
+func _show_crew() -> void:
+	for p in _portraits:
+		p.queue_free()
+	_portraits.clear()
 	var row := HBoxContainer.new()
 	row.name = "Crew"
 	row.add_theme_constant_override("separation", 6)
@@ -150,14 +168,16 @@ func _assign_crew() -> void:
 		row.add_child(pp)
 		_portraits.append(pp)
 	row.position = Vector2(0, 240 - (220 if crew_names.size() <= 1 else 150))
-	_recover_btn = Button.new()
-	_recover_btn.text = "  Recover vessel  "
-	_recover_btn.visible = false
-	_recover_btn.focus_mode = Control.FOCUS_NONE
-	_recover_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_recover_btn.position.y = 112  # just under the clock panel
-	_recover_btn.pressed.connect(_recover)
-	hud.add_child(_recover_btn)
+
+
+## In the shared world the crew shown are the ones aboard the vessel now
+## flown: after switching, docking or undocking.
+func _refresh_crew() -> void:
+	if persistent and not _mission.pod_lost:
+		var now := Sim.crew_of(session.active)
+		if now != crew_names:
+			crew_names = now
+			_show_crew()
 
 
 func _react(kind: String, secs := 3.0) -> void:
@@ -674,12 +694,14 @@ func _on_sim_event(e: Dictionary) -> void:
 			elif not _mission.pod_lost:
 				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
 		"docked":
+			_refresh_crew()
 			if int(e.vessel) == session.active:
 				Sfx.play("stage")
 				_react("orbit", 3.0)
 				hud.toast("Docked! %s is one craft now (U to undock)" % session.telemetry().get("name", ""), 3.0)
 		"undocked":
 			Sfx.play("decouple")
+			_refresh_crew()
 		"soi_change":
 			_react("orbit", 3.0)
 			if not _mission.visited.has(str(e.get("body", ""))):
