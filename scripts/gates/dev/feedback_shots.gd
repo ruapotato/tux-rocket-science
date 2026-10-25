@@ -219,7 +219,7 @@ func _heat(tree: SceneTree) -> void:
 	for k in feed.size() / VesselView.RPP:
 		_log.append("  part %d: %.0f K (%.0f%% of headroom)" % [k, feed[k * VesselView.RPP + 11], 100.0 * feed[k * VesselView.RPP + 12]])
 	await _shot(scene, "reentry_heat")
-	_log.append("fx level %.2f visible %s shell %s scale %s" % [scene._reentry.level, scene._reentry.visible, scene._reentry._shell.position, scene._reentry._shell.scale])
+	_log.append("fx level %.2f visible %s" % [scene._reentry.level, scene._reentry.visible])
 
 
 ## The editor: stage cards in firing order, a tank set aside.

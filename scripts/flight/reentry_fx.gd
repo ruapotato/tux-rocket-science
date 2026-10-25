@@ -15,92 +15,105 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-## Reentry plasma: a glowing bow on the active vessel's most windward
-## point, scaled by the convective heating proxy rho * v^3. Purely visual;
-## the heating itself is simulated per part in trs_core.
+## Reentry plasma. The glow is a sheath that hugs each part's own shape
+## (its meshes, inflated a little and drawn with SHEATH below): bright where
+## a face meets the oncoming air, a thin film streaming down the sides, and
+## nothing on faces another part shields. Each exposed leading tip (the
+## nose, a side booster's cone) streams its own trail. Scaled by the
+## convective heating proxy rho * v^3. Purely visual; the heating itself is
+## simulated per part in trs_core.
 class_name ReentryFX
 extends Node3D
 
-const SHADER := """
+const SHEATH := """
 shader_type spatial;
-render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+render_mode unshaded, blend_add, cull_back, depth_draw_never, shadows_disabled;
 uniform float intensity = 0.0;
-uniform vec3 flow_local = vec3(0.0, -1.0, 0.0);   // air arriving from this direction (object space)
-varying vec3 lp;
+uniform vec3 flow = vec3(0.0, -1.0, 0.0);   // world: the way the air streams past
+uniform float inflate = 0.08;               // m the sheath stands off the hull
+uniform float stretch = 1.5;                // m the lee side is dragged downstream
+instance uniform float exposure = 1.0;      // 0: another part takes the air first
+varying float face;
+varying vec3 wpos;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void vertex() {
-	lp = VERTEX;
-	// stretch the shell downstream into a tail
-	float ahead = dot(normalize(VERTEX), -flow_local);
-	VERTEX += flow_local * max(-ahead, 0.0) * 0.3;
+	vec3 wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	face = dot(wn, -flow);
+	vec3 d = wn * inflate * (0.5 + exposure * max(face, 0.0)) + flow * max(-face, 0.0) * stretch;
+	VERTEX += inverse(mat3(MODEL_MATRIX)) * d;
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 void fragment() {
-	vec3 n = normalize(lp);
-	float ahead = dot(n, -flow_local);
-	// only the windward cap glows: a thin bow of hot gas, no balloon
-	float cap = pow(clamp(ahead, 0.0, 1.0), 3.0);
+	float cap = pow(clamp(face, 0.0, 1.0), 1.5) * exposure;
+	float film = (1.0 - abs(face)) * 0.3;
 	float edge = pow(1.0 - abs(dot(NORMAL, VIEW)), 2.0);
-	float flick = 0.85 + 0.15 * hash(vec2(floor(TIME * 40.0), 3.0));
-	// a hot face-on core plus the brighter limb of the shock layer
-	vec3 col = mix(vec3(1.0, 0.42, 0.1), vec3(1.0, 0.85, 0.6), cap) * cap * (0.45 + edge * 1.4) * 1.6;
-	ALBEDO = col * pow(intensity, 0.6) * flick * 2.2;
+	// streaks: noise across the flow, scrolling down it
+	vec3 side = normalize(cross(flow, vec3(0.31, 0.83, 0.47)));
+	float lane = hash(vec2(floor(dot(wpos, side) * 9.0), floor(dot(wpos, flow) * 2.0 - TIME * 40.0)));
+	float flick = 0.8 + 0.2 * hash(vec2(floor(TIME * 40.0), 3.0));
+	float g = (cap * (0.6 + edge) + film * (0.4 + lane)) * flick;
+	vec3 col = mix(vec3(1.0, 0.38, 0.08), vec3(1.0, 0.85, 0.6), clamp(cap, 0.0, 1.0));
+	ALBEDO = col * g * pow(intensity, 0.6) * 2.4;
 }
 """
 
-var _shell: MeshInstance3D
-var _mat: ShaderMaterial
+const MAX_TRAILS := 8
+
+static var _sheath_mat: ShaderMaterial
+
 var _light: OmniLight3D
-var _trail: GPUParticles3D
-var _trail_mat: ParticleProcessMaterial
+var _trails: Array = []  # GPUParticles3D, one per exposed tip
 var level := 0.0
 
 
+## The one material every part's sheath shares (flow and level set here).
+static func sheath_material() -> ShaderMaterial:
+	if _sheath_mat == null:
+		_sheath_mat = ShaderMaterial.new()
+		var sh := Shader.new()
+		sh.code = SHEATH
+		_sheath_mat.shader = sh
+	return _sheath_mat
+
+
 func _ready() -> void:
-	_shell = MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 1.0
-	sm.height = 2.0
-	sm.radial_segments = 48
-	sm.rings = 24
-	_shell.mesh = sm
-	_mat = ShaderMaterial.new()
-	var sh := Shader.new()
-	sh.code = SHADER
-	_mat.shader = sh
-	_shell.material_override = _mat
-	_shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_shell)
-	# streaming plasma trail: render space is centred on the vessel (floating
-	# origin), so particles just stream downstream from the windward face
-	_trail = GPUParticles3D.new()
-	_trail.amount = 1600
-	_trail.lifetime = 0.35
-	_trail.local_coords = false
-	_trail_mat = ParticleProcessMaterial.new()
-	_trail_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
-	_trail_mat.emission_sphere_radius = 1.0
-	_trail_mat.spread = 8.0
-	_trail_mat.initial_velocity_min = 25.0
-	_trail_mat.initial_velocity_max = 45.0
-	_trail_mat.gravity = Vector3.ZERO
-	_trail_mat.scale_min = 0.9
-	_trail_mat.scale_max = 1.8
-	_trail_mat.particle_flag_align_y = true
+	_light = OmniLight3D.new()
+	_light.light_color = Color(1.0, 0.55, 0.25)
+	_light.omni_range = 30.0
+	add_child(_light)
+	visible = false
+
+
+## Streaming plasma trail from one tip: render space is centred on the
+## vessel (floating origin), so particles just stream downstream.
+func _make_trail() -> GPUParticles3D:
+	var trail := GPUParticles3D.new()
+	trail.amount = 900
+	trail.lifetime = 0.35
+	trail.local_coords = false
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
+	pm.emission_sphere_radius = 1.0
+	pm.spread = 8.0
+	pm.gravity = Vector3.ZERO
+	pm.scale_min = 0.9
+	pm.scale_max = 1.8
+	pm.particle_flag_align_y = true
 	var grad := Gradient.new()
 	grad.set_color(0, Color(1.0, 0.9, 0.7, 1.0))
 	grad.add_point(0.35, Color(1.0, 0.5, 0.15, 0.8))
 	grad.set_color(grad.get_point_count() - 1, Color(0.8, 0.2, 0.05, 0.0))
 	var gt := GradientTexture1D.new()
 	gt.gradient = grad
-	_trail_mat.color_ramp = gt
+	pm.color_ramp = gt
 	var sc := Curve.new()  # 0..1 growth into the scale range
 	sc.add_point(Vector2(0.0, 0.28))
 	sc.add_point(Vector2(0.3, 0.55))
 	sc.add_point(Vector2(1.0, 1.0))
 	var sct := CurveTexture.new()
 	sct.curve = sc
-	_trail_mat.scale_curve = sct
-	_trail.process_material = _trail_mat
+	pm.scale_curve = sct
+	trail.process_material = pm
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.32, 2.4)
 	var qm := StandardMaterial3D.new()
@@ -112,48 +125,53 @@ func _ready() -> void:
 	qm.billboard_keep_scale = true
 	qm.albedo_texture = _soft_dot()
 	quad.material = qm
-	_trail.draw_pass_1 = quad
-	_trail.emitting = false
-	add_child(_trail)
-	_light = OmniLight3D.new()
-	_light.light_color = Color(1.0, 0.55, 0.25)
-	_light.omni_range = 30.0
-	add_child(_light)
-	visible = false
+	trail.draw_pass_1 = quad
+	trail.emitting = false
+	add_child(trail)
+	return trail
 
 
 ## air_vel: velocity of the vessel relative to the air (Godot axes, m/s);
-## rho: air density; front: the vessel's most windward point (render space)
-## and width: the hull radius there. The bow glow wraps that point, the
-## trail streams back from it.
-func update_fx(air_vel: Vector3, rho: float, front: Vector3, width: float, delta: float) -> void:
+## rho: air density; fronts: the exposed leading tips, [[point, hull radius
+## there], ...] in render space, the most windward first.
+func update_fx(air_vel: Vector3, rho: float, fronts: Array, delta: float) -> void:
 	var v := air_vel.length()
 	# rho*v^3 in W/m^2-ish units; visible from ~1.5 km/s in the upper air
 	var q := rho * v * v * v
 	var target := clampf((q - 2.0e6) / 1.2e8, 0.0, 1.0)
 	level = move_toward(level, target, delta * 1.5)
 	visible = level > 0.01
-	_trail.emitting = level > 0.05
-	if not visible:
-		return
+	var mat := sheath_material()
+	mat.set_shader_parameter("intensity", level if visible else 0.0)
 	# the air streams past opposite to our motion through it
 	var flow := -air_vel.normalized() if v > 1.0 else Vector3.DOWN
-	# a cap wider than the hull, standing off the leading point like a bow
-	# shock (the shell's front is ~0.7 hull radii ahead of the hull)
-	var r := width * 1.5
-	_shell.scale = Vector3.ONE * r
-	_shell.position = front + flow * r * 0.55
-	_mat.set_shader_parameter("intensity", level)
-	_mat.set_shader_parameter("flow_local", flow)
-	_light.position = front - flow * r * 0.3
+	mat.set_shader_parameter("flow", flow)
+	mat.set_shader_parameter("inflate", 0.05 + 0.12 * level)
+	mat.set_shader_parameter("stretch", 0.5 + 2.5 * level)
+	for k in MAX_TRAILS:
+		var on := visible and level > 0.05 and k < fronts.size()
+		if k >= _trails.size():
+			if not on:
+				continue
+			_trails.append(_make_trail())
+		var trail: GPUParticles3D = _trails[k]
+		trail.emitting = on
+		if not on:
+			continue
+		var at: Vector3 = fronts[k][0]
+		var r: float = fronts[k][1]
+		var pm: ParticleProcessMaterial = trail.process_material
+		trail.position = at + flow * r * 0.3
+		pm.direction = flow
+		pm.emission_sphere_radius = r * 0.9
+		trail.amount_ratio = clampf(level * 1.5 * clampf(r / 0.6, 0.3, 1.0), 0.05, 1.0)
+		pm.initial_velocity_min = 25.0 + 30.0 * level
+		pm.initial_velocity_max = 45.0 + 50.0 * level
+	if not visible or fronts.is_empty():
+		_light.light_energy = 0.0
+		return
+	_light.position = fronts[0][0] - flow * fronts[0][1] * 0.5
 	_light.light_energy = 6.0 * level
-	# trail: from the windward face, streaming downstream (flow direction)
-	_trail.position = front + flow * r * 0.4
-	_trail_mat.direction = flow
-	_trail_mat.emission_sphere_radius = r * 0.85
-	_trail.amount_ratio = clampf(level * 1.5, 0.05, 1.0)
-	_trail_mat.initial_velocity_min = 25.0 + 30.0 * level
-	_trail_mat.initial_velocity_max = 45.0 + 50.0 * level
 
 
 static func _soft_dot() -> Texture2D:

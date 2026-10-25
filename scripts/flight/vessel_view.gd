@@ -56,6 +56,21 @@ func _make_part(uid: int, part_id: String, opts: Dictionary) -> Dictionary:
 			jets.append(v.get_node("Jet%d" % k))
 	entry["jets"] = jets
 	entry["flap"] = v.get_node_or_null("Flap")
+	# reentry sheath: a copy of each hull mesh drawn in plasma (ReentryFX),
+	# a child of the mesh so it follows legs and flaps as they move
+	var sheath := []
+	for mi in v.find_children("*", "MeshInstance3D", true, false):
+		if _not_hull(entry, mi):
+			continue
+		var sm := MeshInstance3D.new()
+		sm.name = "Sheath"
+		sm.mesh = (mi as MeshInstance3D).mesh
+		sm.material_override = ReentryFX.sheath_material()
+		sm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		sm.visible = false
+		mi.add_child(sm)
+		sheath.append(sm)
+	entry["sheath"] = sheath
 	return entry
 
 
@@ -133,12 +148,33 @@ func _update_heat(e: Dictionary, temp: float) -> void:
 	e.temp = temp
 	e.hot = glowing
 	for mi in (e.node as Node3D).find_children("*", "MeshInstance3D", true, false):
-		if (e.plume and (e.plume as Node).is_ancestor_of(mi)) or (e.canopy and (e.canopy as Node).is_ancestor_of(mi)):
-			continue  # the exhaust and the canopy are not hull
+		if _not_hull(e, mi) or mi.name == "Sheath":
+			continue  # the exhaust, the canopy and the RCS puffs are not hull
 		var g := mi as GeometryInstance3D
 		g.material_overlay = heat_material() if glowing else null
 		if glowing:
 			g.set_instance_shader_parameter("temp_k", temp)
+
+
+func _not_hull(e: Dictionary, mi: Node) -> bool:
+	if (e.plume and (e.plume as Node).is_ancestor_of(mi)) or (e.canopy and (e.canopy as Node).is_ancestor_of(mi)):
+		return true
+	for j in e.get("jets", []):
+		if j == mi or (j as Node).is_ancestor_of(mi):
+			return true
+	return false
+
+
+## Reentry sheaths: shown on the parts in `exposure` (uid -> 0 shielded ..
+## 1 meeting the air first), hidden everywhere when it's empty.
+func set_sheath(exposure: Dictionary) -> void:
+	for uid in _parts:
+		var e: Dictionary = _parts[uid]
+		var on := exposure.has(uid)
+		for sm in e.get("sheath", []):
+			(sm as MeshInstance3D).visible = on
+			if on:
+				(sm as GeometryInstance3D).set_instance_shader_parameter("exposure", float(exposure[uid]))
 
 
 ## Nozzle exit radius and where it sits below the part centre.

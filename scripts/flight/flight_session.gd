@@ -36,6 +36,8 @@ var launch_text := ""
 var launch_body := "floe"
 var warp_kind := "physics"  # "physics" or "rails"
 var warp_index := 0
+const PE_CLEAR := 10000.0  # m a low point must clear the air top (or sea level) by to warp freely
+const WARP_LEAD := 15.0  # s of real time on-rails warp keeps before the ground or the air
 var ticks := 0
 var events: Array[Dictionary] = []
 ## Maneuver nodes: [[t, prograde, normal, radial], ...] in time order
@@ -216,13 +218,44 @@ func set_warp(kind: String, index: int) -> String:
 		warp_kind = "physics"
 		warp_index = clampi(index, 0, PHYSICS_WARP.size() - 1)
 		return ""
+	if warp_kind == "rails" and index < warp_index:
+		warp_index = index  # slowing down is always allowed
+		return ""
 	var reason := rails_refusal()
 	if reason != "":
 		return reason
-	_begin_rails()
+	var cap := rails_cap(telemetry())
+	if cap <= 0:
+		return "too close to the ground at this descent rate"
+	if warp_kind != "rails":
+		_begin_rails()
 	warp_kind = "rails"
-	warp_index = clampi(index, 0, RAILS_WARP.size() - 1)
+	warp_index = clampi(index, 1, cap)
 	return ""
+
+
+## The fastest on-rails warp level that still leaves WARP_LEAD seconds of
+## real time before the craft reaches the ground (or the top of the air) at
+## its present descent rate; 0 means none.
+func rails_cap(t: Dictionary) -> int:
+	if not t.get("alive", false):
+		return 0
+	var h: float = t.altitude_terrain
+	var top: float = t.get("atmosphere_height", 0.0)
+	if top > 0.0 and t.altitude > top:
+		h = minf(h, t.altitude - top)
+	var down := -float(t.vertical_speed)
+	if t.landed or down <= 0.0:
+		return RAILS_WARP.size() - 1
+	# a path whose low point clears the air (or the mountains) comes to no harm
+	var pe = t.get("orbit", {}).get("pe_alt", null)
+	if pe != null and float(pe) > (top if top > 0.0 else 0.0) + PE_CLEAR:
+		return RAILS_WARP.size() - 1
+	var cap := 0
+	for i in RAILS_WARP.size():
+		if i > 0 and RAILS_WARP[i] * WARP_LEAD <= h / down:
+			cap = i
+	return cap
 
 
 ## Why on-rails warp is not allowed right now ("" if it is).
@@ -283,6 +316,19 @@ func step_ticks(n: int) -> void:
 ## Advances by a frame of real time, honouring the warp setting.
 func advance(real_dt: float) -> void:
 	if warp_kind == "rails" and warp_index > 0:
+		# on rails nothing burns: throttling up hands the craft back to physics
+		var t := telemetry()
+		if t.get("thrust", 0.0) > 0.0 and not t.landed:
+			set_warp("rails", 0)
+			events.append({"kind": "warp_stopped", "reason": "engines firing", "t": time()})
+			return
+		# closing on the ground or the air, warp eases off level by level
+		var cap := rails_cap(t)
+		if cap < warp_index:
+			set_warp("rails", cap)
+			events.append({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
+			if cap <= 0:
+				return
 		var ev: Dictionary = JSON.parse_string(core.warp(real_dt * RAILS_WARP[warp_index], active))
 		if ev.event == "refused":
 			set_warp("rails", 0)

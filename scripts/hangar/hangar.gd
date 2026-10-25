@@ -419,6 +419,8 @@ func _on_model_changed() -> void:
 	_undo_button.disabled = not model.can_undo()
 	_redo_button.disabled = not model.can_redo()
 	_refresh_readouts()
+	if _empty_stage > model.stage_count():
+		_empty_stage = -1
 	_refresh_staging()
 
 
@@ -521,6 +523,34 @@ func _refresh_staging() -> void:
 		_stage_box.add_child(_stage_gap(s))
 
 
+## The empty card "+ new stage" opens at gap g: parts dragged onto it make
+## that stage (a stage with no parts can't exist, so it lives only here).
+func _empty_card(g: int) -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.1, 0.15, 0.24, 0.6), 6, PartVisual.ORANGE, 2))
+	var row := HBoxContainer.new()
+	panel.add_child(row)
+	var l := Label.new()
+	l.text = "New stage: drag part chips (or a stage heading) here"
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(240, 0)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", PartVisual.ORANGE)
+	row.add_child(l)
+	var x := Button.new()
+	x.text = "✕"
+	x.tooltip_text = "Never mind"
+	x.focus_mode = Control.FOCUS_NONE
+	x.pressed.connect(func():
+		_empty_stage = -1
+		_refresh_staging())
+	row.add_child(x)
+	panel.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_gap(data, g))
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
+	return panel
+
+
 func _stage_card(s: int, st: Dictionary) -> Control:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.1, 0.15, 0.24, 0.95), 6, Color(0.3, 0.45, 0.65)))
@@ -597,20 +627,30 @@ func _stage_card(s: int, st: Dictionary) -> Control:
 	return panel
 
 
+var _empty_stage := -1  # gap where an empty "new stage" card is open (-1 none)
+
+
 ## Drop zone between cards: dropping here inserts a new stage.
 func _stage_gap(s: int) -> Control:
 	var gap := PanelContainer.new()
 	gap.custom_minimum_size = Vector2(0, 14)
 	gap.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var plus := Label.new()
+	if _empty_stage == s:
+		return _empty_card(s)
+	var plus := Button.new()
 	plus.text = "+ new stage"
-	plus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plus.add_theme_font_size_override("font_size", 10)
-	plus.add_theme_color_override("font_color", Color(0.45, 0.55, 0.7, 0.7))
-	plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	plus.flat = true
+	plus.focus_mode = Control.FOCUS_NONE
+	plus.add_theme_font_size_override("font_size", 11)
+	plus.add_theme_color_override("font_color", Color(0.55, 0.65, 0.8, 0.85))
+	plus.add_theme_color_override("font_hover_color", PartVisual.ORANGE)
+	plus.tooltip_text = "Click for an empty stage here, or drop a part chip or stage heading straight onto it"
+	plus.pressed.connect(func():
+		_empty_stage = s
+		_refresh_staging())
+	plus.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_gap(data, s))
 	gap.add_child(plus)
 	gap.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_gap(data, s))
-	gap.tooltip_text = "Drop here to make a new stage"
 	return gap
 
 
@@ -642,6 +682,7 @@ func _drop_on_stage(data: Dictionary, s: int) -> void:
 
 
 func _drop_on_gap(data: Dictionary, g: int) -> void:
+	_empty_stage = -1
 	if data.kind == "stage":
 		model.move_stage(data.stage, g)
 	else:

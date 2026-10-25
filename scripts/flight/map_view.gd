@@ -24,6 +24,7 @@ extends Control
 
 const SCALE := 1.0e-5
 const HANDLE_RATE := 0.6  # m/s per pixel dragged (grows with distance)
+const AIR_PATH := Color(1.0, 0.45, 0.35, 0.55)  # drag-free continuation through the air
 const COLORS := [Color(0.35, 0.85, 1.0), Color(1.0, 0.62, 0.2), Color(0.6, 1.0, 0.45), Color(1.0, 0.45, 0.8), Color(0.9, 0.9, 0.4)]
 
 var session: FlightSession
@@ -52,6 +53,10 @@ var _warp_btn: Button
 var _del_btn: Button
 var selected_node := -1
 var _overlay: Control
+const GLIDE_SECONDS := 2.5
+var _glide_t := -1.0  # 0..1 through an SOI-change camera glide, -1 idle
+var _glide_from := 1.0
+var _glide_to := 1.0
 
 
 func setup(s: FlightSession) -> void:
@@ -194,7 +199,17 @@ func refresh() -> void:
 		return
 	var t := session.telemetry()
 	if focus_vessel:
-		focus_body = int(t.get("body_index", focus_body))
+		var nb := int(t.get("body_index", focus_body))
+		if nb != focus_body:
+			_glide_soi(focus_body, nb)
+		focus_body = nb
+	if _glide_t >= 0.0:
+		# after a change of sphere of influence the camera eases out (or in)
+		# to show the new neighbourhood instead of jumping
+		_glide_t = minf(_glide_t + get_process_delta_time() / GLIDE_SECONDS, 1.0)
+		_dist = exp(lerpf(log(_glide_from), log(_glide_to), smoothstep(0.0, 1.0, _glide_t)))
+		if _glide_t >= 1.0:
+			_glide_t = -1.0
 	var offs := _body_offsets()
 	# the vessel, from exact relative positions (it is the render origin)
 	var vrel := Frame.vec(session.core.vessel_render(session.active, session.active), 1)
@@ -213,10 +228,13 @@ func refresh() -> void:
 		var b: Dictionary = _bodies[i]
 		var r: float = b.info.radius
 		var pos: Vector3 = offs[i] * SCALE
+		# bodies past the far plane are drawn pulled in toward the camera's
+		# pivot (true direction, smaller); near ones sit where they are
 		var k := 1.0
-		if pos.length() > 5.0e4:
-			k = 5.0e4 / pos.length()
-		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), pos * k)
+		var rel := pos - _target
+		if rel.length() > 5.0e4:
+			k = 5.0e4 / rel.length()
+		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), _target + rel * k)
 		_draw_body_orbit(i, offs)
 	# vessel trajectory with nodes
 	var nodes := FlightSession.pack_nodes(session.nodes)
@@ -233,12 +251,14 @@ func refresh() -> void:
 		for k in n:
 			var o := k * 5
 			var pi := int(pts[o])
-			var p: Dictionary = _patches[pi]
+			var p: Dictionary = _patches[pi if pi >= 0 else -1 - pi]
 			var world: Vector3 = (offs[int(p.body_index)] + Frame.vec(pts, o + 2)) * SCALE
-			_samples.append({"pos": world, "t": pts[o + 1], "patch": pi})
+			if pi >= 0:
+				_samples.append({"pos": world, "t": pts[o + 1], "patch": pi})
 			if pi == prev_patch:
-				# current orbit cyan, after a node orange, later patches green/pink/yellow
-				var col: Color = COLORS[0] if pi == 0 else (COLORS[1] if int(p.node) >= 0 else COLORS[2 + (pi % 3)])
+				# current orbit cyan, after a node orange, later patches
+				# green/pink/yellow; through the air to the ground a dim red
+				var col: Color = AIR_PATH if pi < 0 else (COLORS[0] if pi == 0 else (COLORS[1] if int(p.node) >= 0 else COLORS[2 + (pi % 3)]))
 				_imesh.surface_set_color(col)
 				_imesh.surface_add_vertex(prev)
 				_imesh.surface_add_vertex(world)
@@ -376,8 +396,10 @@ func _gui_input(event: InputEvent) -> void:
 				_orbiting = mb.pressed
 			MOUSE_BUTTON_WHEEL_UP:
 				_dist = maxf(0.3, _dist * 0.88)
+				_glide_t = -1.0
 			MOUSE_BUTTON_WHEEL_DOWN:
 				_dist = minf(4.0e4, _dist * 1.12)
+				_glide_t = -1.0
 			MOUSE_BUTTON_LEFT:
 				if mb.pressed:
 					_press(mb.position)
@@ -443,6 +465,24 @@ func _warp_to_node() -> void:
 	var reason := session.warp_to(nd[0] - bt * 0.5 - 30.0)
 	if reason != "" and get_parent().has_method("toast"):
 		get_parent().toast("Warp stopped: " + reason)
+
+
+## Starts the camera's glide after the vessel passes from body `from` to
+## `to`: out to the new parent's view with the old planet's sphere of
+## influence in frame, or in toward the moon it just met.
+func _glide_soi(from: int, to: int) -> void:
+	if from < 0 or from >= _bodies.size() or to < 0 or to >= _bodies.size():
+		return
+	var want := _dist
+	if int(_bodies[from].info.parent) == to:
+		want = maxf(_dist, float(_bodies[from].info.soi) * SCALE * 2.5)
+	else:
+		want = minf(_dist, float(_bodies[to].info.radius) * SCALE * 12.0)
+	if absf(want - _dist) < 1e-6:
+		return
+	_glide_from = _dist
+	_glide_to = clampf(want, 0.3, 4.0e4)
+	_glide_t = 0.0
 
 
 ## vessel -> Floe -> Krill -> ... -> vessel

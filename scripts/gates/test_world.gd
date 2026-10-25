@@ -21,7 +21,8 @@
 ## clears the pad (crew home); reverting to the hangar undoes a launch;
 ## flying a craft left in orbit resumes it; a crewed wreck dropped from the
 ## world loses its crew; switching craft shows who is aboard; and you can't
-## walk away from a craft in the air.
+## walk away from a craft in the air; and the engines go quiet when paused
+## or left behind.
 extends RefCounted
 
 var _log := PackedStringArray()
@@ -111,6 +112,22 @@ func run(runner: Node) -> Dictionary:
 	var lost := Sim.sync_crew()
 	_check(lost == lost_names and Crew.find(lost_names[0]).status == "lost",
 		"vessel gone: %s marked lost" % [lost])
+	# 9. the engine's roar: quiet in the pause menu, back after, gone with the scene
+	scene = await _flight(tree, orbiter)
+	scene._throttle = 1.0
+	scene._stage()
+	await _frames(tree, 3)
+	var roar := Sfx.engine_level
+	scene.hud.show_menu(true)
+	await _frames(tree, 2)
+	var paused := Sfx.engine_level
+	scene.hud.show_menu(false)
+	await _frames(tree, 2)
+	var back_on := Sfx.engine_level
+	scene.queue_free()
+	await _frames(tree, 2)
+	_check(roar > 0.0 and paused == 0.0 and back_on > 0.0 and Sfx.engine_level == 0.0,
+		"engine sound: %.2f flying, %.2f paused, %.2f resumed, %.2f after leaving flight" % [roar, paused, back_on, Sfx.engine_level])
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}
 
 

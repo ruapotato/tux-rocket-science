@@ -964,7 +964,8 @@ static void m_trajectory(void *self, const trs_val *a, trs_val *r) {
 
 /* trajectory_points(id, nodes, max_patches, horizon, samples) ->
  * [patch, t, x, y, z]* positions relative to each patch's body (SOI frame),
- * sampled evenly in true anomaly so periapses stay smooth. */
+ * sampled evenly in true anomaly so periapses stay smooth. A patch ending
+ * at the top of the air goes on to the ground in rows tagged -1 - patch. */
 static void m_trajectory_points(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	if (!ok_vessel(h, a[0].i)) {
@@ -975,7 +976,7 @@ static void m_trajectory_points(void *self, const trs_val *a, trs_val *r) {
 	int max = (int)a[2].i < 32 ? (int)a[2].i : 32;
 	int n = vessel_trajectory(h, (int)a[0].i, &a[1], max, a[3].f, patches);
 	int samples = (int)a[4].i < 8 ? 8 : (int)a[4].i > 2048 ? 2048 : (int)a[4].i;
-	double *d = malloc(sizeof(double) * (size_t)(n * (samples + 1) * 5 + 1));
+	double *d = malloc(sizeof(double) * (size_t)(n * (samples + samples / 2 + 2) * 5 + 1));
 	int k = 0;
 	for (int pi = 0; pi < n; pi++) {
 		trs_patch *p = &patches[pi];
@@ -1001,6 +1002,29 @@ static void m_trajectory_points(void *self, const trs_val *a, trs_val *r) {
 			double *row = d + (size_t)k * 5;
 			row[0] = pi, row[1] = t, row[2] = pos.x, row[3] = pos.y, row[4] = pos.z;
 			k++;
+		}
+		/* a path that dives into the air carries on, drag-free, to the
+		 * ground: rows tagged -1 - patch (the air will shorten it) */
+		if (p->end == TRS_PATCH_END_ATMOSPHERE) {
+			const trs_body *b = &h->world->sys.bodies[p->body];
+			double ts = trs_orbit_next_inbound_crossing(o, p->t1, b->radius);
+			if (isfinite(ts)) {
+				double a0 = trs_orbit_true_anomaly_at(o, p->t1), a1 = trs_orbit_true_anomaly_at(o, ts);
+				double sp = a1 - a0;
+				if (trs_orbit_is_closed(o))
+					sp = trs_wrap_tau(sp);
+				int ns = samples / 2;
+				for (int s = 0; s <= ns && sp > 0; s++) {
+					double nu = a0 + sp * s / ns;
+					trs_v3 pos = trs_orbit_position_at_true(o, nu);
+					double t = s == 0 ? p->t1 : trs_orbit_time_at_true(o, p->t1, nu);
+					if (!isfinite(t) || t > ts)
+						t = ts;
+					double *row = d + (size_t)k * 5;
+					row[0] = -1 - pi, row[1] = t, row[2] = pos.x, row[3] = pos.y, row[4] = pos.z;
+					k++;
+				}
+			}
 		}
 	}
 	ret_doubles(r, d, (int64_t)k * 5);

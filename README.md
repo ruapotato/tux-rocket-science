@@ -50,6 +50,16 @@ run out, and **IJKL / H N** slide the craft for docking and fine trims. Every RC
 every mono tank on the vessel. The hangar shows the blocks, the mono and how much Δv a pure slide
 gets from it.
 
+**Time warp**: above the air with the engines idle, warp runs on rails up to 100000x. Nothing
+burns on rails, so throttling up drops straight back to normal time and the engine really fires.
+Slowing down is always allowed. Diving toward the ground (or the top of the air), the warp eases
+itself down a level at a time and always keeps at least 15 s of real time before you'd hit. A
+flyby whose low point safely clears the surface isn't slowed. On the map, a path that dips into
+the air carries on in dim red to where it would hit the ground without drag.
+
+The staging list's **+ new stage** opens an empty stage card: drag part chips (or a whole stage)
+onto it.
+
 **Steering** comes from three places. Reaction wheels in pods and probe cores work anywhere.
 **Flipper Fins** steer only in air: the white flap on each fin's trailing edge swings with the
 stick, and the faster and lower you fly, the harder they bite. Fins further aft turn the rocket

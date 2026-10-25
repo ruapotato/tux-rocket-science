@@ -66,7 +66,9 @@ double trs_orbit_next_apoapsis(const trs_orbit *o, double t);
 double trs_orbit_next_outbound_crossing(const trs_orbit *o, double t, double radius);
 
 /* Next time after t at which |r| crosses `radius` going inward. Returns t
- * when already inside, INFINITY when the orbit never gets that low. */
+ * when already inside and falling (or never getting out), the fall back in
+ * when inside and climbing out, INFINITY when the orbit never gets that
+ * low. */
 double trs_orbit_next_inbound_crossing(const trs_orbit *o, double t, double radius);
 /* Speed at periapsis: the maximum speed anywhere on the conic. */
 double trs_orbit_max_speed(const trs_orbit *o);

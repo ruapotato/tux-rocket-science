@@ -40,7 +40,7 @@ func run(runner: Node) -> Dictionary:
 	flight._cam_dist = 14.0
 	flight._cam_pitch = 0.2
 	s.set_sas("surface_retrograde")
-	for i in 600:
+	for i in 1500:
 		s.step_ticks(1)
 		await tree.process_frame
 		if flight._reentry and flight._reentry.level > 0.7:
@@ -48,4 +48,27 @@ func run(runner: Node) -> Dictionary:
 	await RenderingServer.frame_post_draw
 	tree.root.get_texture().get_image().save_png("user://dev_shots/reentry.png")
 	var t := s.telemetry()
-	return {"status": "PASS", "log": "alt %.0f speed %.0f level %.2f" % [t.altitude, t.surface_speed, flight._reentry.level if flight._reentry else -1.0]}
+	var log := "capsule: alt %.0f speed %.0f level %.2f" % [t.altitude, t.surface_speed, flight._reentry.level if flight._reentry else -1.0]
+	# a rocket with side boosters diving nose first: every cone meets the air
+	var craft := FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "sidecar.craft.json")
+	core.vessel_remove(s.active)
+	state = PackedFloat64Array([R - 10000.0, 0, 0, 2600.0 * sin(ang), 2600.0 * cos(ang), 0])
+	s.active = core.flight_spawn_state(craft, "floe", state)
+	flight._clear_views()
+	flight._front_ids = []
+	flight._cam_dist = 40.0
+	flight._cam_pitch = 0.35
+	flight._cam_yaw = 2.2
+	s.set_sas("surface_prograde")
+	for i in 150:
+		s.step_ticks(1)
+		await tree.process_frame
+	await RenderingServer.frame_post_draw
+	tree.root.get_texture().get_image().save_png("user://dev_shots/reentry_sidecar.png")
+	var air := Frame.vec_arr(s.telemetry().surface_velocity)
+	var wf: Dictionary = flight._windward_fronts(-air.normalized())
+	var shielded := 0
+	for uid in wf.exposure:
+		shielded += 1 if wf.exposure[uid] == 0.0 else 0
+	log += "\nsidecar: level %.2f, %d tips stream trails, %d of %d parts shielded" % [flight._reentry.level, wf.fronts.size(), shielded, wf.exposure.size()]
+	return {"status": "PASS" if wf.fronts.size() >= 3 else "FAIL", "log": log}

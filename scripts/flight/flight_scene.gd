@@ -31,6 +31,7 @@ var _cam_yaw := 0.4
 var _cam_pitch := 0.08
 var _cam_dist := 30.0
 const CAM_CLEARANCE := 2.5  # m the camera keeps above the ground
+const CAM_MAX_DIST := 1000.0  # m: further out a rocket is a speck (the map shows the big picture)
 const LOW_WARP_ALT := 3000.0  # m above the ground where a descent drops out of warp
 var _was_in_air := true
 var _was_low := false
@@ -87,7 +88,7 @@ func _ready() -> void:
 		cs.attach(session)
 	_build()
 	_assign_crew()
-	_cam_dist = 18.0 + _craft_height() * 1.2
+	_cam_dist = minf(CAM_MAX_DIST, 18.0 + _craft_height() * 1.2)
 	if persistent:
 		Sim.save_game()
 	if Sim.tutorial:
@@ -234,11 +235,14 @@ func _leave() -> void:
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
-## The point of the active vessel furthest into the oncoming air, and the
-## radius of the hull around it there: where a bow shock would sit. A rocket
-## coming in nose first glows at the nose, one tumbling sideways along its
-## side. flow: the direction the air moves past the vessel (render space).
-func _windward_front(flow: Vector3) -> Array:
+## Where the active vessel meets the oncoming air. Each part's leading
+## point (its cylinder's furthest reach into the air) counts as exposed
+## unless another part sits in front of it, covering it: a nose meets the
+## air first and shields the tanks behind it, while a side booster's cone
+## stands out in the stream on its own. Returns {"fronts": [[point,
+## radius], ...] exposed tips, most windward first, "exposure": {uid: 0 or
+## 1}}. flow: the direction the air moves past the vessel (render space).
+func _windward_fronts(flow: Vector3) -> Dictionary:
 	var r: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
 	var n := r.size() / VesselView.RPP
 	if _front_ids.size() != n:
@@ -246,31 +250,50 @@ func _windward_front(flow: Vector3) -> Array:
 		var ids: Array = JSON.parse_string(session.core.vessel_parts(session.active))
 		for d in ids:
 			var sh: Dictionary = Sim.part(d.part).get("shape", {})
-			var rad: float = sh.get("radius", sh.get("radius_bottom", 0.5))
+			var rad: float = sh.get("radius", sh.get("radius_bottom", 0.5 if sh.get("type", "") != "fin" else 0.05))
 			_front_ids.append([rad, CraftModel.part_height(d.part) * 0.5])
 	var into := -flow
-	var lead := -INF
-	var at := Vector3.ZERO
+	var pos := []
+	var reach := []
+	var side := []  # how far each part spreads across the flow
 	for k in n:
 		var p := Frame.vec(r, k * VesselView.RPP + 1)
 		var axis := Frame.local_basis(r, k * VesselView.RPP + 4) * Vector3.UP
 		var rad: float = _front_ids[k][0]
 		var hh: float = _front_ids[k][1]
-		# furthest point of the part's cylinder along `into`
 		var c := absf(axis.dot(into))
-		var reach := hh * c + rad * sqrt(maxf(0.0, 1.0 - c * c))
-		var d := p.dot(into) + reach
-		if d > lead:
-			lead = d
-			at = p + into * reach
-	# the hull's width just behind that point
-	var width := 0.6
+		var s := sqrt(maxf(0.0, 1.0 - c * c))
+		pos.append(p)
+		reach.append(hh * c + rad * s)
+		side.append(maxf(rad, hh * s))
+	var fronts := []
+	var exposure := {}
 	for k in n:
-		var p := Frame.vec(r, k * VesselView.RPP + 1)
-		if lead - p.dot(into) < 2.0 * maxf(_front_ids[k][0], _front_ids[k][1]) + 0.5:
-			var off := (p - at) - into * (p - at).dot(into)
-			width = maxf(width, off.length() + _front_ids[k][0])
-	return [at, width]
+		var f: Vector3 = pos[k] + into * float(reach[k])
+		var covered := false
+		for j in n:
+			if j == k:
+				continue
+			var rel: Vector3 = f - pos[j]
+			var ahead: float = -rel.dot(into) + float(reach[j])  # j's front beyond f
+			if ahead > 0.02 and (rel - into * rel.dot(into)).length() < float(side[j]) * 0.95:
+				covered = true
+				break
+		exposure[int(r[k * VesselView.RPP])] = 0.0 if covered else 1.0
+		if not covered and float(_front_ids[k][0]) >= 0.2:
+			fronts.append([f.dot(into), f, float(_front_ids[k][0])])
+	fronts.sort_custom(func(a, b): return a[0] > b[0])
+	# one trail per tip: drop tips within a hull radius of a stronger one
+	var out := []
+	for fr in fronts:
+		var near := false
+		for o in out:
+			if (o[0] as Vector3).distance_to(fr[1]) < maxf(o[1], fr[2]):
+				near = true
+				break
+		if not near:
+			out.append([fr[1], fr[2]])
+	return {"fronts": out, "exposure": exposure}
 
 
 func _craft_height() -> float:
@@ -402,7 +425,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			_cam_dist = maxf(4.0, _cam_dist * 0.9)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_cam_dist = minf(5.0e4, _cam_dist * 1.1)
+			_cam_dist = minf(CAM_MAX_DIST, _cam_dist * 1.1)
 	elif event is InputEventMouseMotion and _orbiting:
 		var mm := event as InputEventMouseMotion
 		_cam_yaw += mm.relative.x * 0.008
@@ -718,17 +741,28 @@ func _on_sim_event(e: Dictionary) -> void:
 				else:
 					hud.toast("Touchdown! The crew is doing a little waddle.", 3.5)
 		"warp_stopped":
-			hud.toast("Warp stopped: %s ahead" % e.reason, 2.5)
+			if e.reason == "engines firing":
+				hud.toast("Warp stopped: engines firing (they only burn at normal time or physics warp)", 3.0)
+			else:
+				hud.toast("Warp stopped: %s ahead" % e.reason, 2.5)
+		"warp_eased":
+			hud.toast("Warp eased to %dx: closing on %s" % [int(e.rate), String(session.telemetry().get("body", "the ground")).capitalize()], 2.0)
 
 
 # ---- frame -------------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	if hud.menu_visible():
+		Sfx.silence_beds()  # paused: the engines and wind go quiet too
 		return
 	_controls(delta)
 	session.advance(delta)
 	_render(delta)
+
+
+## Leaving flight (hangar, menu, revert) takes its engine roar with it.
+func _exit_tree() -> void:
+	Sfx.silence_beds()
 
 
 func _controls(delta: float) -> void:
@@ -986,8 +1020,12 @@ func _render(delta: float) -> void:
 		_reentry = ReentryFX.new()
 		add_child(_reentry)
 	var air := Frame.vec_arr(t.surface_velocity)
-	var front := _windward_front(-air.normalized() if air.length() > 1.0 else Vector3.DOWN)
-	_reentry.update_fx(air, t.density, front[0], front[1], delta)
+	var wf := {"fronts": [], "exposure": {}}
+	if t.density > 0.0 or _reentry.level > 0.0:
+		wf = _windward_fronts(-air.normalized() if air.length() > 1.0 else Vector3.DOWN)
+	_reentry.update_fx(air, t.density, wf.fronts, delta)
+	for id in _views:
+		_views[id].set_sheath(wf.exposure if id == session.active and _reentry.visible else {})
 	Sfx.wind_level = maxf(Sfx.wind_level, _reentry.level)
 	var hint := ""
 	var no_tank := _no_tank(t)

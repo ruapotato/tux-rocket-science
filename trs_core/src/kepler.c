@@ -286,8 +286,12 @@ double trs_orbit_next_inbound_crossing(const trs_orbit *o, double t, double radi
 		return INFINITY;
 	trs_v3 r, v;
 	trs_orbit_state_at(o, t, &r, &v);
-	if (v3_len(r) <= radius)
-		return t;
+	if (v3_len(r) <= radius) {
+		/* already inside: on the way down that's now; climbing out, it's
+		 * the fall back in after apoapsis (if it gets out at all) */
+		if (v3_dot(r, v) <= 0 || (o->alpha > 0 && o->p / (1 - o->e) <= radius))
+			return t;
+	}
 	double cnu = (o->p / radius - 1) / o->e;
 	cnu = fmax(-1.0, fmin(1.0, cnu));
 	double nu = -acos(cnu); /* inbound branch */
