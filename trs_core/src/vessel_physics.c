@@ -568,13 +568,18 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
 #define SAS_KP 4.0
 #define SAS_KR 15.0
 
+/* a fin's torque per newton along its plate normal (local X), craft frame */
+static trs_v3 fin_lever(const trs_craft *c, const trs_vessel *vs, int i) {
+	return v3_cross(v3_sub(c->parts[i].pos, vs->cm), quat_rotate(c->parts[i].rot, v3(1, 0, 0)));
+}
+
 static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimbal_authority) {
 	if (vs->sas >= TRS_SAS_PROGRADE) {
 		trs_v3 d = trs_sas_direction(world, (int)(vs - world->vessels), vs->sas);
 		if (v3_len2(d) > 0.5)
 			vs->sas_target = d;
 	}
-	const trs_craft *c = vs->craft;
+	trs_craft *c = vs->craft;
 	double wheel = 0;
 	for (int i = 0; i < c->count; i++)
 		wheel += trs_craft_def(c, i)->torque;
@@ -582,16 +587,20 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	 * along its normal at its arm, so a rocket with more (and further aft)
 	 * fins answers the controls better, and none of it works in vacuum */
 	double fin[3] = { 0, 0, 0 };
+	double air_from_nose = 1; /* +1 air meets the nose, -1 flying tail first */
+	for (int i = 0; i < c->count; i++)
+		c->parts[i].fin_flap = 0;
 	if (vs->density > 0) {
 		const trs_body *b = &world->sys.bodies[vs->body];
 		trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
 		double q = 0.5 * vs->density * v3_len2(vair);
+		air_from_nose = v3_dot(vair, quat_rotate(vs->q, v3(0, 1, 0))) < 0 ? -1 : 1;
 		for (int i = 0; i < c->count; i++) {
 			const trs_part_def *d = trs_craft_def(c, i);
 			if (!d->plate || d->fin_deflect <= 0)
 				continue;
 			double f = q * d->area_side * d->lift_slope * sin(d->fin_deflect);
-			trs_v3 tq = v3_cross(v3_sub(c->parts[i].pos, vs->cm), quat_rotate(c->parts[i].rot, v3(1, 0, 0)));
+			trs_v3 tq = fin_lever(c, vs, i);
 			fin[0] += f * fabs(tq.x), fin[1] += f * fabs(tq.y), fin[2] += f * fabs(tq.z);
 		}
 	}
@@ -650,12 +659,40 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	}
 	(void)Iw;
 	double o[3] = { own.x, own.y, own.z }, ra[3] = { rcs_a.x, rcs_a.y, rcs_a.z }, cm[3] = { cmd.x, cmd.y, cmd.z }, u[3];
+	double fs[3] = { 0, 0, 0 };
 	for (int k = 0; k < 3; k++) {
 		double base = clampd(cm[k], -o[k], o[k]);
 		u[k] = ra[k] > 0 ? clampd((cm[k] - base) / ra[k], -1, 1) : 0;
 		cm[k] = base;
+		fs[k] = o[k] > 0 ? base / o[k] : 0; /* fins carry their share of it */
 	}
 	vs->rcs_rot = v3(u[0], u[1], u[2]);
+	if (fin[0] + fin[1] + fin[2] > 0) {
+		/* each fin swings its flap by the axes it can help with; what they
+		 * really push (cross-talk, saturation and all) replaces their share */
+		const trs_body *b = &world->sys.bodies[vs->body];
+		trs_v3 vair = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
+		double q = 0.5 * vs->density * v3_len2(vair);
+		trs_v3 got = v3(0, 0, 0);
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (!d->plate || d->fin_deflect <= 0)
+				continue;
+			trs_v3 tq = fin_lever(c, vs, i);
+			double tl = v3_len(tq), a[3] = { tq.x, tq.y, tq.z }, ui = 0;
+			for (int k = 0; k < 3; k++)
+				if (fabs(a[k]) > 1e-9 * tl)
+					ui += a[k] > 0 ? fs[k] : -fs[k];
+			ui = clampd(ui, -1, 1);
+			double sd = ui * sin(d->fin_deflect);
+			got = v3_madd(got, tq, q * d->area_side * d->lift_slope * sd);
+			/* force along +X wants the trailing edge toward -X into the airflow */
+			c->parts[i].fin_flap = -air_from_nose * asin(sd);
+		}
+		cm[0] += got.x - fs[0] * fin[0];
+		cm[1] += got.y - fs[1] * fin[1];
+		cm[2] += got.z - fs[2] * fin[2];
+	}
 	return v3(cm[0], cm[1], cm[2]);
 }
 

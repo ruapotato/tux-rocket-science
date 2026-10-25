@@ -1530,3 +1530,139 @@ trs_gate_status trs_gate_docking(trs_log *log, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* ---- test-fins: control flaps steer in air, only in air ------------------------ */
+
+/* probe core over a small tank with four fins round its bottom (0, 90, 180,
+ * 270 degrees) */
+static void fin_craft(trs_craft *c, const trs_part_catalog *cat) {
+	trs_craft_init(c, cat);
+	int pc = trs_craft_add(c, trs_catalog_find(cat, "probe_core"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	int tk = stack_below(c, cat, pc, "tank_m", -1);
+	int fi = trs_catalog_find(cat, "fin");
+	double R = trs_craft_def(c, tk)->radius;
+	trs_v3 bot = v3_add(c->parts[tk].pos, trs_part_node(trs_craft_def(c, tk), "bottom")->pos);
+	for (int k = 0; k < 4; k++) {
+		trs_quat q = quat_axis_angle(v3(0, 1, 0), k * TRS_PI / 2);
+		trs_v3 out = quat_rotate(q, v3(0, 0, 1));
+		trs_craft_add(c, fi, tk, "", "", v3(out.x * R, bot.y + 0.7, out.z * R), q, -1, 1);
+	}
+}
+
+/* the fin craft at alt metres, nose along +Y, moving through the air at
+ * airspeed m/s along the nose (negative: tail first) */
+static int fin_world(trs_world *w, const trs_system *sys, const trs_craft *c, int floe, double alt, double airspeed) {
+	const trs_body *F = &sys->bodies[floe];
+	trs_world_init(w, sys, 0);
+	trs_v3 r = v3(F->radius + alt, 0, 0);
+	trs_v3 v = v3_add(v3_cross(trs_body_omega(F), r), v3(0, airspeed, 0));
+	int id = trs_world_add_craft(w, c, floe, r, v, quat_identity());
+	w->vessels[id].sas = TRS_SAS_OFF;
+	return id;
+}
+
+/* one tick with these stick inputs: body spin rates after it, flap angles */
+static trs_v3 fin_tick(const trs_system *sys, const trs_craft *c, int floe, double alt, double airspeed, trs_v3 input,
+		double flap[4], double *density, double *Ixx, double *Iyy) {
+	trs_world *w = malloc(sizeof(trs_world));
+	int id = fin_world(w, sys, c, floe, alt, airspeed);
+	w->vessels[id].input = input;
+	*Ixx = w->vessels[id].inertia.m[0][0];
+	*Iyy = w->vessels[id].inertia.m[1][1];
+	trs_world_step_physics(w);
+	trs_vessel *vs = &w->vessels[id];
+	trs_v3 om = quat_rotate(quat_conj(vs->q), vs->w);
+	for (int k = 0, n = 0; k < vs->craft->count; k++)
+		if (trs_craft_def(vs->craft, k)->plate && n < 4)
+			flap[n++] = vs->craft->parts[k].fin_flap;
+	*density = vs->density;
+	trs_world_free(w);
+	free(w);
+	return om;
+}
+
+trs_gate_status trs_gate_fins(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	int failed = 0;
+	trs_craft c;
+	fin_craft(&c, &cat);
+	const trs_part_def *fd = &cat.defs[trs_catalog_find(&cat, "fin")];
+	double dmax = fd->fin_deflect, h = 1.0 / 50.0, wheel = cat.defs[trs_catalog_find(&cat, "probe_core")].torque;
+	double alt = 3000, spd = 150;
+	/* the four fins' pitch and roll levers, measured from the craft's CoM */
+	double m, lx[4], ly[4];
+	trs_v3 cm;
+	trs_craft_mass_props(&c, &m, &cm, NULL);
+	for (int k = 0, n = 0; k < c.count; k++)
+		if (trs_craft_def(&c, k)->plate) {
+			trs_v3 tq = v3_cross(v3_sub(c.parts[k].pos, cm), quat_rotate(c.parts[k].rot, v3(1, 0, 0)));
+			lx[n] = tq.x, ly[n] = tq.y, n++;
+		}
+	double fl0[4], fl[4], fl_back[4], fl_roll[4], fl_vac[4], rho, rho_vac, Ixx, Iyy;
+	trs_v3 om0 = fin_tick(&sys, &c, floe, alt, spd, v3(0, 0, 0), fl0, &rho, &Ixx, &Iyy);
+	trs_v3 om = fin_tick(&sys, &c, floe, alt, spd, v3(1, 0, 0), fl, &rho, &Ixx, &Iyy);
+
+	/* 1. full pitch in the air: the two fins with a pitch lever swing their
+	 *    flaps all the way, opposite ways, the other two stay put, and the
+	 *    craft turns by the wheel plus q S CNa sin(deflection) per fin-lever */
+	{
+		double q = 0.5 * rho * spd * spd, f = q * fd->area_side * fd->lift_slope * sin(dmax), want = wheel;
+		int flaps_ok = 1;
+		for (int n = 0; n < 4; n++) {
+			want += f * fabs(lx[n]);
+			if (fabs(lx[n]) > 1e-6)
+				flaps_ok &= fabs(fabs(fl[n]) - dmax) < 1e-12 && fl[n] * lx[n] < 0;
+			else
+				flaps_ok &= fabs(fl[n]) < 1e-12;
+		}
+		double got = Ixx * (om.x - om0.x) / h;
+		int idle = fabs(fl0[0]) + fabs(fl0[1]) + fabs(fl0[2]) + fabs(fl0[3]) < 1e-12;
+		int ok = flaps_ok && idle && fabs(got / want - 1) < 1e-3;
+		failed += !ok;
+		trs_log_printf(log, "%s full pitch at %.0f m/s, %.0f m (q %.2f kPa): flaps %+.1f %+.1f %+.1f %+.1f deg (stick centred: all 0 %s), torque %.0f N m (wheel %.0f + fins %.0f = %.0f)\n",
+				ok ? "ok  " : "FAIL", spd, alt, q / 1000, fl[0] * 180 / TRS_PI, fl[1] * 180 / TRS_PI, fl[2] * 180 / TRS_PI, fl[3] * 180 / TRS_PI,
+				idle ? "yes" : "no", got, wheel, want - wheel, want);
+	}
+	/* 2. flying tail first, the same push needs every flap the other way */
+	{
+		fin_tick(&sys, &c, floe, alt, -spd, v3(1, 0, 0), fl_back, &rho, &Ixx, &Iyy);
+		int ok = 1;
+		for (int n = 0; n < 4; n++)
+			ok &= fabs(fl_back[n] + fl[n]) < 1e-12;
+		failed += !ok;
+		trs_log_printf(log, "%s tail first: flaps %+.1f %+.1f %+.1f %+.1f deg (mirror of nose first)\n", ok ? "ok  " : "FAIL",
+				fl_back[0] * 180 / TRS_PI, fl_back[1] * 180 / TRS_PI, fl_back[2] * 180 / TRS_PI, fl_back[3] * 180 / TRS_PI);
+	}
+	/* 3. roll: all four flaps swing the same way round the rocket */
+	{
+		trs_v3 r0 = fin_tick(&sys, &c, floe, alt, spd, v3(0, 0, 1), fl_roll, &rho, &Ixx, &Iyy);
+		double q = 0.5 * rho * spd * spd, f = q * fd->area_side * fd->lift_slope * sin(dmax), want = wheel;
+		int ok = 1;
+		for (int n = 0; n < 4; n++) {
+			want += f * fabs(ly[n]);
+			ok &= fabs(fabs(fl_roll[n]) - dmax) < 1e-12 && fl_roll[n] * ly[n] * (r0.y > 0 ? 1 : -1) < 0;
+		}
+		double got = Iyy * (r0.y - om0.y) / h;
+		ok &= fabs(fabs(got) / want - 1) < 1e-3;
+		failed += !ok;
+		trs_log_printf(log, "%s full roll: flaps %+.1f %+.1f %+.1f %+.1f deg, torque %.0f N m (wheel %.0f + fins %.0f)\n", ok ? "ok  " : "FAIL",
+				fl_roll[0] * 180 / TRS_PI, fl_roll[1] * 180 / TRS_PI, fl_roll[2] * 180 / TRS_PI, fl_roll[3] * 180 / TRS_PI, fabs(got), wheel, want - wheel);
+	}
+	/* 4. in vacuum the fins do nothing: only the wheel turns the craft */
+	{
+		double I2, I3;
+		trs_v3 v0 = fin_tick(&sys, &c, floe, 200000, spd, v3(0, 0, 0), fl_vac, &rho_vac, &I2, &I3);
+		trs_v3 v1 = fin_tick(&sys, &c, floe, 200000, spd, v3(1, 0, 0), fl_vac, &rho_vac, &I2, &I3);
+		double got = I2 * (v1.x - v0.x) / h;
+		int ok = rho_vac == 0 && fabs(got / wheel - 1) < 1e-6 && fabs(fl_vac[0]) + fabs(fl_vac[1]) + fabs(fl_vac[2]) + fabs(fl_vac[3]) == 0;
+		failed += !ok;
+		trs_log_printf(log, "%s vacuum (200 km): torque %.1f N m = wheel %.0f, flaps still\n", ok ? "ok  " : "FAIL", got, wheel);
+	}
+	trs_craft_free(&c);
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

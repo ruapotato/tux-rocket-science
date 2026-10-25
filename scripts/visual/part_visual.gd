@@ -637,14 +637,41 @@ static func _hose(root: Node3D, sh: Dictionary) -> void:
 
 
 static func _fin(root: Node3D, sh: Dictionary) -> void:
-	# swept trapezoid in the local YZ plane: root chord along Y at z=0, span +Z
+	# swept trapezoid in the local YZ plane: root chord along Y at z=0, span +Z;
+	# the aft strip is a flap hinged along Z ("Flap"), swung by the controls
 	var span: float = sh.span
 	var rc: float = sh.root
 	var tc: float = sh.tip
 	var t: float = sh.thickness * 0.5
+	var flap := minf(0.3 * rc, 0.6 * tc)
+	var hinge := -rc * 0.5 + flap
+	var fm := mat("fin", ORANGE, 0.1, 0.45)
+	var panel := [Vector3(0, rc * 0.5, 0), Vector3(0, hinge, 0), Vector3(0, hinge, span), Vector3(0, -rc * 0.5 + tc, span)]
+	var mi := _mesh(root, _plate(panel, t), fm)
+	mi.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var pivot := Node3D.new()
+	pivot.name = "Flap"
+	pivot.position = Vector3(0, hinge, 0)
+	root.add_child(pivot)
+	var strip := [Vector3(0, -0.01, 0.04), Vector3(0, -flap, 0.04), Vector3(0, -flap, span - 0.02), Vector3(0, -0.01, span - 0.02)]
+	var fl := _mesh(pivot, _plate(strip, t * 0.8), mat("flap", WHITE, 0.1, 0.5))
+	fl.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var rod := CylinderMesh.new()
+	rod.top_radius = t * 0.9
+	rod.bottom_radius = t * 0.9
+	rod.height = span
+	rod.radial_segments = 8
+	_mesh(pivot, rod, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, span * 0.5)))
+	# root fillet
+	var base := BoxMesh.new()
+	base.size = Vector3(t * 4.0, rc * 1.02, 0.06)
+	_mesh(root, base, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.03)))
+
+
+## A flat convex quad in the YZ plane (corners in order), t thick each side.
+static func _plate(p: Array, t: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var p := [Vector3(0, rc * 0.5, 0), Vector3(0, -rc * 0.5, 0), Vector3(0, -rc * 0.5, span), Vector3(0, -rc * 0.5 + tc, span)]
 	for side in [-1.0, 1.0]:
 		var o := Vector3(t * side, 0, 0)
 		var tri := [p[0], p[1], p[2], p[0], p[2], p[3]] if side > 0 else [p[0], p[2], p[1], p[0], p[3], p[2]]
@@ -658,12 +685,7 @@ static func _fin(root: Node3D, sh: Dictionary) -> void:
 		for v in [a + Vector3(t, 0, 0), b + Vector3(t, 0, 0), b - Vector3(t, 0, 0), a + Vector3(t, 0, 0), b - Vector3(t, 0, 0), a - Vector3(t, 0, 0)]:
 			st.set_normal(n)
 			st.add_vertex(v)
-	var mi := _mesh(root, st.commit(), mat("fin", ORANGE, 0.1, 0.45))
-	mi.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# root fillet
-	var base := BoxMesh.new()
-	base.size = Vector3(t * 4.0, rc * 1.02, 0.06)
-	_mesh(root, base, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.03)))
+	return st.commit()
 
 
 static func _leg(root: Node3D, d: Dictionary) -> void:

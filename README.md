@@ -50,6 +50,12 @@ run out, and **IJKL / H N** slide the craft for docking and fine trims. Every RC
 every mono tank on the vessel. The hangar shows the blocks, the mono and how much Δv a pure slide
 gets from it.
 
+**Steering** comes from three places. Reaction wheels in pods and probe cores work anywhere.
+**Flipper Fins** steer only in air: the white flap on each fin's trailing edge swings with the
+stick, and the faster and lower you fly, the harder they bite. Fins further aft turn the rocket
+more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono. Engine gimbal
+helps whenever an engine burns.
+
 Boosters go on a **Calving Radial Decoupler**: put the decoupler on the core's flank, then click
 its orange node with a tank, engine or solid booster and it hangs upright beside the core
 (**Q/E** turns it about its own axis). Parts come in two widths: the 1.25 m line and the wide
