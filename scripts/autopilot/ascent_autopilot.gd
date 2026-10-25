@@ -75,8 +75,14 @@ func step(dt: float) -> bool:
 	if phase != "liftoff" and phase != "done" and _stage_cooldown <= 0.0 and t.next_stage >= 0 and t.throttle > 0.0:
 		var stages: Array = t.get("stages", [])
 		var spent: bool = stages.is_empty() or stages[0].dv_vac < 0.5
-		# never drop the crew pod's decoupler while climbing (keep it for reentry)
-		var pod_drop: bool = t.next_stage < keep_stage
+		# never fire a press that only drops things with no engine left to
+		# light after it: that is the crew pod's (or payload's) decoupler,
+		# kept for reentry
+		var lights_later := false
+		for p in t.get("stage_plan", []):
+			if int(p.stage) <= int(t.next_stage) and int(p.engines) > 0:
+				lights_later = true
+		var pod_drop: bool = t.next_stage < keep_stage and not lights_later
 		if spent and not pod_drop:
 			api.handle({"cmd": "stage"})
 			_note(t, "stage -> %d" % (t.next_stage - 1))

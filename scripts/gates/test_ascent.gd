@@ -26,7 +26,7 @@ func run(_runner: Node) -> Dictionary:
 	var ok := true
 	# the Sidecar flies its side tanks dry through feed lines on the way up;
 	# the Rookery Heavy lifts on a wide tank and three engines on a mount
-	for craft in ["orbiter", "sidecar", "rookery_heavy"]:
+	for craft in ["orbiter", "sidecar", "rookery_heavy", "puffin_ferry", "igloo_station"]:
 		var r := _fly(craft)
 		ok = ok and r.status == "PASS"
 		logs.append("%s %s\n%s" % [craft, r.status, r.log])

@@ -38,6 +38,17 @@ def node(pid, name):
     raise KeyError(f"{pid}.{name}")
 
 
+def surface_offset(pid):
+    """How far a surface-attached part's origin stands off the hull (as
+    CraftModel.surface_offset)."""
+    sh = DEFS[pid].get("shape", {})
+    if sh.get("type") in ("fin", "leg", "hose"):
+        return 0.0
+    if sh.get("type") == "pylon":
+        return sh.get("depth", 0.3) * 0.5
+    return sh.get("radius", sh.get("radius_bottom", 0.5))
+
+
 def yrot(deg):
     a = math.radians(deg) / 2
     return [0.0, round(math.sin(a), 15), 0.0, round(math.cos(a), 15)]
@@ -68,9 +79,12 @@ class Craft:
         pos = [pp[i] + pt[i] - cb[i] for i in range(3)]
         return self.add(pid, parent, "bottom", "top", pos, stage=stage)
 
-    def radial(self, parent, pid, count, y, offset_deg=0, stage=-1, outward=0.0):
-        """Surface-attach `count` copies around parent at height y (symmetry)."""
+    def radial(self, parent, pid, count, y, offset_deg=0, stage=-1, outward=None):
+        """Surface-attach `count` copies around parent at height y (symmetry),
+        standing off the hull as the hangar places them."""
         self.sym += 1
+        if outward is None:
+            outward = surface_offset(pid)
         r = DEFS[self.parts[parent]["part"]]["shape"].get("radius", 0.625) + outward
         out = []
         pp = self.parts[parent]["pos"]
@@ -229,7 +243,45 @@ def heavy():
     c.save("rookery_heavy.craft.json")
 
 
+def ferry():
+    c = Craft("Puffin Ferry", "A crew taxi for docking: port on the nose, RCS on the service module, side chutes. Y targets the station, DOCK lines the ports up, RCS (R, IJKL HN) does the rest. Drop the service module before coming home shield first.")
+    pod = c.add("pod_1")
+    c.above(pod, "dock_port")
+    c.radial(pod, "parachute", 2, 0.0, 90)
+    hs = c.below(pod, "heat_shield")
+    d0 = c.below(hs, "decoupler_stack", stage=0)
+    mt = c.below(d0, "mono_tank")
+    c.radial(mt, "rcs_block", 4, 0.0, 45)
+    t2 = c.below(mt, "tank_m")
+    e2 = c.below(t2, "engine_vac", stage=1)
+    d1 = c.below(e2, "decoupler_stack", stage=2)
+    t1a = c.below(d1, "tank_l")
+    t1b = c.below(t1a, "tank_l")
+    c.below(t1b, "engine_lifter", stage=3)
+    c.radial(t1b, "fin", 3, -1.2)
+    c.save("puffin_ferry.craft.json")
+
+
+def station():
+    c = Craft("Igloo Station", "An uncrewed core to dock with: a port on top, RCS and spare mono, and the upper stage stays on as its tank. Launch it first, then fly a Puffin Ferry up to meet it.")
+    core = c.add("probe_core")
+    c.above(core, "dock_port")
+    mt = c.below(core, "mono_tank")
+    c.radial(mt, "rcs_block", 4, 0.0, 45)
+    c.radial(mt, "mono_radial", 2, 0.0, 0)
+    t2 = c.below(mt, "tank_m")
+    e2 = c.below(t2, "engine_vac", stage=0)
+    d1 = c.below(e2, "decoupler_stack", stage=1)
+    t1a = c.below(d1, "tank_l")
+    t1b = c.below(t1a, "tank_m")
+    c.below(t1b, "engine_lifter", stage=2)
+    c.radial(t1b, "fin", 3, -0.6)
+    c.save("igloo_station.craft.json")
+
+
 if __name__ == "__main__":
+    ferry()
+    station()
     hopper()
     orbiter()
     lander()

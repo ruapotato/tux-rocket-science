@@ -28,8 +28,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *STOCK_CRAFT[] = { "hopper", "orbiter", "krill_lander", "rookery_heavy", "sidecar" };
-#define NSTOCK 5
+static const char *STOCK_CRAFT[] = { "hopper", "orbiter", "krill_lander", "rookery_heavy", "puffin_ferry", "igloo_station", "sidecar" };
+#define NSTOCK 7
 
 int trs_gate_load_catalog(trs_log *log, const char *data_dir, trs_part_catalog *cat) {
 	char path[1024], err[256];

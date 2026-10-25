@@ -34,6 +34,8 @@ well the ports line up; the PORT line turns green when they would latch. SAS **D
 port at theirs, **RV-** points against your relative speed (burn to stop), and RCS slides you
 onto the line. Ports latch when they meet within 10° of face to face, closing at under 0.8 m/s.
 The two craft become one: fuel flows across, crew stay where they are. **U** pushes them apart.
+To try it, launch the stock **Igloo Station** to orbit, leave it (**Esc → Space Center**), then fly a
+**Puffin Ferry** up to meet it.
 
 **One world**: every launch joins the same saved world. **Esc → Space Center** leaves a craft
 where it is (once it's landed or in space), and the main menu's **Craft in flight** list takes you
