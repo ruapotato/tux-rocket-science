@@ -298,6 +298,8 @@ func _on_action(a: String) -> void:
 			_deploy_chutes()
 		"legs":
 			_toggle_legs()
+		"rcs":
+			_toggle_rcs()
 
 
 # ---- input --------------------------------------------------------------------
@@ -341,6 +343,8 @@ func _key(k: InputEventKey) -> void:
 			_deploy_chutes()
 		KEY_G:
 			_toggle_legs()
+		KEY_R:
+			_toggle_rcs()
 		KEY_V:
 			hud.speed_mode = "orbit" if hud.speed_mode == "surface" else "surface"
 		KEY_M:
@@ -362,6 +366,21 @@ func _key(k: InputEventKey) -> void:
 			_cycle_vessel(1)
 
 var _legs_down := false
+
+
+## R: arms or disarms the RCS, saying why it won't do anything if so.
+func _toggle_rcs() -> void:
+	var t := session.telemetry()
+	var on: bool = not t.get("rcs", false)
+	session.set_rcs(on)
+	if not on:
+		hud.toast("RCS off", 1.5)
+	elif int(t.get("rcs_blocks", 0)) == 0:
+		hud.toast("RCS on, but this craft has no RCS thrusters", 2.5)
+	elif t.get("mono", 0.0) <= 0.0:
+		hud.toast("RCS on, but there is no monopropellant left", 2.5)
+	else:
+		hud.toast("RCS on: I J K L slide, H N forward / back", 2.5)
 
 
 func _toggle_legs() -> void:
@@ -562,6 +581,13 @@ func _controls(delta: float) -> void:
 	var roll := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
 	var pr := _view_steer(away, right)
 	session.set_input(pr.x, pr.y, roll)
+	# RCS translation, like steering, as you see it: J/L slide left/right
+	# on screen, I/K up/down, H/N along the nose
+	var sl := float(Input.is_key_pressed(KEY_L)) - float(Input.is_key_pressed(KEY_J))
+	var su := float(Input.is_key_pressed(KEY_I)) - float(Input.is_key_pressed(KEY_K))
+	var sf := float(Input.is_key_pressed(KEY_H)) - float(Input.is_key_pressed(KEY_N))
+	var tr := _view_translate(sl, su, sf)
+	session.set_translate(tr.x, tr.y, tr.z)
 	if _sas_maneuver:
 		var nb := _node_burn()
 		if nb.is_empty():
@@ -599,6 +625,25 @@ func _view_steer(away: float, right: float) -> Vector2:
 	a_right /= maxf(a_right.length(), 0.3)
 	var axis := a_away * away + a_right * right
 	return Vector2(clampf(axis.dot(x), -1.0, 1.0), clampf(axis.dot(z), -1.0, 1.0))
+
+
+## Turns screen-relative slide keys into a vessel-local translation: right
+## and up on screen (perpendicular to the nose) plus along the nose.
+func _view_translate(right: float, up: float, fwd: float) -> Vector3:
+	if right == 0.0 and up == 0.0 and fwd == 0.0:
+		return Vector3.ZERO
+	var t := session.telemetry()
+	if not t.get("alive", false) or not t.has("side"):
+		return Vector3.ZERO
+	var n := Frame.vec_arr(t.nose).normalized()
+	var x := Frame.vec_arr(t.side).normalized()
+	var z := x.cross(n)
+	var want := _cam.global_basis.x.normalized() * right + _cam.global_basis.y.normalized() * up
+	want -= n * want.dot(n)
+	if want.length() > 1e-6:
+		want = want.normalized() * maxf(absf(right), absf(up))
+	want += n * fwd
+	return Vector3(clampf(want.dot(x), -1.0, 1.0), clampf(want.dot(n), -1.0, 1.0), clampf(want.dot(z), -1.0, 1.0))
 
 
 ## Drops every vessel visual (the scene is about to show a new situation),

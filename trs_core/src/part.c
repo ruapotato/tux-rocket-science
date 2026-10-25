@@ -48,6 +48,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	}
 	d->fuel_liquid = trs_json_num(j, "fuel_liquid", 0);
 	d->fuel_solid = trs_json_num(j, "fuel_solid", 0);
+	d->fuel_mono = trs_json_num(j, "fuel_mono", 0);
 	d->crew = (int)trs_json_num(j, "crew", 0);
 	d->torque = trs_json_num(j, "torque", 0);
 	d->crash_tolerance = trs_json_num(j, "crash_tolerance", 8);
@@ -62,6 +63,22 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->gimbal = trs_json_num(e, "gimbal_deg", 0) * TRS_PI / 180.0;
 		if (d->thrust_vac <= 0 || d->isp_vac <= 0) {
 			snprintf(err, errlen, "part %s: engine needs thrust_vac and isp_vac", d->id);
+			return 0;
+		}
+	}
+	const trs_json *rc = trs_json_get(j, "rcs");
+	if (rc) {
+		d->rcs_thrust = trs_json_num(rc, "thrust", 0);
+		d->rcs_isp_vac = trs_json_num(rc, "isp_vac", 0);
+		d->rcs_isp_sl = trs_json_num(rc, "isp_sl", d->rcs_isp_vac);
+		const trs_json *nz = trs_json_get(rc, "nozzles");
+		for (size_t k = 0; nz && k < nz->count && k < TRS_MAX_NOZZLES; k++) {
+			const trs_json *n = trs_json_at(nz, k);
+			d->rcs_pos[d->rcs_n] = json_v3(trs_json_get(n, "pos"), v3(0, 0, 0));
+			d->rcs_dir[d->rcs_n++] = v3_norm(json_v3(trs_json_get(n, "dir"), v3(0, 1, 0)));
+		}
+		if (d->rcs_thrust <= 0 || d->rcs_isp_vac <= 0 || d->rcs_n == 0) {
+			snprintf(err, errlen, "part %s: rcs needs thrust, isp_vac and nozzles", d->id);
 			return 0;
 		}
 	}

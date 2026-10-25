@@ -65,6 +65,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	p->stage = stage;
 	p->sym = sym;
 	p->fuel = fuel_capacity(&c->cat->defs[def]);
+	p->mono = c->cat->defs[def].fuel_mono;
 	p->limit = 1;
 	p->temp = TRS_T_AMBIENT;
 	return c->count++;
@@ -178,7 +179,27 @@ double trs_part_mdot(const trs_craft *c, int i) {
 /* ---- mass properties ------------------------------------------------------ */
 
 double trs_craft_part_mass(const trs_craft *c, int i) {
-	return trs_craft_def(c, i)->mass + c->parts[i].fuel;
+	return trs_craft_def(c, i)->mass + c->parts[i].fuel + c->parts[i].mono;
+}
+
+double trs_craft_mono(const trs_craft *c, double *capacity) {
+	double m = 0, cap = 0;
+	for (int i = 0; i < c->count; i++) {
+		m += c->parts[i].mono;
+		cap += trs_craft_def(c, i)->fuel_mono;
+	}
+	if (capacity)
+		*capacity = cap;
+	return m;
+}
+
+void trs_craft_mono_draw(trs_craft *c, double amount) {
+	double m = trs_craft_mono(c, NULL);
+	if (m <= 0)
+		return;
+	double keep = amount >= m * (1 - 1e-12) ? 0 : 1 - amount / m; /* no crumbs left by rounding */
+	for (int i = 0; i < c->count; i++)
+		c->parts[i].mono = keep == 0 ? 0 : c->parts[i].mono * keep;
 }
 
 double trs_craft_mass(const trs_craft *c) {

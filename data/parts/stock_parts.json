@@ -9,6 +9,7 @@
       "description": "One penguin, one window, one very brave decision.",
       "mass": 840,
       "crew": 1,
+      "fuel_mono": 10,
       "torque": 5000,
       "crash_tolerance": 14,
       "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
@@ -27,6 +28,7 @@
       "description": "Three penguins sharing body heat and one snack bag.",
       "mass": 2100,
       "crew": 3,
+      "fuel_mono": 30,
       "torque": 12000,
       "crash_tolerance": 14,
       "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
@@ -45,6 +47,7 @@
       "description": "No penguin aboard: a little brain that steers by itself. For satellites, probes and test flights nobody has to sit through.",
       "mass": 120,
       "torque": 2500,
+      "fuel_mono": 10,
       "crash_tolerance": 10,
       "thermal": { "max_temp": 1000, "skin_heat": 7000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
@@ -415,6 +418,59 @@
         { "name": "bottom", "pos": [0, -0.2, 0], "dir": [0, -1, 0], "radius": 0.625 }
       ],
       "surface_attach": false
+    },
+    {
+      "id": "rcs_block",
+      "name": "Puffer RV-4 RCS Block",
+      "category": "control",
+      "description": "Four little monopropellant jets: up, down and both ways round. Mount them in symmetric sets around the CoM and arm them with R. They steer when the wheels aren't enough, and slide the craft sideways for docking.",
+      "mass": 40,
+      "rcs": {
+        "thrust": 1000, "isp_vac": 240, "isp_sl": 100,
+        "nozzles": [
+          { "pos": [0, 0.13, 0], "dir": [0, 1, 0] },
+          { "pos": [0, -0.13, 0], "dir": [0, -1, 0] },
+          { "pos": [0.13, 0, 0], "dir": [1, 0, 0] },
+          { "pos": [-0.13, 0, 0], "dir": [-1, 0, 0] }
+        ]
+      },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1200, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.02, "area_side": 0.04 },
+      "shape": { "type": "rcs", "radius": 0.08, "height": 0.2 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "mono_radial",
+      "name": "Spritz-80 Radial Mono Tank",
+      "category": "tanks",
+      "description": "A ball of monopropellant for the RCS. Every RCS block on the craft drinks from every mono tank, decouplers or not.",
+      "mass": 25,
+      "fuel_mono": 80,
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 900, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.5, "cd_bottom": 0.5, "cd_side": 0.5 },
+      "shape": { "type": "sphere", "radius": 0.25, "height": 0.5 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "mono_tank",
+      "name": "Spritz-400 Mono Tank",
+      "category": "tanks",
+      "description": "A short 1.25 m drum of monopropellant for RCS-heavy work: docking, fine orbit trims, probes.",
+      "mass": 80,
+      "fuel_mono": 400,
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 900, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 0.5 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.25, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.25, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
     }
   ]
 }

@@ -189,6 +189,70 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 	}
 }
 
+static double clampd(double x, double lo, double hi) {
+	return x < lo ? lo : x > hi ? hi : x;
+}
+
+/* RCS mixer. Each nozzle pushes opposite its exhaust, so it can add to a
+ * turn (its torque about the CoM along the commanded rotation) and to a
+ * slide (its push along the commanded translation); it fires at the sum of
+ * the two shares, clamped to full. Opposite blocks cancel each other's
+ * side effects. rot is per local axis (X pitch, Y roll, Z yaw), tr is the
+ * vessel-local direction to move, both in [-1, 1]. Returns force and
+ * torque (vessel-local) and the monopropellant flow; writes each nozzle's
+ * throttle when `fire` is set. */
+static void rcs_mix(trs_vessel *vs, trs_v3 rot, trs_v3 tr, double pressure, int fire, trs_v3 *force, trs_v3 *torque,
+		double *mdot) {
+	trs_craft *c = vs->craft;
+	trs_v3 F = v3(0, 0, 0), T = v3(0, 0, 0);
+	double md = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		trs_part *p = &c->parts[i];
+		for (int k = 0; k < d->rcs_n; k++) {
+			trs_v3 f = v3_neg(quat_rotate(p->rot, d->rcs_dir[k]));
+			trs_v3 at = v3_add(p->pos, quat_rotate(p->rot, d->rcs_pos[k]));
+			trs_v3 t = v3_cross(v3_sub(at, vs->cm), f);
+			double tl = v3_len(t);
+			double r = tl > 1e-6 ? v3_dot(rot, t) / tl : 0;
+			double thr = clampd(fmax(r, 0) + fmax(v3_dot(tr, f), 0), 0, 1);
+			if (fire)
+				p->rcs_fire[k] = thr;
+			if (thr <= 0)
+				continue;
+			double m = thr * d->rcs_thrust / (d->rcs_isp_vac * TRS_G0);
+			double isp = d->rcs_isp_vac + (d->rcs_isp_sl - d->rcs_isp_vac) * (pressure / TRS_P_REF);
+			double fn = m * fmax(isp, 0.01 * d->rcs_isp_vac) * TRS_G0; /* as trs_engine_isp */
+			F = v3_madd(F, f, fn);
+			T = v3_madd(T, t, fn);
+			md += m;
+		}
+	}
+	*force = F;
+	*torque = T;
+	*mdot = md;
+}
+
+/* Torque the RCS can put on each local axis (the weaker way round). */
+static trs_v3 rcs_authority(trs_vessel *vs) {
+	double a[3];
+	for (int k = 0; k < 3; k++) {
+		double e[3] = { 0, 0, 0 };
+		e[k] = 1;
+		trs_v3 F, Tp, Tn;
+		double m;
+		rcs_mix(vs, v3(e[0], e[1], e[2]), v3(0, 0, 0), vs->pressure, 0, &F, &Tp, &m);
+		rcs_mix(vs, v3(-e[0], -e[1], -e[2]), v3(0, 0, 0), vs->pressure, 0, &F, &Tn, &m);
+		double tp[3] = { Tp.x, Tp.y, Tp.z }, tn[3] = { Tn.x, Tn.y, Tn.z };
+		a[k] = fmax(0, fmin(tp[k], -tn[k]));
+	}
+	return v3(a[0], a[1], a[2]);
+}
+
+static int rcs_armed(const trs_vessel *vs) {
+	return vs->rcs && trs_craft_mono(vs->craft, NULL) > 0;
+}
+
 /* Liquid draw per fuel group (kg/s) for the lit engines; rate[ngroups]. */
 static void group_rates(const trs_vessel *vs, const engine_set *es, double *rate) {
 	const trs_craft *c = vs->craft;
@@ -477,9 +541,6 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 
 /* ---- attitude ------------------------------------------------------------------ */
 
-static double clampd(double x, double lo, double hi) {
-	return x < lo ? lo : x > hi ? hi : x;
-}
 
 trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
 	const trs_vessel *vs = &w->vessels[id];
@@ -534,8 +595,12 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 			fin[0] += f * fabs(tq.x), fin[1] += f * fabs(tq.y), fin[2] += f * fabs(tq.z);
 		}
 	}
-	/* available torque per local axis: X pitch, Y roll, Z yaw */
-	trs_v3 avail = v3(wheel + gimbal_authority + fin[0], wheel + fin[1], wheel + gimbal_authority + fin[2]);
+	/* available torque per local axis: X pitch, Y roll, Z yaw; armed RCS
+	 * adds its own, used only for what the rest can't give (mono is
+	 * precious) */
+	trs_v3 own = v3(wheel + gimbal_authority + fin[0], wheel + fin[1], wheel + gimbal_authority + fin[2]);
+	trs_v3 rcs_a = rcs_armed(vs) ? rcs_authority(vs) : v3(0, 0, 0);
+	trs_v3 avail = v3_add(own, rcs_a);
 	trs_v3 wb = quat_rotate(quat_conj(vs->q), vs->w);
 	trs_v3 Iw = m3_mulv(&vs->inertia, wb);
 	double Ix = vs->inertia.m[0][0], Iy = vs->inertia.m[1][1], Iz = vs->inertia.m[2][2];
@@ -584,7 +649,14 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 			vs->sas_hold = vs->q; /* recapture while the pilot steers */
 	}
 	(void)Iw;
-	return cmd;
+	double o[3] = { own.x, own.y, own.z }, ra[3] = { rcs_a.x, rcs_a.y, rcs_a.z }, cm[3] = { cmd.x, cmd.y, cmd.z }, u[3];
+	for (int k = 0; k < 3; k++) {
+		double base = clampd(cm[k], -o[k], o[k]);
+		u[k] = ra[k] > 0 ? clampd((cm[k] - base) / ra[k], -1, 1) : 0;
+		cm[k] = base;
+	}
+	vs->rcs_rot = v3(u[0], u[1], u[2]);
+	return v3(cm[0], cm[1], cm[2]);
 }
 
 static void integrate_attitude(trs_vessel *vs, trs_v3 torque_local, double h) {
@@ -816,6 +888,27 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 		vs->max_impact = fmax(vs->max_impact, rep.max_speed);
 	trs_v3 torque = v3_add(v3_add(control_torque(w, vs, es.gimbal_authority), aero_torque), es.torque_local);
 	torque = v3_add(v3_add(torque, ground_torque), vs->ext_torque);
+	/* RCS: rotation share from the controller plus the pilot's translation,
+	 * cut back evenly if the monopropellant would run out this tick */
+	trs_v3 rcs_f = v3(0, 0, 0), rcs_t = v3(0, 0, 0);
+	double rcs_md = 0;
+	if (rcs_armed(vs)) {
+		rcs_mix(vs, vs->rcs_rot, vs->translate, vs->pressure, 1, &rcs_f, &rcs_t, &rcs_md);
+		double mono = trs_craft_mono(vs->craft, NULL);
+		if (rcs_md * h > mono) {
+			double k = mono / (rcs_md * h);
+			rcs_f = v3_scale(rcs_f, k), rcs_t = v3_scale(rcs_t, k), rcs_md *= k;
+			for (int i = 0; i < vs->craft->count; i++)
+				for (int n = 0; n < TRS_MAX_NOZZLES; n++)
+					vs->craft->parts[i].rcs_fire[n] *= k;
+		}
+		torque = v3_add(torque, rcs_t);
+	} else {
+		for (int i = 0; i < vs->craft->count; i++)
+			memset(vs->craft->parts[i].rcs_fire, 0, sizeof vs->craft->parts[i].rcs_fire);
+	}
+	vs->rcs_force = rcs_f;
+	vs->rcs_mdot = rcs_md;
 	if (es.n) {
 		/* gimbal trims out thrust misalignment up to its authority */
 		double tm = v3_len(es.torque_local);
@@ -837,9 +930,17 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 				to_empty = 1;
 			}
 		}
-		dyn_ctx cx = { w, vs, v3_add(quat_rotate(vs->q, es.force_local), vs->ext_force), vs->mass, es.total_mdot, t + done };
+		dyn_ctx cx = { w, vs, v3_add(quat_rotate(vs->q, v3_add(es.force_local, rcs_f)), vs->ext_force), vs->mass,
+			es.total_mdot + rcs_md, t + done };
 		trs_v3 s;
 		rk4_mass(&cx, vs, t + done, sub, &s);
+		if (rcs_md > 0) {
+			double mt = es.total_mdot + rcs_md; /* both flows drain the mass */
+			vs->rcs_dv_expended += v3_len(rcs_f) / mt * log(vs->mass / (vs->mass - mt * sub));
+			trs_craft_mono_draw(vs->craft, rcs_md * sub);
+			if (!es.n)
+				recentre(vs);
+		}
 		if (es.n) {
 			double f = v3_len(es.force_local);
 			/* exact integral of F/m(t) over the sub-step */
@@ -1133,7 +1234,7 @@ void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed) {
 		return;
 	{
 		const trs_part_def *d = trs_craft_def(c, part);
-		double fuel = (d->fuel_liquid > 0 || d->fuel_solid > 0) ? c->parts[part].fuel : 0;
+		double fuel = ((d->fuel_liquid > 0 || d->fuel_solid > 0) ? c->parts[part].fuel : 0) + c->parts[part].mono;
 		blast(w, vs->body, world_point(vs, c->parts[part].pos), fuel, c->parts[part].uid);
 		vs = &w->vessels[id];
 		c = vs->craft;

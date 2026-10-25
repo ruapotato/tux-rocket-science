@@ -30,6 +30,7 @@
 #define TRS_G0 9.80665
 #define TRS_P_REF 101325.0 /* pressure at which isp_sl is quoted */
 #define TRS_MAX_NODES 6
+#define TRS_MAX_NOZZLES 6 /* RCS nozzles per part */
 #define TRS_T_AMBIENT 288.15 /* K: skin temperature at rest, and what skins radiate toward */
 
 typedef enum { TRS_PROP_NONE = 0, TRS_PROP_LIQUID, TRS_PROP_SOLID } trs_propellant;
@@ -48,6 +49,7 @@ typedef struct {
 	double mass;        /* dry, kg */
 	double fuel_liquid; /* capacity, kg */
 	double fuel_solid;  /* capacity, kg */
+	double fuel_mono;   /* monopropellant capacity, kg (shared by the whole vessel) */
 	int crew;
 	double torque;      /* reaction torque, N m */
 	double crash_tolerance; /* m/s */
@@ -55,6 +57,12 @@ typedef struct {
 	/* engine */
 	trs_propellant propellant;
 	double thrust_vac, isp_vac, isp_sl, gimbal; /* gimbal in radians */
+
+	/* RCS: small monopropellant thrusters; each nozzle pushes opposite the
+	 * way it points (part-local position and exhaust direction) */
+	int rcs_n;
+	double rcs_thrust, rcs_isp_vac, rcs_isp_sl; /* per nozzle, N in vacuum */
+	trs_v3 rcs_pos[TRS_MAX_NOZZLES], rcs_dir[TRS_MAX_NOZZLES];
 
 	/* decoupler */
 	trs_decoupler_kind decoupler;

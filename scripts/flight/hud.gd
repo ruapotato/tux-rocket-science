@@ -127,7 +127,7 @@ func _ready() -> void:
 	act_row.add_theme_constant_override("separation", 6)
 	bottom.add_child(act_row)
 	for a in [["stage", "STAGE  (Space)", "Fire the next stage"], ["chute", "CHUTE  (P)", "Arm the parachutes: they open once the air is thick enough and you are slow enough"],
-			["legs", "LEGS  (G)", "Landing legs down / up"]]:
+			["legs", "LEGS  (G)", "Landing legs down / up"], ["rcs", "RCS  (R)", "Arm the RCS thrusters: they help steer and slide the craft (I J K L, H N)"]]:
 		var ab := Button.new()
 		ab.text = a[1]
 		ab.tooltip_text = a[2]
@@ -153,7 +153,7 @@ func _ready() -> void:
 	_fuel = PanelContainer.new()
 	_fuel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_fuel.offset_left = -290
-	_fuel.offset_top = -190
+	_fuel.offset_top = -225
 	_fuel.offset_right = -10
 	_fuel.offset_bottom = -10
 	add_child(_fuel)
@@ -343,6 +343,7 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
 [b]Space[/b] stage (first press releases the clamps)   [b]P[/b] parachute   [b]G[/b] legs
 [b]W A S D[/b] / arrows steer [i]as you see it[/i]: W tips the nose away from the camera,
    D swings it right on screen.   [b]Q E[/b] roll   [b]T[/b] SAS on/off
+[b]R[/b] RCS on/off: [b]I J K L[/b] slide up / left / down / right on screen, [b]H N[/b] forward / back
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
 [b]V[/b] surface / orbital speed
 
@@ -559,6 +560,10 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	_heat.queue_redraw()
 	for k in _sas_buttons:
 		_sas_buttons[k].set_pressed_no_signal(t.sas == k or (k == "maneuver" and maneuver_active))
+	var rb: Button = _action_buttons["rcs"]
+	rb.toggle_mode = true
+	rb.set_pressed_no_signal(t.get("rcs", false))
+	rb.text = "RCS  (R)" + (" ·" if t.get("rcs", false) and t.get("rcs_force", 0.0) > 0.0 else "")
 	_update_fuel(t)
 
 
@@ -590,6 +595,21 @@ func _update_fuel(t: Dictionary) -> void:
 		l.add_theme_font_size_override("font_size", 12)
 		v.add_child(l)
 		v.add_child(bar)
+	var mcap: float = t.get("mono_capacity", 0.0)
+	if mcap > 0.0:
+		var mbar := ProgressBar.new()
+		mbar.max_value = mcap
+		mbar.value = t.get("mono", 0.0)
+		mbar.show_percentage = false
+		mbar.custom_minimum_size = Vector2(250, 10)
+		var mf := StyleBoxFlat.new()
+		mf.bg_color = Color(0.55, 0.95, 0.85)
+		mbar.add_theme_stylebox_override("fill", mf)
+		var ml := Label.new()
+		ml.text = "Mono (RCS%s)  %.1f / %.0f kg" % [", on" if t.get("rcs", false) else "", t.get("mono", 0.0), mcap]
+		ml.add_theme_font_size_override("font_size", 12)
+		v.add_child(ml)
+		v.add_child(mbar)
 	if t.get("stage_liquid_capacity", 0.0) <= 0.0 and t.get("stage_solid_capacity", 0.0) <= 0.0:
 		var none := Label.new()
 		none.text = "No engine in this stage"

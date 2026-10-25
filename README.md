@@ -15,7 +15,7 @@ orbit, plan a burn to the moon, land, and come home.
 | Where | Keys |
 |---|---|
 | Hangar | click a part, then click a node or surface · **X** symmetry · **Q/E W/S A/D** rotate · arrows / PgUp / PgDn offset · **[ ]** thrust limit of the engine under the cursor (Shift: 20% steps) · **Del** · **Ctrl+Z/Y** · right-drag orbit · wheel zoom |
-| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
+| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **R** RCS: **IJKL** slide on screen, **H/N** forward/back · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
 | Map | centred on your vessel · click the trajectory to add a maneuver node, drag its handles (Shift = fine) · **Tab** vessel / planet focus · **Skip to burn** fast-forwards to just before the node · **MNV** SAS points at the burn |
 | Hangar | the craft hangs at a working height; while holding a part, free attach nodes show orange and the one it will snap to turns green · **F** frame craft · **PgUp/PgDn** move the view |
 
@@ -27,6 +27,13 @@ reaches nothing, an engine firing into part of its own rocket) and likely surpri
 parachute) under the readouts. Exhaust is hot: anything left in a lit engine's jet burns up, so
 drop a spent stage before the engine above it lights. Engines tilted away from the rocket's axis
 lose the sideways part of their thrust, and the hangar's thrust and Δv count only what is left.
+
+**RCS**: Puffer RV-4 blocks are small monopropellant jets. Put them on the flanks in a symmetric
+set (4x is usual) near the centre of mass, add a Spritz mono tank (pods and the probe core carry a
+little), then press **R** in flight. They add to the reaction wheels' turning only when the wheels
+run out, and **IJKL / H N** slide the craft for docking and fine trims. Every RCS block drinks from
+every mono tank on the vessel. The hangar shows the blocks, the mono and how much Δv a pure slide
+gets from it.
 
 Boosters go on a **Calving Radial Decoupler**: put the decoupler on the core's flank, then click
 its orange node with a tank, engine or solid booster and it hangs upright beside the core

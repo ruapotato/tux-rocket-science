@@ -124,6 +124,20 @@ static void m_vessel_set_input(void *self, const trs_val *a, trs_val *r) {
 		h->world->vessels[a[0].i].input = v3(fmax(-1, fmin(1, a[1].f)), fmax(-1, fmin(1, a[2].f)), fmax(-1, fmin(1, a[3].f)));
 }
 
+/* vessel_set_rcs(id, on) */
+static void m_vessel_set_rcs(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (ok_vessel(h, a[0].i))
+		h->world->vessels[a[0].i].rcs = a[1].b ? 1 : 0;
+}
+
+/* vessel_set_translate(id, x, y, z): RCS translation, vessel-local (Y = nose) */
+static void m_vessel_set_translate(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (ok_vessel(h, a[0].i))
+		h->world->vessels[a[0].i].translate = v3(fmax(-1, fmin(1, a[1].f)), fmax(-1, fmin(1, a[2].f)), fmax(-1, fmin(1, a[3].f)));
+}
+
 static const char *SAS_NAMES[TRS_SAS_COUNT] = { "off", "stability", "target", "prograde", "retrograde", "normal",
 	"antinormal", "radial_out", "radial_in", "surface_prograde", "surface_retrograde" };
 
@@ -309,6 +323,10 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "spin", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? v3_len(v3_sub(vs->w, trs_body_omega(b))) : 0.0));
 	trs_json_set(j, "throttle", trs_json_new_num(vs->throttle));
 	trs_json_set(j, "dv_expended", trs_json_new_num(vs->dv_expended));
+	trs_json_set(j, "rcs", trs_json_new_bool(vs->rcs));
+	trs_json_set(j, "rcs_force", trs_json_new_num(v3_len(vs->rcs_force)));
+	trs_json_set(j, "rcs_mdot", trs_json_new_num(vs->rcs_mdot));
+	trs_json_set(j, "rcs_dv_expended", trs_json_new_num(vs->rcs_dv_expended));
 	trs_json_set(j, "sas", trs_json_new_str(SAS_NAMES[vs->sas]));
 	trs_json_set(j, "next_stage", trs_json_new_num(vs->next_stage));
 	trs_json_set(j, "up", v3_json(up));
@@ -437,6 +455,13 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "liquid_capacity", trs_json_new_num(liquid_cap));
 		trs_json_set(j, "solid", trs_json_new_num(solid));
 		trs_json_set(j, "solid_capacity", trs_json_new_num(solid_cap));
+		double mono_cap, mono = trs_craft_mono(c, &mono_cap);
+		int thrusters = 0;
+		for (int i = 0; i < c->count; i++)
+			thrusters += trs_craft_def(c, i)->rcs_n > 0;
+		trs_json_set(j, "mono", trs_json_new_num(mono));
+		trs_json_set(j, "mono_capacity", trs_json_new_num(mono_cap));
+		trs_json_set(j, "rcs_blocks", trs_json_new_num(thrusters));
 		/* the current stage: propellant feeding the lit engines (or, between
 		 * stages, the engines the next stage will light) */
 		unsigned char *grp = calloc((size_t)c->count + 1, 1);
@@ -508,7 +533,7 @@ static trs_v3 rel_to_origin(const trs_world *w, int id, int origin) {
 	return v3_sub(r, ro);
 }
 
-#define RPP 14
+#define RPP 20
 
 /* vessel_render(id, origin_id) -> per part: uid, pos(3) rel. origin CoM,
  * quat(4), thrust fraction, chute state, legs, skin temperature (K) and the
@@ -544,6 +569,8 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		o[11] = p->temp;
 		o[12] = heat_share(c, i);
 		o[13] = def->is_parachute && def->chute_full_cda > 0 ? sqrt(p->chute_cda / def->chute_full_cda) : 0;
+		for (int n = 0; n < TRS_MAX_NOZZLES; n++)
+			o[14 + n] = p->rcs_fire[n];
 	}
 	ret_doubles(r, d, (int64_t)c->count * RPP);
 	free(d);
@@ -1018,6 +1045,8 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_set_throttle", m_vessel_set_throttle, V, 2, { I, F }, { "id", "throttle" } },
 	{ "vessel_set_input", m_vessel_set_input, V, 4, { I, F, F, F }, { "id", "pitch", "yaw", "roll" } },
 	{ "vessel_set_sas", m_vessel_set_sas, B, 3, { I, S, A }, { "id", "mode", "target" } },
+	{ "vessel_set_rcs", m_vessel_set_rcs, V, 2, { I, B }, { "id", "on" } },
+	{ "vessel_set_translate", m_vessel_set_translate, V, 4, { I, F, F, F }, { "id", "x", "y", "z" } },
 	{ "vessel_stage", m_vessel_stage, S, 1, { I }, { "id" } },
 	{ "vessel_set_legs", m_vessel_set_legs, V, 2, { I, B }, { "id", "deployed" } },
 	{ "vessel_deploy_chutes", m_vessel_deploy_chutes, I, 1, { I }, { "id" } },

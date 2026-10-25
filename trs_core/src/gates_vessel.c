@@ -700,8 +700,9 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 		free(w);
 		trs_craft_free(&c);
 	}
-	/* 5. A fuelled Orbiter toppling onto the ice: the tanks burst and the
-	 *    blast takes the crew pod with them (a failed launch is fatal). */
+	/* 5. A fuelled Orbiter toppling onto the ice: the crash takes the crew
+	 *    pod with it (a failed launch is fatal), and the wreck scatters
+	 *    without flinging anything off like a shell. */
 	{
 		trs_craft c;
 		if (!trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c))
@@ -729,10 +730,43 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir) {
 				blasted += w->events[e].speed < 0;
 			}
 		/* the wreckage scatters, but nothing is flung off like a shell */
-		int ok = pod_lost && blasted > 0 && fastest < 60;
+		int ok = pod_lost && destroyed >= 5 && fastest < 60;
 		failed += !ok;
 		trs_log_printf(log, "%s toppled Orbiter: %d parts destroyed (%d by blast), crew pod %s, fastest debris %.0f m/s\n",
 				ok ? "ok  " : "FAIL", destroyed, blasted, pod_lost ? "lost" : "survived", fastest);
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&c);
+	}
+	/* 6. A full tank going up takes its neighbours with it; the same tank
+	 *    empty just breaks off. */
+	for (int full = 1; full >= 0; full--) {
+		trs_craft c;
+		if (!trs_gate_load_craft(log, data_dir, "orbiter", &cat, &c))
+			return TRS_GATE_FAIL;
+		int tank = -1;
+		for (int i = 0; i < c.count && tank < 0; i++)
+			if (trs_craft_def(&c, i)->fuel_liquid > 0)
+				tank = i;
+		if (!full)
+			c.parts[tank].fuel = 0;
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		trs_v3 r = v3(F->radius + 150000, 0, 0);
+		int id = trs_world_add_craft(w, &c, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+		trs_vessel_destroy_part(w, id, tank, 30);
+		for (int s = 0; s < 5; s++)
+			trs_world_step_physics(w);
+		int blasted = 0, destroyed = 0;
+		for (int e = 0; e < w->nevents; e++)
+			if (w->events[e].kind == TRS_WEV_PART_DESTROYED) {
+				destroyed++;
+				blasted += w->events[e].speed == TRS_DESTROY_BLAST;
+			}
+		int ok = full ? blasted >= 2 : blasted == 0 && destroyed == 1;
+		failed += !ok;
+		trs_log_printf(log, "%s %s tank destroyed in orbit: %d parts lost, %d of them to the blast\n", ok ? "ok  " : "FAIL",
+				full ? "full" : "empty", destroyed, blasted);
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
@@ -1056,6 +1090,143 @@ trs_gate_status trs_gate_collision(trs_log *log, const char *data_dir) {
 		free(w);
 		trs_craft_free(&c);
 	}
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}
+
+/* ---- RCS ------------------------------------------------------------------- */
+
+static double rocket_dv(double ve, double m0, double m1) {
+	return ve * log(m0 / m1);
+}
+
+/* Probe core, mono tank and a small tank, with four RCS blocks around the
+ * mono tank at the CoM's height (so the arms are all radial). */
+static void rcs_craft(trs_craft *c, const trs_part_catalog *cat, double *arm) {
+	trs_craft_init(c, cat);
+	int pc = trs_craft_add(c, trs_catalog_find(cat, "probe_core"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	int mt = stack_below(c, cat, pc, "mono_tank", -1);
+	stack_below(c, cat, mt, "tank_s", -1);
+	double m;
+	trs_v3 cm;
+	trs_craft_mass_props(c, &m, &cm, NULL);
+	int bi = trs_catalog_find(cat, "rcs_block");
+	double R = trs_craft_def(c, mt)->radius + cat->defs[bi].radius;
+	for (int k = 0; k < 4; k++) {
+		trs_quat q = quat_axis_angle(v3(0, 1, 0), k * TRS_PI / 2);
+		trs_v3 out = quat_rotate(q, v3(0, 0, 1));
+		trs_craft_add(c, bi, mt, "", "", v3(out.x * R, cm.y, out.z * R), q, -1, 1);
+	}
+	*arm = R;
+}
+
+static int rcs_world(trs_world *w, const trs_system *sys, const trs_craft *c, int floe) {
+	const trs_body *F = &sys->bodies[floe];
+	trs_world_init(w, sys, 0);
+	trs_v3 r = v3(F->radius + 300000, 0, 0);
+	int id = trs_world_add_craft(w, c, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+	w->vessels[id].sas = TRS_SAS_OFF;
+	return id;
+}
+
+trs_gate_status trs_gate_rcs(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	int failed = 0;
+	const trs_part_def *bd = &cat.defs[trs_catalog_find(&cat, "rcs_block")];
+	double T = bd->rcs_thrust, isp = bd->rcs_isp_vac, mdot1 = T / (isp * TRS_G0);
+	double arm;
+	trs_craft c;
+	rcs_craft(&c, &cat, &arm);
+
+	/* 1. Sliding forward for 5 s: the four rear-facing jets, the rocket
+	 *    equation on the mono burnt, and no turn. Measured against an
+	 *    identical craft coasting beside it (the ~60 m they drift apart
+	 *    leaves a tidal difference of a few parts in 10^5). */
+	{
+		trs_world *a = malloc(sizeof(trs_world)), *b = malloc(sizeof(trs_world));
+		int ia = rcs_world(a, &sys, &c, floe), ib = rcs_world(b, &sys, &c, floe);
+		double m0 = a->vessels[ia].mass, mono0 = trs_craft_mono(a->vessels[ia].craft, NULL);
+		a->vessels[ia].rcs = 1;
+		a->vessels[ia].translate = v3(0, 1, 0);
+		for (int s = 0; s < 250; s++) {
+			trs_world_step_physics(a);
+			trs_world_step_physics(b);
+		}
+		double used = mono0 - trs_craft_mono(a->vessels[ia].craft, NULL);
+		double dv = v3_len(v3_sub(a->vessels[ia].v, b->vessels[ib].v));
+		double want_used = 4 * mdot1 * 5, want_dv = rocket_dv(isp * TRS_G0, m0, m0 - want_used);
+		double spin = v3_len(a->vessels[ia].w);
+		int ok = fabs(used / want_used - 1) < 1e-9 && fabs(dv / want_dv - 1) < 1e-4 && spin < 1e-9;
+		failed += !ok;
+		trs_log_printf(log, "%s translate 5 s: mono used %.6f kg (4 jets x %.6f kg/s: %.6f), dv %.6f m/s (rocket eq. %.6f), spin %.1e rad/s\n",
+				ok ? "ok  " : "FAIL", used, mdot1, want_used, dv, want_dv, spin);
+		trs_world_free(a);
+		trs_world_free(b);
+		free(a);
+		free(b);
+	}
+	/* 2. Full pitch for 1 s: RCS adds two jets' torque (arm x thrust each)
+	 *    on top of the probe core's wheel. (Draining mono walks the CoM a
+	 *    hair off the blocks' plane, so the side jets add a trickle.) */
+	{
+		double om[2], Ixx = 0, used = 0;
+		for (int on = 0; on < 2; on++) {
+			trs_world *w = malloc(sizeof(trs_world));
+			int id = rcs_world(w, &sys, &c, floe);
+			trs_vessel *vs = &w->vessels[id];
+			vs->rcs = on;
+			vs->input = v3(1, 0, 0);
+			Ixx = vs->inertia.m[0][0];
+			double mono0 = trs_craft_mono(vs->craft, NULL);
+			for (int s = 0; s < 50; s++)
+				trs_world_step_physics(w);
+			vs = &w->vessels[id];
+			om[on] = quat_rotate(quat_conj(vs->q), vs->w).x;
+			if (on)
+				used = mono0 - trs_craft_mono(vs->craft, NULL);
+			trs_world_free(w);
+			free(w);
+		}
+		double want = 2 * arm * T / Ixx;
+		int ok = fabs((om[1] - om[0]) / want - 1) < 0.01 && fabs(used / (2 * mdot1) - 1) < 1e-3;
+		failed += !ok;
+		trs_log_printf(log, "%s pitch 1 s: wheel alone %.5f rad/s, with RCS %.5f (+%.5f, 2 jets x %.0f N x %.3f m / I %.0f = %.5f), mono %.6f kg\n",
+				ok ? "ok  " : "FAIL", om[0], om[1], om[1] - om[0], T, arm, Ixx, want, used);
+	}
+	/* 3. Disarmed RCS ignores the translation keys; armed, it runs the mono
+	 *    dry and stops, never below empty. */
+	{
+		trs_world *w = malloc(sizeof(trs_world));
+		int id = rcs_world(w, &sys, &c, floe);
+		trs_vessel *vs = &w->vessels[id];
+		double mono0 = trs_craft_mono(vs->craft, NULL);
+		vs->translate = v3(0, 1, 0);
+		for (int s = 0; s < 100; s++)
+			trs_world_step_physics(w);
+		vs = &w->vessels[id];
+		double idle = mono0 - trs_craft_mono(vs->craft, NULL);
+		vs->rcs = 1;
+		double t_dry = -1;
+		for (int s = 0; s < 50 * 300 && t_dry < 0; s++) {
+			trs_world_step_physics(w);
+			if (trs_craft_mono(w->vessels[id].craft, NULL) <= 0)
+				t_dry = (s + 1) * TRS_PHYSICS_DT;
+		}
+		trs_world_step_physics(w);
+		vs = &w->vessels[id];
+		double left = trs_craft_mono(vs->craft, NULL), want_t = mono0 / (4 * mdot1);
+		int ok = idle == 0 && left == 0 && fabs(t_dry - want_t) <= TRS_PHYSICS_DT && v3_len(vs->rcs_force) == 0;
+		failed += !ok;
+		trs_log_printf(log, "%s disarmed: %.3f kg used; armed: dry after %.2f s (mono / 4 jets = %.2f s), %.3f kg left, force after %.1f N\n",
+				ok ? "ok  " : "FAIL", idle, t_dry, want_t, left, v3_len(vs->rcs_force));
+		trs_world_free(w);
+		free(w);
+	}
+	trs_craft_free(&c);
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }

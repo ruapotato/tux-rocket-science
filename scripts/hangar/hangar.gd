@@ -391,6 +391,10 @@ func _part_tooltip(d: Dictionary) -> String:
 		t += "\nThrust: %.0f kN (vac)\nIsp: %.0f s vac / %.0f s sea level" % [e.thrust_vac / 1000.0, e.isp_vac, e.isp_sl]
 	if d.get("crew", 0) > 0:
 		t += "\nCrew: %d" % d.crew
+	if d.has("fuel_mono"):
+		t += "\nMonopropellant: %.0f kg" % d.fuel_mono
+	if d.has("rcs"):
+		t += "\nRCS: %d jets x %.1f kN, Isp %.0f s vac / %.0f s sea level" % [d.rcs.nozzles.size(), d.rcs.thrust / 1000.0, d.rcs.isp_vac, d.rcs.isp_sl]
 	if d.get("torque", 0) > 0:
 		t += "\nReaction torque: %.0f kN·m" % (d.torque / 1000.0)
 	return t
@@ -433,6 +437,9 @@ func _refresh_readouts() -> void:
 			break
 	var col := "#7fe08a" if launch_twr > 1.0 else "#ff6a5a"
 	t += "[color=#9fb4cc]Liftoff TWR (Floe)[/color] [color=%s]%.2f[/color]" % [col, launch_twr]
+	if int(_stats.get("rcs_blocks", 0)) > 0 or _stats.get("mono", 0.0) > 0.0:
+		t += "\n[color=#9fb4cc]RCS[/color] %d block%s · mono %.0f kg · [color=#5fd8c4]%.0f m/s[/color] of sliding" % [
+			int(_stats.get("rcs_blocks", 0)), "" if int(_stats.get("rcs_blocks", 0)) == 1 else "s", _stats.get("mono", 0.0), _stats.get("rcs_dv", 0.0)]
 	for w in craft_warnings():
 		t += "\n[color=%s]%s[/color]" % ["#ff6a5a" if w.bad else "#ffcf5a", w.text]
 	_summary.text = t
@@ -477,6 +484,8 @@ func craft_warnings() -> Array:
 		var more := "" if hits.size() == 1 else " (and %d more part%s)" % [hits.size() - 1, "" if hits.size() == 2 else "s"]
 		out.append({"bad": true, "text": "HOT EXHAUST: the %s fires straight into the %s%s from SPACE #%d: it would burn up. Move it out of the jet, or decouple it before that engine lights." % [
 			Sim.part(model.parts[int(h[1])].part).name, Sim.part(model.parts[int(h[0])].part).name, more, top - int(h[2]) + 1]})
+	if int(_stats.get("rcs_blocks", 0)) > 0 and _stats.get("mono", 0.0) <= 0.0:
+		out.append({"bad": true, "text": "The RCS blocks have no monopropellant to burn. Add a Spritz mono tank (a probe core or crew pod carries a little)."})
 	if n_eng == 0:
 		out.append({"bad": true, "text": "No engines: it won't leave the pad."})
 	else:

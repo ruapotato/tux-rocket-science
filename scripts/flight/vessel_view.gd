@@ -20,7 +20,7 @@
 class_name VesselView
 extends Node3D
 
-const RPP := 14
+const RPP := 20
 
 var core: TrsSim
 var vessel_id := -1
@@ -50,6 +50,11 @@ func _make_part(uid: int, part_id: String, opts: Dictionary) -> Dictionary:
 	if d.has("parachute"):
 		entry.canopy = _canopy()
 		v.add_child(entry.canopy)
+	var jets := []
+	if d.has("rcs"):
+		for k in d.rcs.get("nozzles", []).size():
+			jets.append(v.get_node("Jet%d" % k))
+	entry["jets"] = jets
 	return entry
 
 
@@ -270,6 +275,13 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 		if e.canopy:
 			_update_canopy(e.canopy, int(feed[o + 9]), feed[o + 13])
 		_update_heat(e, feed[o + 11])
+		for j in e.jets.size():
+			var f := feed[o + 14 + j]
+			var jet: Node3D = e.jets[j]
+			jet.visible = f > 0.02
+			if jet.visible:
+				var s := (0.45 + 0.55 * f) * (0.85 + 0.3 * randf())
+				jet.scale = Vector3(s, s, s)
 		if Sim.part(e.part).has("leg"):
 			var target := feed[o + 10]
 			var kk: float = move_toward(e.legs, target, _dt / 1.4)

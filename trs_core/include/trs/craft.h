@@ -50,6 +50,7 @@ typedef struct {
 	int stage;            /* activation stage, -1 = none */
 	int sym;              /* symmetry group (0 = none), editor metadata */
 	double fuel;          /* remaining propellant, kg (liquid or solid) */
+	double mono;          /* remaining monopropellant, kg */
 	double limit;         /* engines: thrust limit, fraction of full (set in the hangar) */
 	int engine_on;
 	int chute;
@@ -57,6 +58,7 @@ typedef struct {
 	int fired; /* decoupler already fired */
 	double temp; /* K, skin temperature (runtime only, not saved) */
 	double chute_cda; /* m^2, canopy drag area while it inflates (runtime only) */
+	double rcs_fire[TRS_MAX_NOZZLES]; /* RCS nozzle throttles last tick (runtime only) */
 } trs_part;
 
 typedef struct {
@@ -85,6 +87,10 @@ static inline const trs_part_def *trs_craft_def(const trs_craft *c, int i) {
 double trs_part_mdot(const trs_craft *c, int i);
 
 double trs_craft_mass(const trs_craft *c);
+/* Monopropellant on board and its capacity, kg (the whole craft shares it). */
+double trs_craft_mono(const trs_craft *c, double *capacity);
+/* Removes `amount` kg of monopropellant evenly (proportionally) from every part holding some. */
+void trs_craft_mono_draw(trs_craft *c, double amount);
 double trs_craft_part_mass(const trs_craft *c, int i);
 /* Mass, centre of mass (vessel-local) and inertia tensor about the CoM
  * in vessel-local axes. */

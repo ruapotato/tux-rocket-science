@@ -35,6 +35,7 @@ const GRAPHITE := Color(0.16, 0.17, 0.2)
 const STEEL := Color(0.55, 0.57, 0.6)
 const YELLOW := Color(0.98, 0.8, 0.15)
 const RED := Color(0.86, 0.2, 0.18)
+const MONO := Color(0.2, 0.72, 0.66)  # monopropellant / RCS teal
 
 static var _mats := {}
 static var _hull_shader: Shader
@@ -225,6 +226,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 		"leg":
 			_leg(root, d)
 			pose_leg(root, d, opts.get("legs", 0.0))
+		"rcs":
+			_rcs(root, d)
+		"sphere":
+			_sphere_tank(root, sh)
 		_:
 			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, hull(WHITE))
 	if with_pick:
@@ -392,6 +397,12 @@ static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary, opts: Di
 		var shroud: float = opts.get("shroud", 0.0)
 		if shroud > 0.0:
 			_shroud(root, r, h * 0.5, shroud)
+	elif d.has("fuel_mono"):
+		# monopropellant drum: pale teal with graphite end rings
+		_cyl(root, r, r, h, 0.0, hull(Color(0.78, 0.9, 0.88), {"panels": 6.0, "ring_spacing": 0.0, "grime": 0.25}), 64)
+		_cyl(root, r * 1.004, r * 1.004, h * 0.18, 0.0, mat("mono", MONO, 0.0, 0.4))
+		for y in [h * 0.5 - 0.03, -h * 0.5 + 0.03]:
+			_cyl(root, r * 1.008, r * 1.008, 0.06, y, mat("graphite", GRAPHITE, 0.4, 0.5))
 	elif d.has("fuel_liquid"):
 		_cyl(root, r, r, h, 0.0, hull(WHITE, {"panels": 8.0, "ring_spacing": 0.47, "grime": 0.3}), 64)
 		# roll-pattern band on bigger tanks, PASA stripes on all
@@ -520,6 +531,74 @@ static func _pylon(root: Node3D, sh: Dictionary) -> void:
 
 ## Feed line: a short pipe from the surface it sits on out along +Z to the
 ## part it feeds, with a clamp flange at each end.
+## RCS block: a graphite housing on a short pylon with a nozzle per jet;
+## each nozzle carries a hidden "Jet<k>" puff the flight view shows while
+## that jet fires.
+static func _rcs(root: Node3D, d: Dictionary) -> void:
+	var box := BoxMesh.new()
+	box.size = Vector3(0.16, 0.16, 0.1)
+	_mesh(root, box, hull(GRAPHITE, {"panels": 2.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}))
+	var stem := BoxMesh.new()
+	stem.size = Vector3(0.06, 0.1, 0.08)
+	_mesh(root, stem, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, 0, -0.07)))
+	var band := BoxMesh.new()
+	band.size = Vector3(0.165, 0.035, 0.105)
+	_mesh(root, band, mat("mono", MONO, 0.0, 0.4))
+	var rcs: Dictionary = d.get("rcs", {})
+	var noz := mat("nozzle", Color(0.32, 0.33, 0.36), 0.8, 0.35)
+	var puff := StandardMaterial3D.new()
+	puff.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	puff.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	puff.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	puff.albedo_color = Color(0.75, 0.85, 1.0, 0.55)
+	puff.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var k := 0
+	for n in rcs.get("nozzles", []):
+		var dir := Vector3(n.dir[0], n.dir[1], n.dir[2]).normalized()
+		var at := Vector3(n.pos[0], n.pos[1], n.pos[2])
+		var b := Basis(Quaternion(Vector3.UP, dir))
+		var bell := CylinderMesh.new()
+		bell.top_radius = 0.028
+		bell.bottom_radius = 0.016
+		bell.height = 0.06
+		bell.radial_segments = 12
+		_mesh(root, bell, noz, Transform3D(b, at - dir * 0.03))
+		var jet := Node3D.new()
+		jet.name = "Jet%d" % k
+		jet.transform = Transform3D(b, at)
+		jet.visible = false
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.16
+		cone.bottom_radius = 0.02
+		cone.height = 0.7
+		cone.radial_segments = 12
+		cone.cap_top = false
+		cone.cap_bottom = false
+		var ci := MeshInstance3D.new()
+		ci.mesh = cone
+		ci.material_override = puff
+		ci.position = Vector3(0, 0.35, 0)
+		ci.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		jet.add_child(ci)
+		root.add_child(jet)
+		k += 1
+
+
+## Radial monopropellant tank: a ball on a strap.
+static func _sphere_tank(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var ball := SphereMesh.new()
+	ball.radius = r
+	ball.height = r * 2.0
+	ball.radial_segments = 32
+	ball.rings = 16
+	_mesh(root, ball, hull(Color(0.78, 0.9, 0.88), {"panels": 4.0, "ring_spacing": 0.0, "grime": 0.2}))
+	_ring(root, r * 1.0, 0.0, 0.02, mat("mono", MONO, 0.0, 0.4))
+	var strap := BoxMesh.new()
+	strap.size = Vector3(0.08, r * 1.4, 0.06)
+	_mesh(root, strap, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, -r * 0.92)))
+
+
 static func _hose(root: Node3D, sh: Dictionary) -> void:
 	var length: float = sh.get("length", 0.3)
 	var along := Basis(Vector3.RIGHT, PI / 2)

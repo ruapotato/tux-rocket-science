@@ -377,6 +377,23 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 	trs_json_set(out, "parts", trs_json_new_num(c.count));
 	trs_json_set(out, "mass", trs_json_new_num(mass));
 	trs_json_set(out, "dry_mass", trs_json_new_num(dry));
+	/* RCS: monopropellant aboard, thruster blocks, and the delta-v a pure
+	 * slide gets from all of it in vacuum (thrust-weighted Isp) */
+	{
+		double mono_cap, mono = trs_craft_mono(&c, &mono_cap), thrust = 0, flow = 0;
+		int blocks = 0;
+		for (int i = 0; i < c.count; i++) {
+			const trs_part_def *d = trs_craft_def(&c, i);
+			if (d->rcs_n > 0) {
+				blocks++;
+				thrust += d->rcs_n * d->rcs_thrust;
+				flow += d->rcs_n * d->rcs_thrust / d->rcs_isp_vac;
+			}
+		}
+		trs_json_set(out, "mono", trs_json_new_num(mono));
+		trs_json_set(out, "rcs_blocks", trs_json_new_num(blocks));
+		trs_json_set(out, "rcs_dv", trs_json_new_num(blocks && mono > 0 ? thrust / flow * TRS_G0 * log(mass / (mass - mono)) : 0));
+	}
 	trs_json_set(out, "crew", trs_json_new_num(crew));
 	trs_json *com = trs_json_new(TRS_JSON_ARRAY);
 	trs_json_push(com, trs_json_new_num(cm.x));

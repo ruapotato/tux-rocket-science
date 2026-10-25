@@ -101,6 +101,12 @@ typedef struct {
 	trs_quat sas_hold;
 	trs_v3 sas_target;
 	int next_stage;   /* stage fired by the next trs_world_stage() */
+	int rcs;          /* RCS thrusters armed */
+	trs_v3 translate; /* RCS translation command, vessel-local, each in [-1, 1] */
+	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
+	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
+	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
+	double rcs_dv_expended; /* integral of |RCS thrust accel| dt */
 
 	/* Telemetry (true numbers for the HUD) */
 	trs_v3 sensed_accel; /* non-gravitational acceleration last tick, SOI frame */
@@ -196,6 +202,9 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m);
 int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
 /* Arms every stowed parachute (they open once the air allows). Returns how many. */
 int trs_vessel_deploy_chutes(trs_world *w, int id);
+/* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);
+ * a part with propellant in it blasts its neighbours. */
+void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed);
 /* Refreshes mass properties and caches after editing vessel->craft. */
 void trs_vessel_refresh(trs_world *w, int id);
 /* Heat flux (W/m^2) the jet of engine e, burning mdot kg/s at specific

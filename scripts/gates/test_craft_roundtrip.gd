@@ -285,6 +285,35 @@ func _editor_ops() -> void:
 	var ratio := tilted / straight
 	_check(absf(ratio - cos(deg_to_rad(30.0))) < 1e-9 and absf(flown - tilted) / tilted < 1e-4 and cant_hits.is_empty(),
 		"tilted engines: hangar dv %.1f -> %.1f m/s (x%.9f, cos 30 = %.9f), flown %.1f m/s, exhaust hits %s" % [straight, tilted, ratio, cos(deg_to_rad(30.0)), flown, cant_hits])
+	# RCS: four blocks on a mono drum (one placement, 4x symmetry); the
+	# hangar's sliding delta-v is what a slide along the nose gets from all
+	# the mono
+	var mr := CraftModel.new()
+	mr.place_root(CraftModel.held_single("probe_core"))
+	var md := mr.attach_stack(CraftModel.held_single("mono_tank"), 0, "bottom")[0]
+	mr.attach_stack(CraftModel.held_single("tank_s"), md, "bottom")
+	var blocks := mr.attach_surface(CraftModel.held_single("rcs_block"), md, 0.0, 0.0, 4)
+	var rst: Dictionary = mr.stats()
+	var rs := FlightSession.new()
+	rs.spawn_in_orbit(mr.save_text(), "floe", 400000.0)
+	rs.set_sas("off")
+	rs.set_rcs(true)
+	rs.set_translate(0.0, 1.0, 0.0)
+	var guard := 0
+	while rs.telemetry().get("mono", 0.0) > 0.0 and guard < 50 * 400:
+		rs.step_ticks(50)
+		guard += 50
+	rs.step_ticks(5)
+	var rt := rs.telemetry()
+	var slid: float = rt.get("rcs_dv_expended", -1.0)
+	var mb := CraftModel.new()
+	mb.place_root(CraftModel.held_single("probe_core"))
+	var mbt := mb.attach_stack(CraftModel.held_single("tank_s"), 0, "bottom")[0]
+	mb.attach_surface(CraftModel.held_single("rcs_block"), mbt, 0.0, 0.0, 2)
+	var mono_left: float = mb.stats().get("mono", -1.0)  # the probe core's own 10 kg
+	_check(blocks.size() == 4 and absf(slid - float(rst.rcs_dv)) / float(rst.rcs_dv) < 1e-6 and rt.get("mono", 1.0) == 0.0 and mono_left == 10.0,
+		"RCS: hangar %d blocks, mono %.0f kg, sliding dv %.4f m/s; flown dry %.4f m/s; spin %s rad/s; probe core alone carries %.0f kg" % [
+			int(rst.rcs_blocks), rst.mono, rst.rcs_dv, slid, String.num_scientific(float(rt.get("spin", 0.0))), mono_left])
 	_check(ok_sym and spread < 1e-9 and after_undo == before and redo_ok and removed_ok and replaced and removed_sym,
 		"editor ops: 6x symmetry, rotate/offset counterparts (spread %s), undo x3 == original %s, redo %s, pick-up/re-attach identical %s, symmetric delete %s" % [
 			String.num_scientific(spread), after_undo == before, redo_ok, replaced, removed_sym])

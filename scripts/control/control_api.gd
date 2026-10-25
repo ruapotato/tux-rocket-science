@@ -24,6 +24,7 @@
 ##   spawn_orbit {body, altitude, inc_deg?}
 ##   throttle {value}   attitude {pitch, yaw, roll}   sas {mode, target?[3]}
 ##   stage   chute   legs {deployed}   switch {id}
+##   rcs {on}   translate {x, y, z}  (vessel-local, y = towards the nose)
 ##   warp {kind: physics|rails, index}   step {ticks | seconds}
 ##   query   vessels   events   predict {patches?, horizon?}   time
 ##   warp_to {t}   trajectory {nodes: [[t, pro, nrm, rad]...], patches?, horizon?}
@@ -88,6 +89,12 @@ func handle(cmd: Dictionary) -> Dictionary:
 			return _ok({"armed": session.deploy_chutes()})
 		"legs":
 			session.set_legs(bool(cmd.get("deployed", true)))
+			return _ok()
+		"rcs":
+			session.set_rcs(bool(cmd.get("on", true)))
+			return _ok()
+		"translate":
+			session.set_translate(float(cmd.get("x", 0.0)), float(cmd.get("y", 0.0)), float(cmd.get("z", 0.0)))
 			return _ok()
 		"switch":
 			session.switch_to(int(cmd.get("id", session.active)))
