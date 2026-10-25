@@ -349,3 +349,26 @@ func _heavy() -> void:
 		log.append("    " + line)
 	var tf := s.telemetry()
 	log.append("  end: %s, Pe %.1f km, %.0f m/s left, peak heat %.0f%% (%s), destroyed %s" % [tf.situation, tf.orbit.pe_alt / 1000.0, tf.dv_total, ap.max_heat * 100.0, ap.hot_part, _destroyed()])
+
+
+func _canted() -> void:
+	for tilt in [0.0, 30.0, -30.0]:
+		log.append("two side engines on a long tank's flank, tilted %.0f deg: hangar vs flight" % tilt)
+		var m := CraftModel.new()
+		m.place_root(CraftModel.held_single("probe_core"))
+		var t := m.attach_stack(CraftModel.held_single("tank_l"), 0, "bottom")[0]
+		var e := m.attach_surface(CraftModel.held_single("engine_small"), t, 0.0, -0.8, 2)
+		if tilt != 0.0:
+			m.rotate_part(e[0], [0.0, 0.0, 1.0], deg_to_rad(tilt))
+		for i in e:
+			log.append("  engine %d at %s up %s" % [i, m.parts[i].pos, DMath.q_rotate(m.parts[i].rot, [0.0, 1.0, 0.0])])
+		var st: Dictionary = m.stats()
+		s.spawn_in_orbit(m.save_text(), "floe", 400000.0)
+		s.set_throttle(1.0)
+		s.stage()
+		s.step_ticks(5)
+		var t0 := s.telemetry()
+		log.append("  hangar: thrust vac %.1f kN, dv %.1f m/s, exhaust hits %s; flight: thrust %.1f kN" % [st.stages[0].thrust_vac / 1000.0, st.dv_vac, st.plume_hits, t0.thrust / 1000.0])
+		s.step_ticks(int(st.stages[0].burn_time * 50.0) + 50)
+		var tf := s.telemetry()
+		log.append("  flown %.1f m/s, alive %s, destroyed %s" % [tf.get("dv_expended", -1.0), tf.get("alive", false), _destroyed()])

@@ -340,7 +340,8 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		if (vs->dirty)
 			trs_vessel_refresh(w, id);
 		double g_local = b->mu / (rl * rl);
-		double thrust = 0, thrust_max = 0;
+		/* net thrust: engines pointing different ways partly cancel */
+		trs_v3 tv = v3(0, 0, 0), tmv = v3(0, 0, 0);
 		int lit = 0, solids = 0;
 		for (int i = 0; i < c->count; i++) {
 			const trs_part_def *d = trs_craft_def(c, i);
@@ -349,9 +350,11 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			lit++;
 			solids += d->propellant == TRS_PROP_SOLID;
 			double full = trs_part_mdot(c, i) * trs_engine_isp(d, p) * TRS_G0;
-			thrust_max += full;
-			thrust += full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle);
+			trs_v3 ax = quat_rotate(c->parts[i].rot, v3(0, 1, 0));
+			tmv = v3_add(tmv, v3_scale(ax, full));
+			tv = v3_add(tv, v3_scale(ax, full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle)));
 		}
+		double thrust = v3_len(tv), thrust_max = v3_len(tmv);
 		trs_json_set(j, "mass", trs_json_new_num(vs->mass));
 		trs_json_set(j, "parts", trs_json_new_num(c->count));
 		trs_json_set(j, "thrust", trs_json_new_num(thrust));

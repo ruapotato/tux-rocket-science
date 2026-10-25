@@ -198,6 +198,11 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
 int trs_vessel_deploy_chutes(trs_world *w, int id);
 /* Refreshes mass properties and caches after editing vessel->craft. */
 void trs_vessel_refresh(trs_world *w, int id);
+/* Heat flux (W/m^2) the jet of engine e, burning mdot kg/s at specific
+ * impulse isp, puts into part i of the same craft (0 when i is out of the
+ * jet), and the skin temperature (K) part i settles at under it. */
+double trs_plume_flux(const trs_craft *c, int e, int i, double mdot, double isp);
+double trs_plume_soak_temp(const trs_craft *c, int i, double flux);
 /* Vessel-vessel contact forces for this tick (vessel_contact.c). */
 void trs_world_vessel_contacts(trs_world *w);
 /* Lets vessel v pass through `other` until they are apart and t >= until. */

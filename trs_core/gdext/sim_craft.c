@@ -319,6 +319,61 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 		trs_json_set(out, "feed_lines", lines);
 		trs_fuel_net_free(&net);
 	}
+	/* parts an engine of the same piece fires into hard enough to burn
+	 * them up: [part, engine, SPACE stage, skin temperature it settles at].
+	 * Checked as each stage lights, with what that stage still holds
+	 * together; the vacuum jet (the hottest). Engines no propellant can
+	 * reach never light and are left out. */
+	{
+		trs_json *hits = trs_json_new(TRS_JSON_ARRAY);
+		int n = c.count, top = trs_craft_max_stage(&c);
+		unsigned char *masks = calloc((size_t)(n ? n : 1) * (size_t)(n ? n : 1), 1);
+		unsigned char *done = calloc((size_t)(n ? n : 1), 1);
+		trs_fuel_net net;
+		trs_fuel_net_build(&net, &c);
+		for (int d = 0; d < n; d++)
+			if (trs_craft_def(&c, d)->decoupler && c.parts[d].stage >= 0)
+				trs_craft_detach_set(&c, d, masks + (size_t)d * n);
+		for (int s = top; s >= 0; s--) {
+			for (int i = 0; i < n; i++) {
+				if (done[i])
+					continue;
+				double q = 0, worst = 0;
+				int worst_e = -1;
+				for (int e = 0; e < n; e++) {
+					const trs_part_def *de = trs_craft_def(&c, e);
+					if (de->propellant == TRS_PROP_NONE || c.parts[e].stage < s || e == i)
+						continue;
+					if (de->propellant == TRS_PROP_LIQUID ? !trs_craft_engine_fed(&c, &net, e) : c.parts[e].fuel <= 0)
+						continue; /* never burns */
+					int apart = 0;
+					for (int d = 0; d < n && !apart; d++)
+						if (trs_craft_def(&c, d)->decoupler && c.parts[d].stage >= s)
+							apart = masks[(size_t)d * n + e] != masks[(size_t)d * n + i];
+					if (apart)
+						continue;
+					double f = trs_plume_flux(&c, e, i, trs_part_mdot(&c, e), de->isp_vac);
+					q += f;
+					if (f > worst)
+						worst = f, worst_e = e;
+				}
+				double soak = q > 0 ? trs_plume_soak_temp(&c, i, q) : 0;
+				if (worst_e >= 0 && soak > trs_craft_def(&c, i)->max_temp) {
+					done[i] = 1;
+					trs_json *hit = trs_json_new(TRS_JSON_ARRAY);
+					trs_json_push(hit, trs_json_new_num(i));
+					trs_json_push(hit, trs_json_new_num(worst_e));
+					trs_json_push(hit, trs_json_new_num(s));
+					trs_json_push(hit, trs_json_new_num(soak));
+					trs_json_push(hits, hit);
+				}
+			}
+		}
+		free(masks);
+		free(done);
+		trs_fuel_net_free(&net);
+		trs_json_set(out, "plume_hits", hits);
+	}
 	trs_json_set(out, "parts", trs_json_new_num(c.count));
 	trs_json_set(out, "mass", trs_json_new_num(mass));
 	trs_json_set(out, "dry_mass", trs_json_new_num(dry));

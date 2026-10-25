@@ -903,19 +903,22 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 	}
 	/* 4. Exhaust: an engine fired straight into another engine below it
 	 *    cooks it within seconds; the same engine with nothing below it
-	 *    heats nothing. In orbit, so the air plays no part. */
-	for (int k = 0; k < 2; k++) {
+	 *    heats nothing. In orbit, so the air plays no part; then again
+	 *    flying nose-first through the air at 5 km, where the jet's heat
+	 *    adds to the air's (the air must not mask it). */
+	for (int k = 0; k < 3; k++) {
 		trs_craft c;
 		trs_craft_init(&c, &cat);
 		int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
 		int tank = stack_below(&c, &cat, pod, "tank_l", -1);
 		int eng = stack_below(&c, &cat, tank, "engine_small", 0);
-		if (k == 0)
+		if (k != 1)
 			stack_below(&c, &cat, eng, "engine_small", 0);
 		trs_world *w = malloc(sizeof(trs_world));
 		trs_world_init(w, &sys, 0);
-		trs_v3 r = v3(F->radius + 150000, 0, 0);
-		int id = trs_world_add_craft(w, &c, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+		trs_v3 r = v3(F->radius + (k == 2 ? 5000 : 150000), 0, 0);
+		trs_v3 v = k == 2 ? v3_add(v3_cross(trs_body_omega(F), r), v3(0, 200, 0)) : v3(0, sqrt(F->mu / v3_len(r)), 0);
+		int id = trs_world_add_craft(w, &c, floe, r, v, quat_identity());
 		w->vessels[id].throttle = 1;
 		trs_world_stage(w, id, NULL, 0);
 		double worst = 0, lost_t = -1;
@@ -928,11 +931,11 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 				if (w->events[e].kind == TRS_WEV_PART_DESTROYED && lost_t < 0)
 					lost_t = s * TRS_PHYSICS_DT;
 		}
-		int ok = k == 0 ? lost_t > 0 && lost_t < 10 : lost_t < 0 && worst < 0.05;
+		int ok = k != 1 ? lost_t > 0 && lost_t < 10 : lost_t < 0 && worst < 0.05;
 		failed += !ok;
-		if (k == 0)
-			trs_log_printf(log, "%s engine firing into a second engine below it: the lower one burns up after %.1f s\n",
-					ok ? "ok  " : "FAIL", lost_t);
+		if (k != 1)
+			trs_log_printf(log, "%s engine firing into a second engine below it%s: the lower one burns up after %.1f s\n",
+					ok ? "ok  " : "FAIL", k == 2 ? ", at 200 m/s through the air at 5 km" : "", lost_t);
 		else
 			trs_log_printf(log, "%s the same engine with nothing below it: 20 s at full thrust, hottest part %.1f%% of its headroom\n",
 					ok ? "ok  " : "FAIL", 100 * worst);

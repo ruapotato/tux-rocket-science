@@ -234,6 +234,57 @@ func _editor_ops() -> void:
 		targets[int(l[0])] = int(l[1])
 	var piped: bool = (st_fl.get("unfed_engines", []) as Array).is_empty() and targets.get(fl[0], -2) == eg[0] and targets.get(loose[0], -2) == -1
 	_check(piped, "feed line from the core tank feeds that engine (lines %s, unfed %s), one facing away reaches nothing" % [lines, st_fl.get("unfed_engines", [])])
+	# exhaust: no stock craft fires an engine into itself; a tank hung under
+	# a solid booster is in its jet from the first SPACE and burns up
+	var hot := []
+	for path in Sim.craft_files():
+		if path.begins_with(Sim.STOCK_CRAFT_DIR):
+			var ms := CraftModel.new()
+			ms.load_file(path)
+			if not (ms.stats().get("plume_hits", []) as Array).is_empty():
+				hot.append(path.get_file())
+	var mj := CraftModel.new()
+	mj.place_root(CraftModel.held_single("probe_core"))
+	var sb := mj.attach_stack(CraftModel.held_single("srb"), 0, "bottom")[0]
+	var tk := mj.attach_stack(CraftModel.held_single("tank_m"), sb, "bottom")[0]
+	var ph: Array = mj.stats().get("plume_hits", [])
+	var jet_ok := ph.size() == 1 and int(ph[0][0]) == tk and int(ph[0][1]) == sb and float(ph[0][3]) > float(Sim.part("tank_m").thermal.max_temp)
+	var fs := FlightSession.new()
+	fs.spawn_in_orbit(mj.save_text(), "floe", 400000.0)
+	fs.stage()
+	fs.step_ticks(250)
+	var burnt := false
+	for e in fs.events:
+		burnt = burnt or (e.kind == "part_destroyed" and e.part == "tank_m" and float(e.speed) <= -2.0)
+	_check(hot.is_empty() and jet_ok and burnt, "exhaust: stock craft fire into nothing (%s); tank under an SRB flagged (%s) and burns up in flight %s" % [hot, ph, burnt])
+	# engines tilted 30 deg about the tank's tangent: the hangar counts only
+	# the net thrust (cos 30 of it), the flight agrees, and the jets that run
+	# alongside the tank do not touch it
+	var straight := 0.0
+	var tilted := 0.0
+	var flown := 0.0
+	var cant_hits := []
+	for tilt in [0.0, 30.0]:
+		var mc := CraftModel.new()
+		mc.place_root(CraftModel.held_single("probe_core"))
+		var ct := mc.attach_stack(CraftModel.held_single("tank_l"), 0, "bottom")[0]
+		var ce := mc.attach_surface(CraftModel.held_single("engine_small"), ct, 0.0, -0.8, 2)
+		mc.rotate_part(ce[0], [0.0, 0.0, 1.0], deg_to_rad(tilt))
+		var cst: Dictionary = mc.stats()
+		cant_hits.append_array(cst.get("plume_hits", []))
+		if tilt == 0.0:
+			straight = cst.dv_vac
+		else:
+			tilted = cst.dv_vac
+			var cs := FlightSession.new()
+			cs.spawn_in_orbit(mc.save_text(), "floe", 400000.0)
+			cs.set_throttle(1.0)
+			cs.stage()
+			cs.step_ticks(int(cst.stages[0].burn_time * 50.0) + 50)
+			flown = cs.telemetry().get("dv_expended", -1.0)
+	var ratio := tilted / straight
+	_check(absf(ratio - cos(deg_to_rad(30.0))) < 1e-9 and absf(flown - tilted) / tilted < 1e-4 and cant_hits.is_empty(),
+		"tilted engines: hangar dv %.1f -> %.1f m/s (x%.9f, cos 30 = %.9f), flown %.1f m/s, exhaust hits %s" % [straight, tilted, ratio, cos(deg_to_rad(30.0)), flown, cant_hits])
 	_check(ok_sym and spread < 1e-9 and after_undo == before and redo_ok and removed_ok and replaced and removed_sym,
 		"editor ops: 6x symmetry, rotate/offset counterparts (spread %s), undo x3 == original %s, redo %s, pick-up/re-attach identical %s, symmetric delete %s" % [
 			String.num_scientific(spread), after_undo == before, redo_ok, replaced, removed_sym])

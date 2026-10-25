@@ -692,42 +692,64 @@ static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h
  * P = F ve / 2 out of a nozzle at its bottom end, spreading in a cone of
  * PLUME_HALF_ANGLE; a part inside it takes PLUME_ETA of the jet power per
  * unit plume cross-section where the plume first meets it, scaled by how
- * much of the plume it covers. W/m^2 into the part's skin. */
+ * much of the plume it covers. The part is its axis swept by its radius,
+ * so a jet running alongside a long tank misses it. W/m^2 into the skin. */
 #define PLUME_HALF_ANGLE (12.0 * TRS_PI / 180.0)
 #define PLUME_ETA 0.05
 #define PLUME_REACH 40.0
+#define PLUME_SAMPLES 9
 
-static double plume_flux(const trs_vessel *vs, const engine_set *es, int i) {
-	const trs_craft *c = vs->craft;
+double trs_plume_flux(const trs_craft *c, int e, int i, double mdot, double isp) {
+	if (e == i || mdot <= 0)
+		return 0;
 	const trs_part *pt = &c->parts[i];
 	const trs_part_def *dt = trs_craft_def(c, i);
+	const trs_part *pe = &c->parts[e];
+	const trs_part_def *de = trs_craft_def(c, e);
+	trs_v3 down = v3_neg(part_axis(pe));
+	trs_v3 nozzle = v3_add(pe->pos, v3_scale(down, de->height * 0.5));
+	double r0 = de->radius * 0.8, tn = tan(PLUME_HALF_ANGLE), r = dt->radius;
+	/* cheap reject on the part's bounding sphere */
+	trs_v3 rel = v3_sub(pt->pos, nozzle);
+	double along = v3_dot(rel, down), half = dt->height * 0.5 + r;
+	double off = v3_len(v3_sub(rel, v3_scale(down, along)));
+	if (along + half <= 0.02 || along - half > PLUME_REACH || off - half >= r0 + fmax(0, along + half) * tn)
+		return 0;
+	/* the part as its axis swept by its radius, sampled along the axis:
+	 * the strongest sample (most of the jet covered, nearest the nozzle) */
+	trs_v3 ax = part_axis(pt);
+	double best = 0;
+	for (int k = 0; k < PLUME_SAMPLES; k++) {
+		double y = dt->height * ((k + 0.5) / PLUME_SAMPLES - 0.5);
+		trs_v3 rk = v3_add(rel, v3_scale(ax, y));
+		double ak = v3_dot(rk, down);
+		if (ak <= 0.02)
+			continue; /* behind the nozzle */
+		double near = fmax(0, ak - r);
+		if (near > PLUME_REACH)
+			continue;
+		double ok = v3_len(v3_sub(rk, v3_scale(down, ak)));
+		double rp = r0 + near * tn;
+		if (ok >= rp + r)
+			continue;
+		double cover = fmin(1, (rp + r - ok) / (2 * fmin(rp, r)));
+		best = fmax(best, cover / (rp * rp));
+	}
+	double ve = isp * TRS_G0;
+	double power = 0.5 * mdot * ve * ve;
+	return PLUME_ETA * power / TRS_PI * best;
+}
+
+double trs_plume_soak_temp(const trs_craft *c, int i, double flux) {
+	double a4 = TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT;
+	return pow(flux / (trs_craft_def(c, i)->emissivity * SIGMA_SB) + a4, 0.25);
+}
+
+static double plume_flux(const trs_vessel *vs, const engine_set *es, int i) {
 	double q = 0;
 	for (int k = 0; k < es->n; k++) {
-		int e = es->idx[k];
-		if (e == i)
-			continue;
-		const trs_part *pe = &c->parts[e];
-		const trs_part_def *de = trs_craft_def(c, e);
-		trs_v3 down = v3_neg(es->dir[k]);
-		trs_v3 nozzle = v3_add(pe->pos, v3_scale(down, de->height * 0.5));
-		trs_v3 rel = v3_sub(pt->pos, nozzle);
-		double along = v3_dot(rel, down);
-		/* the part's half-extent along the jet and across it */
-		double ca = fabs(v3_dot(part_axis(pt), down)), sa = sqrt(fmax(0, 1 - ca * ca));
-		double ext = dt->height * 0.5 * ca + dt->radius * sa;
-		double across_ext = dt->radius * ca + dt->height * 0.5 * sa;
-		double near = along - ext;
-		if (along + ext <= 0.02 || near > PLUME_REACH)
-			continue; /* behind the nozzle, or far down the jet */
-		near = fmax(near, 0);
-		double off = v3_len(v3_sub(rel, v3_scale(down, along)));
-		double rp = de->radius * 0.8 + near * tan(PLUME_HALF_ANGLE);
-		if (off >= rp + across_ext)
-			continue;
-		double cover = fmin(1, (rp + across_ext - off) / (2 * fmin(rp, across_ext)));
-		double ve = trs_engine_isp(de, vs->pressure) * TRS_G0;
-		double power = 0.5 * es->mdot[k] * ve * ve;
-		q += PLUME_ETA * power / (TRS_PI * rp * rp) * cover;
+		const trs_part_def *de = trs_craft_def(vs->craft, es->idx[k]);
+		q += trs_plume_flux(vs->craft, es->idx[k], i, es->mdot[k], trs_engine_isp(de, vs->pressure));
 	}
 	return q;
 }
@@ -752,7 +774,7 @@ static void heat(const trs_world *w, trs_vessel *vs, double h) {
 			double wake = cs > 0 ? vs->wake_top[i] : vs->wake_bottom[i];
 			double f = fmax(clampd(exposed, 0, 1) * fabs(cs), (0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs))) * wake);
 			double hc = 2 * CP_AIR * SG_K * sqrt(rho / fmax(d->radius, 0.05)) * sp;
-			q = f * hc * (t_rec - p->temp);
+			q += f * hc * (t_rec - p->temp);
 		}
 		double t4 = p->temp * p->temp * p->temp * p->temp;
 		double a4 = TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT * TRS_T_AMBIENT;

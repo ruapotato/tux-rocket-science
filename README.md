@@ -23,7 +23,10 @@ Fuel flows between parts that touch, but never through a decoupler, so an engine
 decoupler needs its own tank. A **Siphon Feed Line** on a side tank, facing the core, pipes the
 side tank's fuel into the core: the side tanks run dry first and drop away (see the stock
 **Sidecar**). The hangar lists anything that won't work (no fuel, TWR below 1, a feed line that
-reaches nothing) and likely surprises (no fins, no parachute) under the readouts.
+reaches nothing, an engine firing into part of its own rocket) and likely surprises (no fins, no
+parachute) under the readouts. Exhaust is hot: anything left in a lit engine's jet burns up, so
+drop a spent stage before the engine above it lights. Engines tilted away from the rocket's axis
+lose the sideways part of their thrust, and the hangar's thrust and Δv count only what is left.
 
 Boosters go on a **Calving Radial Decoupler**: put the decoupler on the core's flank, then click
 its orange node with a tank, engine or solid booster and it hangs upright beside the core

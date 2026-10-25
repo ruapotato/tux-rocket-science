@@ -471,6 +471,12 @@ func craft_warnings() -> Array:
 	if loose > 0:
 		out.append({"bad": true, "text": "%d feed line%s reach%s nothing. A feed line pipes fuel the way it faces, up to 0.6 m: put it on a side tank, facing the tank it should feed." % [
 			loose, "" if loose == 1 else "s", "es" if loose == 1 else ""]})
+	var hits: Array = _stats.get("plume_hits", [])
+	if not hits.is_empty():
+		var h: Array = hits[0]
+		var more := "" if hits.size() == 1 else " (and %d more part%s)" % [hits.size() - 1, "" if hits.size() == 2 else "s"]
+		out.append({"bad": true, "text": "HOT EXHAUST: the %s fires straight into the %s%s from SPACE #%d: it would burn up. Move it out of the jet, or decouple it before that engine lights." % [
+			Sim.part(model.parts[int(h[1])].part).name, Sim.part(model.parts[int(h[0])].part).name, more, top - int(h[2]) + 1]})
 	if n_eng == 0:
 		out.append({"bad": true, "text": "No engines: it won't leave the pad."})
 	else:

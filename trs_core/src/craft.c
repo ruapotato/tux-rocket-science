@@ -610,7 +610,8 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 		int first = 1;
 		for (int seg = 0; seg < 256; seg++) {
 			int any = 0, any_drop_lit = 0, drop_has_engines = 0;
-			double mdot = 0, f_vac = 0, f_sl = 0;
+			double mdot = 0;
+			trs_v3 fv_vac = v3(0, 0, 0), fv_sl = v3(0, 0, 0); /* net: tilted engines partly cancel */
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
 				if (!c.parts[i].engine_on || d->propellant == TRS_PROP_NONE)
@@ -624,9 +625,11 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 					any_drop_lit = 1;
 				double md = trs_part_mdot(&c, i);
 				mdot += md;
-				f_vac += md * d->isp_vac * TRS_G0;
-				f_sl += md * trs_engine_isp(d, p_sl) * TRS_G0;
+				trs_v3 ax = quat_rotate(c.parts[i].rot, v3(0, 1, 0));
+				fv_vac = v3_add(fv_vac, v3_scale(ax, md * d->isp_vac * TRS_G0));
+				fv_sl = v3_add(fv_sl, v3_scale(ax, md * trs_engine_isp(d, p_sl) * TRS_G0));
 			}
+			double f_vac = v3_len(fv_vac), f_sl = v3_len(fv_sl);
 			if (!any || (drop_has_engines && !any_drop_lit))
 				break;
 			if (first) {
