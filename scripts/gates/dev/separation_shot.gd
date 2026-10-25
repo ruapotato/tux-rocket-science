@@ -56,7 +56,6 @@ func run(runner: Node) -> Dictionary:
 	s.set_throttle(0.0)
 	flight._cam_dist = 9.0
 	flight._cam_pitch = 0.05
-	flight._legs_down = true
 	s.set_legs(true)
 	for i in 120:
 		await tree.process_frame

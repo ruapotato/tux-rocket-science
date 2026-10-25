@@ -21,7 +21,8 @@
 ## back to normal time while the craft is still high and whole (a flyby
 ## that clears the moon is never slowed); throttling
 ## up during warp hands back to normal time so the engine really burns;
-## and slowing down is always allowed, engines or not.
+## slowing down is always allowed, engines or not; and a skip ahead stops
+## a minute short of an impact on the way.
 extends RefCounted
 
 var _log := PackedStringArray()
@@ -83,6 +84,19 @@ func run(_runner: Node) -> Dictionary:
 	_check(fl == "" and s.warp_kind == "rails" and s.warp_index == 4 and absf(lowest - 40000.0) < 2000.0,
 		"flyby 40 km over Krill at 100x: never slowed (level %d), lowest %.1f km" % [s.warp_index, lowest / 1000.0])
 	s.set_warp("rails", 0)
+
+	# skipping ahead (the map's "skip to burn") past where the path hits
+	# Krill stops a minute short of the ground instead
+	s.core.vessel_remove(s.active)
+	s.switch_to(s.core.flight_spawn_state(lander, "krill", PackedFloat64Array([R + 60000.0, 0, 0, -50.0, 0, 300.0])))
+	var t_hit := -1.0
+	for p in s.trajectory([], 4, 1.0e5):
+		if p.end == "surface":
+			t_hit = float(p.t_end)
+	var why := s.warp_to(s.time() + 1.0e5)
+	var ts := s.telemetry()
+	_check(t_hit > 0.0 and ts.alive and not ts.landed and absf(t_hit - s.time() - FlightSession.WARP_TO_LEAD) < 1.0 and why.contains("ground"),
+		"skip ahead past an impact: stopped %.1f s before it, %.1f km up ('%s')" % [t_hit - s.time(), ts.altitude_terrain / 1000.0, why])
 
 	# 2. the Orbiter in orbit, engine lit at zero throttle, warping
 	s = FlightSession.new()

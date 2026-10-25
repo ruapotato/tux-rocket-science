@@ -411,6 +411,9 @@ func toast(msg: String) -> void:
 # ---- model events ------------------------------------------------------------
 
 func _on_model_changed() -> void:
+	# part numbers may have changed: forget the hover until the next frame
+	_hover = -1
+	_highlight([])
 	_rebuild_craft()
 	_stats = model.stats()
 	_refresh_crew()
@@ -710,6 +713,9 @@ func _on_new() -> void:
 
 
 func _on_save() -> void:
+	if model.parts.is_empty():
+		toast("Nothing to save yet: place a part first")
+		return
 	var fname := model.craft_name.to_snake_case().validate_filename()
 	if fname == "":
 		fname = "untitled"
@@ -1001,6 +1007,8 @@ func _update_hover_and_snap() -> void:
 	if not hit.is_empty() and not over_ui:
 		if hit.collider.has_meta("part_index"):
 			idx = hit.collider.get_meta("part_index")
+			if idx >= model.parts.size():
+				idx = -1  # a part just removed, its pick shape not yet gone
 		elif hit.collider.has_meta("loose_index"):
 			loose = hit.collider.get_meta("loose_index")
 	if loose != _hover_loose:

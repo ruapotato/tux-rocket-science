@@ -87,6 +87,7 @@ int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v) {
 	trs_vessel *vs = &w->vessels[id];
 	memset(vs, 0, sizeof(*vs));
 	vs->alive = 1;
+	vs->serial = ++w->next_serial;
 	vs->body = body;
 	vs->mode = TRS_MODE_PHYSICS;
 	vs->r = r;

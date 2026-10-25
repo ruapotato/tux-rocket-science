@@ -31,12 +31,20 @@ const RAILS_WARP: Array[float] = [1.0, 5.0, 10.0, 50.0, 100.0, 1000.0, 10000.0, 
 const PHYSICS_RANGE := 2500.0  # m: beyond this other vessels are packed on rails
 
 var core: TrsSim
-var active := -1
+## The vessel being flown. Vessel slots are reused once a vessel is gone,
+## so each assignment also notes the vessel's serial: a new piece of debris
+## landing in the same slot is not mistaken for the vessel still flying.
+var active := -1:
+	set(v):
+		active = v
+		_active_serial = core.vessel_serial(v) if core != null and v >= 0 else -1
+var _active_serial := -1
 var launch_text := ""
 var launch_body := "floe"
 var warp_kind := "physics"  # "physics" or "rails"
 var warp_index := 0
 const PE_CLEAR := 10000.0  # m a low point must clear the air top (or sea level) by to warp freely
+const WARP_TO_LEAD := 60.0  # s of sim time a skip-ahead stops short of the ground or the air
 const WARP_LEAD := 15.0  # s of real time on-rails warp keeps before the ground or the air
 var ticks := 0
 var events: Array[Dictionary] = []
@@ -46,7 +54,11 @@ var _accum := 0.0
 var _telemetry: Dictionary = {}
 var _telemetry_tick := -1
 var _pre_launch := ""  # the world just before the last launch (for reverts)
-var target := -1  # the vessel picked as target (-1: none)
+var target := -1:  # the vessel picked as target (-1: none)
+	set(v):
+		target = v
+		_target_serial = core.vessel_serial(v) if core != null and v >= 0 else -1
+var _target_serial := -1
 
 
 func _init() -> void:
@@ -167,7 +179,7 @@ func stage() -> Array:
 ## Where the target is and how it moves relative to us, and how the
 ## nearest pair of free docking ports lines up ({} without a target).
 func target_info() -> Dictionary:
-	if target < 0 or not core.vessel_alive(target) or target == active:
+	if target < 0 or not still(target, _target_serial) or target == active:
 		target = -1
 		return {}
 	return JSON.parse_string(core.target_info(active, target))
@@ -349,7 +361,7 @@ func advance(real_dt: float) -> void:
 func _manage_ranges() -> void:
 	# distances are to the active vessel: if it just broke up, follow a
 	# surviving piece first, or every piece would look infinitely far away
-	if not core.vessel_alive(active):
+	if not still(active, _active_serial):
 		_pick_new_active()
 		if active < 0:
 			return
@@ -381,7 +393,7 @@ func _collect_events() -> void:
 			if int(e.other) == target or int(e.vessel) == target:
 				target = -1
 		sim_event.emit(e)
-	if not core.vessel_alive(active):
+	if not still(active, _active_serial):
 		_pick_new_active()
 
 
@@ -404,6 +416,12 @@ func _pick_new_active() -> void:
 		active = -1
 
 
+## Vessel `id` is alive and still the one that had `serial` (not a new
+## vessel in its reused slot).
+func still(id: int, serial: int) -> bool:
+	return id >= 0 and serial >= 0 and core.vessel_serial(id) == serial
+
+
 func telemetry() -> Dictionary:
 	if _telemetry_tick != ticks or _telemetry.is_empty():
 		_telemetry = JSON.parse_string(core.telemetry(active)) if active >= 0 else {"alive": false}
@@ -417,8 +435,14 @@ func warp_to(t_target: float) -> String:
 	var reason := rails_refusal()
 	if reason != "":
 		return reason
-	_begin_rails()
 	var stopped := ""
+	# a path that meets the ground (or the air) first: stop well short of it
+	for p in trajectory([], 8, maxf(t_target - time(), 1.0)):
+		if p.end in ["surface", "atmosphere"] and float(p.t_end) < t_target:
+			t_target = maxf(time(), float(p.t_end) - WARP_TO_LEAD)
+			stopped = "%s ahead" % ("the ground" if p.end == "surface" else "the atmosphere")
+			break
+	_begin_rails()
 	for guard in 100000:
 		var now := time()
 		if now >= t_target - 1e-6:
@@ -430,6 +454,8 @@ func warp_to(t_target: float) -> String:
 		if ev.event == "atmosphere" or ev.event == "surface":
 			stopped = ev.event
 			break
+	if stopped.ends_with("ahead"):
+		stopped += " (stopped %d s before)" % int(WARP_TO_LEAD)
 	_end_rails_now()
 	warp_kind = "physics"
 	warp_index = 0

@@ -127,6 +127,18 @@ func setup(s: FlightSession) -> void:
 	lmat.vertex_color_use_as_albedo = true
 	_lines.material_override = lmat
 	_vp.add_child(_lines)
+	# the same path faintly through anything in front of it (a planet's
+	# limb, the far side of an orbit): never lost, but clearly behind
+	var ghost := MeshInstance3D.new()
+	ghost.mesh = _imesh
+	var gmat := StandardMaterial3D.new()
+	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gmat.vertex_color_use_as_albedo = true
+	gmat.no_depth_test = true
+	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gmat.albedo_color = Color(1, 1, 1, 0.55)
+	ghost.material_override = gmat
+	_vp.add_child(ghost)
 	_vessel_icon = MeshInstance3D.new()
 	var vm := SphereMesh.new()
 	vm.radius = 0.04
@@ -187,15 +199,20 @@ func setup(s: FlightSession) -> void:
 ## Positions (Godot axes, metres) of every body relative to the focus body.
 func _body_offsets() -> Array:
 	var feed: PackedFloat64Array = session.core.body_render(session.active)
-	var f := Frame.vec(feed, focus_body * 5)
 	var out := []
+	if feed.size() < _bodies.size() * 5:
+		# no live vessel to measure from (it just broke up): nothing moves
+		for i in _bodies.size():
+			out.append(Vector3.ZERO)
+		return out
+	var f := Frame.vec(feed, focus_body * 5)
 	for i in _bodies.size():
 		out.append(Frame.vec(feed, i * 5) - f)
 	return out
 
 
 func refresh() -> void:
-	if session.active < 0:
+	if session.active < 0 or not session.core.vessel_alive(session.active):
 		return
 	var t := session.telemetry()
 	if focus_vessel:
@@ -219,7 +236,14 @@ func refresh() -> void:
 	var want := vpos if focus_vessel else Vector3.ZERO
 	_target = want if _target.distance_to(want) > _dist * 2.0 else _target.lerp(want, 0.25)
 	_cam.position = _target + Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw)) * _dist
-	_cam.look_at(_target, Vector3.UP)
+	# never inside a planet (it would vanish): lift the eye out over it
+	for i in _bodies.size():
+		var c: Vector3 = offs[i] * SCALE
+		var rr: float = float(_bodies[i].info.radius) * SCALE * 1.03
+		if _cam.position.distance_to(c) < rr:
+			_cam.position = c + (_cam.position - c).normalized() * rr
+	if _cam.position.distance_to(_target) > 1e-6:
+		_cam.look_at(_target, Vector3.UP if absf((_target - _cam.position).normalized().y) < 0.99 else Vector3.RIGHT)
 	var sun: DirectionalLight3D = _vp.get_node("Sun")
 	var sd := (offs[0] as Vector3).normalized()
 	if sd.length() > 0.5:
@@ -459,7 +483,7 @@ func _delete_node(i: int) -> void:
 func _warp_to_node() -> void:
 	if session.nodes.is_empty():
 		return
-	var nd: Array = session.nodes[maxi(selected_node, 0)]
+	var nd: Array = session.nodes[clampi(selected_node, 0, session.nodes.size() - 1)]
 	var dv := Vector3(nd[1], nd[2], nd[3]).length()
 	var bt: float = maxf(session.core.burn_time(session.active, dv), 0.0)
 	var reason := session.warp_to(nd[0] - bt * 0.5 - 30.0)
@@ -524,7 +548,7 @@ func _draw_overlay() -> void:
 		var p := _cam.unproject_position(m.pos)
 		ov.draw_circle(p, 4.0, m.color)
 		ov.draw_string(font, p + Vector2(8, -6), m.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, m.color)
-	for i in session.nodes.size():
+	for i in (session.nodes.size() if session.core.vessel_alive(session.active) else 0):
 		var ns := _node_screen(i)
 		if ns.is_empty():
 			continue

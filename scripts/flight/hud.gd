@@ -502,6 +502,14 @@ static func fmt_dist(m: float) -> String:
 	return "%.0f m" % m
 
 
+## A signed number to `dec` places that never reads "-0.0".
+static func signed(v: float, dec: int) -> String:
+	var q := snappedf(v, pow(10.0, -dec))
+	if q == 0.0:
+		q = 0.0  # drops the sign of -0
+	return ("%+." + str(dec) + "f") % q
+
+
 static func fmt_time(s: float) -> String:
 	if s < 0 or is_inf(s) or is_nan(s):
 		return "—"
@@ -525,8 +533,8 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	var body: String = t.body.capitalize()
 	_status.text = "%s · %s%s" % [t.situation.replace("_", " ").to_upper(), body, ("   " + _warp_text) if _warp_text != "" else ""]
 	var spd: float = t.surface_speed if speed_mode == "surface" else t.orbital_speed
-	_left.text = "[color=#9fb4cc]ALTITUDE[/color]  [b]%s[/b]\n[color=#9fb4cc]Above terrain[/color]  %s\n[color=#9fb4cc]Vertical[/color]  %+.1f m/s\n[color=#9fb4cc]%s speed[/color]  [b]%.1f m/s[/b]  [color=#6f86a6](V to toggle)[/color]\n[color=#9fb4cc]Mass[/color] %.2f t   [color=#9fb4cc]TWR[/color] %.2f\n[color=#9fb4cc]Dyn. pressure[/color] %.1f kPa" % [
-		fmt_dist(t.altitude), fmt_dist(t.altitude_terrain), t.vertical_speed,
+	_left.text = "[color=#9fb4cc]ALTITUDE[/color]  [b]%s[/b]\n[color=#9fb4cc]Above terrain[/color]  %s\n[color=#9fb4cc]Vertical[/color]  %s m/s\n[color=#9fb4cc]%s speed[/color]  [b]%.1f m/s[/b]  [color=#6f86a6](V to toggle)[/color]\n[color=#9fb4cc]Mass[/color] %.2f t   [color=#9fb4cc]TWR[/color] %.2f\n[color=#9fb4cc]Dyn. pressure[/color] %.1f kPa" % [
+		fmt_dist(t.altitude), fmt_dist(t.altitude_terrain), signed(t.vertical_speed, 1),
 		"Surface" if speed_mode == "surface" else "Orbital", spd, t.get("mass", 0.0) / 1000.0, t.get("twr", 0.0),
 		t.dynamic_pressure / 1000.0]
 	var o: Dictionary = t.orbit

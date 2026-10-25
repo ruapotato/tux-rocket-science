@@ -1051,6 +1051,8 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 	unsigned char radial_piece[256];
 	if (vs->clamped && lights) {
 		vs->clamped = 0;
+		vs->lifted = 1;
+		vs->liftoff_t = w->t;
 		vs->sas_hold = vs->q;
 	}
 	for (int i = 0; i < c->count; i++) {
@@ -1113,6 +1115,7 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		vs = &w->vessels[id];
 		vs->fresh = 1;
 		trs_vessel *nv = &w->vessels[nid];
+		nv->lifted = vs->lifted, nv->liftoff_t = vs->liftoff_t;
 		nv->craft = pc;
 		nv->q = q;
 		nv->w = w_old;
@@ -1212,6 +1215,8 @@ static int spawn_piece(trs_world *w, int parent_id, trs_craft *piece, trs_v3 cm_
 	int body = vs->body;
 	int nid = trs_world_add_vessel(w, body, r_old, v_old);
 	w->vessels[parent_id].fresh = 1;
+	if (nid >= 0)
+		w->vessels[nid].lifted = w->vessels[parent_id].lifted, w->vessels[nid].liftoff_t = w->vessels[parent_id].liftoff_t;
 	if (nid < 0) {
 		/* no room for another vessel: the piece is lost, and says so */
 		for (int k = 0; k < piece->count; k++) {

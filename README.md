@@ -39,7 +39,9 @@ To try it, launch the stock **Igloo Station** to orbit, leave it (**Esc → Spac
 
 **One world**: every launch joins the same saved world. **Esc → Space Center** leaves a craft
 where it is (once it's landed or in space), and the main menu's **Craft in flight** list takes you
-back aboard, recovers what's landed at home, or scraps debris. Time only passes while you fly. A
+back aboard, recovers what's landed at home, or scraps debris (**Scrap all debris** clears every spent
+stage at once; anything with a pod, probe core or reaction wheel is kept). Going back aboard, the
+mission clock still counts from that craft's liftoff. Time only passes while you fly. A
 craft still on the pad is recovered before the next launch, and **Revert** puts the world back as
 it was before the launch. Penguins aboard a craft left flying stay aboard until it comes home.
 

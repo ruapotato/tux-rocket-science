@@ -116,7 +116,10 @@ typedef struct {
 	/* Surface */
 	trs_v3 fixed_r;   /* body-fixed position in LANDED mode */
 	trs_quat fixed_q; /* body-fixed attitude in LANDED mode */
+	int serial;       /* unique for the world's lifetime: tells a reused slot from the vessel that died there */
 	int clamped;      /* held by launch clamps until the first stage */
+	int lifted;       /* left the pad (its pieces inherit it): liftoff_t is set */
+	double liftoff_t; /* when the clamps let go, s (mission clock zero) */
 	int contacts;     /* contact points touching the ground last tick */
 	int landed;       /* resting on the surface (contacts, slow) */
 	double max_impact; /* worst contact speed seen, m/s (telemetry) */
@@ -182,6 +185,7 @@ typedef struct {
 	trs_world_event events[TRS_MAX_EVENTS];
 	int nevents;
 	int next_uid; /* part uids are unique across the whole world */
+	int next_serial; /* vessel serials likewise (vessel slots are reused) */
 } trs_world;
 
 void trs_world_init(trs_world *w, const trs_system *sys, double t0);

@@ -36,6 +36,8 @@ var soi_path := PackedStringArray(["floe"])
 var _nodes_burnt := 0
 var peak_g := 0.0
 var peak_heat := 0.0
+## Called as the mission goes (a dev harness drives the flight scene's UI).
+var on_step := Callable()
 
 
 func _init(control: ControlAPI) -> void:
@@ -52,6 +54,8 @@ func step(n := 5) -> void:
 
 
 func _track_soi() -> void:
+	if on_step.is_valid():
+		on_step.call()
 	var b: String = tel().get("body", "")
 	if b != "" and soi_path[soi_path.size() - 1] != b:
 		soi_path.append(b)

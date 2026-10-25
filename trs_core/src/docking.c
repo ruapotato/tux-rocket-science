@@ -246,6 +246,7 @@ int trs_world_undock(trs_world *w, int id, int port) {
 		free(pc);
 		return -1;
 	}
+	w->vessels[nid].lifted = w->vessels[id].lifted, w->vessels[nid].liftoff_t = w->vessels[id].liftoff_t;
 	vs = &w->vessels[id];
 	vs->fresh = 1;
 	trs_vessel *nv = &w->vessels[nid];

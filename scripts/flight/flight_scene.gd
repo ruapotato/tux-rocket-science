@@ -82,7 +82,11 @@ func _ready() -> void:
 			session.launch(text, "floe", false)
 		Sim.pending_vessel = -1
 	session.sim_event.connect(_on_sim_event)
-	session.vessel_switched.connect(func(_id): _refresh_crew())
+	session.vessel_switched.connect(func(_id):
+		# each craft keeps its own throttle and steering mode
+		_throttle = float(session.telemetry().get("throttle", 0.0))
+		_sas_follow = ""
+		_refresh_crew())
 	var cs := get_node_or_null("/root/ControlSocket")
 	if cs:
 		cs.attach(session)
@@ -95,7 +99,8 @@ func _ready() -> void:
 		_start_tutorial()
 	elif _resumed:
 		var tr := session.telemetry()
-		mission_start = session.time()
+		# the mission clock runs from its liftoff, however long ago
+		mission_start = float(tr.liftoff_t) if tr.get("liftoff_t") != null else session.time()
 		hud.toast("Back aboard %s: %s over %s." % [tr.get("name", "the vessel"), str(tr.get("situation", "")).replace("_", " "), str(tr.get("body", "")).capitalize()], 4.0)
 	else:
 		hud.toast("%sPASA, %s is on the pad. Z for full throttle, SPACE to launch." % [
@@ -245,7 +250,9 @@ func _leave() -> void:
 func _windward_fronts(flow: Vector3) -> Dictionary:
 	var r: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
 	var n := r.size() / VesselView.RPP
-	if _front_ids.size() != n:
+	var key := "%d/%d/%d" % [session.active, session._active_serial, n]
+	if _front_ids.size() != n or key != _front_key:
+		_front_key = key
 		_front_ids = []
 		var ids: Array = JSON.parse_string(session.core.vessel_parts(session.active))
 		for d in ids:
@@ -484,7 +491,6 @@ func _key(k: InputEventKey) -> void:
 		KEY_BRACKETRIGHT:
 			_cycle_vessel(1)
 
-var _legs_down := false
 
 
 ## R: arms or disarms the RCS, saying why it won't do anything if so.
@@ -502,10 +508,23 @@ func _toggle_rcs() -> void:
 		hud.toast("RCS on: I J K L slide, H N forward / back", 2.5)
 
 
+## G: legs down if any are up, else up; asks the craft, not a memory (so
+## it is right after switching craft or coming back aboard).
 func _toggle_legs() -> void:
-	_legs_down = not _legs_down
-	session.set_legs(_legs_down)
-	hud.toast("Legs " + ("down" if _legs_down else "up"), 1.5)
+	var r: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
+	var parts: Array = JSON.parse_string(session.core.vessel_parts(session.active))
+	var legs := 0
+	var down := 0
+	for k in mini(parts.size(), r.size() / VesselView.RPP):
+		if Sim.part(parts[k].part).has("leg"):
+			legs += 1
+			down += 1 if r[k * VesselView.RPP + 10] > 0.5 else 0
+	if legs == 0:
+		hud.toast("This craft has no landing legs", 1.5)
+		return
+	var want := down < legs
+	session.set_legs(want)
+	hud.toast("Legs " + ("down" if want else "up"), 1.5)
 
 
 func _stage() -> void:
@@ -643,13 +662,13 @@ func _target_text() -> String:
 	var ti := session.target_info()
 	if ti.is_empty():
 		return ""
-	var s := "[color=#ff8a2a][b]TARGET[/b][/color]  %s\n[color=#9fb4cc]Range[/color] [b]%s[/b]   [color=#9fb4cc]closing[/color] %+.2f m/s\n[color=#9fb4cc]Relative speed[/color] %.2f m/s" % [
-		ti.get("name", "?"), FlightHUD.fmt_dist(ti.distance), ti.closing, ti.rel_speed]
+	var s := "[color=#ff8a2a][b]TARGET[/b][/color]  %s\n[color=#9fb4cc]Range[/color] [b]%s[/b]   [color=#9fb4cc]closing[/color] %s m/s\n[color=#9fb4cc]Relative speed[/color] %.2f m/s" % [
+		ti.get("name", "?"), FlightHUD.fmt_dist(ti.distance), FlightHUD.signed(ti.closing, 2), ti.rel_speed]
 	if ti.has("port_distance") and ti.port_distance < 200.0:
 		var d: Dictionary = Sim.part("dock_port").get("docking", {})
 		var good: bool = ti.port_angle_deg < d.get("max_angle_deg", 10.0) and ti.port_closing < d.get("max_speed", 0.8)
-		s += "\n[color=%s]PORT[/color] %.2f m · %.1f° off · %.2f m aside · closing %+.2f m/s" % [
-			"#7fe08a" if good else "#ffcf5a", ti.port_distance, ti.port_angle_deg, ti.port_lateral, ti.port_closing]
+		s += "\n[color=%s]PORT[/color] %.2f m · %.1f° off · %.2f m aside · closing %s m/s" % [
+			"#7fe08a" if good else "#ffcf5a", ti.port_distance, ti.port_angle_deg, ti.port_lateral, FlightHUD.signed(ti.port_closing, 2)]
 	return s
 
 
@@ -1215,6 +1234,7 @@ var _smoke_origin := -1
 var _chutes_open := 0
 var _reentry: ReentryFX
 var _front_ids: Array = []  # per rendered part: [radius, half height]
+var _front_key := ""  # which vessel (and how many parts) _front_ids describes
 
 
 func _update_audio(t: Dictionary) -> void:

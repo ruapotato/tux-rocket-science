@@ -183,6 +183,7 @@ trs_json *trs_world_to_json(const trs_world *w) {
 	PUT_D(j, w, t);
 	PUT_D(j, w, t_comp);
 	PUT_I(j, w, next_uid);
+	PUT_I(j, w, next_serial);
 	trs_json *vl = trs_json_new(TRS_JSON_ARRAY);
 	for (int id = 0; id < w->nvessels; id++) {
 		const trs_vessel *vs = &w->vessels[id];
@@ -225,7 +226,10 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_D(o, vs, altitude);
 		PUT_V(o, vs, fixed_r);
 		PUT_Q(o, vs, fixed_q);
+		PUT_I(o, vs, serial);
 		PUT_I(o, vs, clamped);
+		PUT_I(o, vs, lifted);
+		PUT_D(o, vs, liftoff_t);
 		PUT_I(o, vs, contacts);
 		PUT_I(o, vs, landed);
 		PUT_D(o, vs, max_impact);
@@ -290,6 +294,7 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 	GET_D(j, w, t);
 	GET_D(j, w, t_comp);
 	GET_I(j, w, next_uid);
+	GET_I(j, w, next_serial);
 	for (size_t i = 0; i < n; i++) {
 		const trs_json *o = trs_json_at(vl, i);
 		int id = (int)trs_json_num(o, "id", -1);
@@ -326,7 +331,10 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_D(o, vs, altitude);
 		GET_V(o, vs, fixed_r);
 		GET_Q(o, vs, fixed_q);
+		GET_I(o, vs, serial);
 		GET_I(o, vs, clamped);
+		GET_I(o, vs, lifted);
+		GET_D(o, vs, liftoff_t);
 		GET_I(o, vs, contacts);
 		GET_I(o, vs, landed);
 		GET_D(o, vs, max_impact);
@@ -351,6 +359,10 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 			vs->mass = 1.0;
 		}
 	}
+	/* saves from before serials: give every vessel one */
+	for (int id = 0; id < w->nvessels; id++)
+		if (w->vessels[id].alive && w->vessels[id].serial <= 0)
+			w->vessels[id].serial = ++w->next_serial;
 	free(crafts);
 	free(bodies);
 	return 1;

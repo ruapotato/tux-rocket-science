@@ -94,6 +94,45 @@ func run(runner: Node) -> Dictionary:
 		"resumed in orbit: vessel %d %s at %.0f km, clock %.2f s on from leaving (the frames since), crew %s" % [oid, tel.situation, tel.altitude / 1000.0,
 			scene.session.time() - t_left, scene.crew_names])
 
+	# 6. the mission clock of a launched craft runs from its liftoff, also
+	#    after flying it again later, and its dropped stages share it
+	scene = await _flight(tree, orbiter)
+	var lid: int = scene.session.active
+	scene._throttle = 1.0
+	scene._stage()
+	var lift: float = scene.session.time()
+	scene.session.step_ticks(250)
+	var pieces: Array = scene.session.stage().map(func(x): return int(x))
+	Sim.save_game()
+	Sim.pending_vessel = lid
+	scene = await _flight(tree, "")
+	var lt = scene.session.telemetry().get("liftoff_t")
+	var piece_lt = JSON.parse_string(scene.session.core.telemetry(pieces[0])).get("liftoff_t") if not pieces.is_empty() else null
+	_check(scene._resumed and lt != null and absf(float(lt) - lift) < 1e-9 and absf(scene.mission_start - lift) < 1e-9 and piece_lt != null and absf(float(piece_lt) - lift) < 1e-9,
+		"flown again %.1f s after liftoff: mission clock from liftoff (T+%.1f), dropped stage shares it (%s)" % [scene.session.time() - lift, scene.session.time() - scene.mission_start, piece_lt != null])
+	scene.session.core.vessel_remove(lid)
+	for pid in pieces:
+		scene.session.core.vessel_remove(pid)
+	Sim.save_game()
+
+	# 6b. the flown craft is lost and a new vessel takes its slot in the same
+	#     moment: the scene notices it is a different vessel (own throttle)
+	scene = await _flight(tree, orbiter)
+	var gs: FlightSession = scene.session
+	scene._throttle = 0.7
+	gs.set_throttle(0.7)
+	var slot: int = gs.active
+	gs.core.vessel_remove(slot)
+	var other: int = gs.core.flight_spawn_orbit(hopper, "floe", 150000.0, 0.0)
+	var switched := [false]
+	gs.vessel_switched.connect(func(_id): switched[0] = true, CONNECT_ONE_SHOT)
+	gs.step_ticks(1)
+	var tt := gs.telemetry()
+	_check(other == slot and switched[0] and absf(scene._throttle - float(tt.throttle)) < 1e-9,
+		"a new vessel in the lost craft's slot %d: noticed (switched %s), throttle %.2f = its own %.2f" % [slot, switched[0], scene._throttle, tt.throttle])
+	gs.core.vessel_remove(other)
+	Sim.save_game()
+
 	# 7. switching to another crewed craft shows its crew
 	var o2: int = g.core.flight_spawn_orbit(orbiter, "floe", 150100.0, 0.0)
 	var c2 := Crew.assign(1)

@@ -305,6 +305,11 @@ static void m_vessel_alive(void *self, const trs_val *a, trs_val *r) {
 	r->b = ok_vessel(H(self), a[0].i);
 }
 
+/* vessel_serial(id) -> the vessel's world-unique serial (-1: no vessel) */
+static void m_vessel_serial(void *self, const trs_val *a, trs_val *r) {
+	r->i = ok_vessel(H(self), a[0].i) ? H(self)->world->vessels[a[0].i].serial : -1;
+}
+
 /* Local frame at a position: up, north, east (SOI frame). */
 static void local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east) {
 	*up = v3_norm(r);
@@ -412,6 +417,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "in_atmosphere", trs_json_new_bool(b->atm.height > 0 && rl - b->radius < b->atm.height));
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
 	trs_json_set(j, "clamped", trs_json_new_bool(vs->clamped));
+	trs_json_set(j, "liftoff_t", vs->lifted ? trs_json_new_num(vs->liftoff_t) : trs_json_new(TRS_JSON_NULL));
 	trs_json_set(j, "contacts", trs_json_new_num(vs->contacts));
 	trs_json_set(j, "max_impact", trs_json_new_num(vs->max_impact));
 	trs_json_set(j, "spin", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? v3_len(v3_sub(vs->w, trs_body_omega(b))) : 0.0));
@@ -728,6 +734,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 		trs_vessel_orbit(h->world, i, &o);
 		trs_json *vj = trs_json_new(TRS_JSON_OBJECT);
 		trs_json_set(vj, "id", trs_json_new_num(i));
+		trs_json_set(vj, "serial", trs_json_new_num(vs->serial));
 		trs_json_set(vj, "name", trs_json_new_str(vs->craft ? vs->craft->name : "point"));
 		trs_json_set(vj, "body", trs_json_new_str(h->world->sys.bodies[vs->body].id));
 		trs_json_set(vj, "mode", trs_json_new_str(MODE_NAMES[vs->mode]));
@@ -745,6 +752,12 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 				if (trs_craft_def(vs->craft, k)->crew > 0)
 					trs_json_push(pods, trs_json_new_num(vs->craft->parts[k].uid));
 			trs_json_set(vj, "pods", pods);
+			/* something aboard can steer it (a pod, a probe core, a
+			 * wheel): a craft, not debris */
+			int control = 0;
+			for (int k = 0; k < vs->craft->count; k++)
+				control |= trs_craft_def(vs->craft, k)->crew > 0 || trs_craft_def(vs->craft, k)->torque > 0;
+			trs_json_set(vj, "control", trs_json_new_bool(control));
 		}
 		/* ground distance from the body's launch site (-1: no site there) */
 		const trs_body *b = &h->world->sys.bodies[vs->body];
@@ -1191,6 +1204,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_deploy_chutes", m_vessel_deploy_chutes, I, 1, { I }, { "id" } },
 	{ "vessel_set_mode", m_vessel_set_mode, V, 2, { I, S }, { "id", "mode" } },
 	{ "vessel_alive", m_vessel_alive, B, 1, { I }, { "id" } },
+	{ "vessel_serial", m_vessel_serial, I, 1, { I }, { "id" } },
 	{ "telemetry", m_telemetry, S, 1, { I }, { "id" } },
 	{ "vessel_render", m_vessel_render, A, 2, { I, I }, { "id", "origin" } },
 	{ "vessel_parts", m_vessel_parts, S, 1, { I }, { "id" } },

@@ -48,8 +48,7 @@ func run(runner: Node) -> Dictionary:
 	var mi: MeshInstance3D = any.node
 	var arr: Array = mi.mesh.surface_get_arrays(0)
 	var cols: PackedColorArray = arr[Mesh.ARRAY_COLOR]
-	out.append("colors: %d, first %s, mid %s; material vc=%s srgb=%s albedo=%s" % [cols.size(), cols[0], cols[cols.size() / 2],
-		mi.material_override.vertex_color_use_as_albedo, mi.material_override.vertex_color_is_srgb, mi.material_override.albedo_color])
+	out.append("colors: %d, first %s, mid %s; material %s" % [cols.size(), cols[0], cols[cols.size() / 2], mi.material_override.get_class()])
 	out.append("sun energy %.2f, ambient %.2f, sun basis z %s" % [flight._sun.light_energy, flight._env.ambient_light_energy, flight._sun.global_transform.basis.z])
 	var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
 	out.append("normal sample %s, len %.3f" % [nrm[100], nrm[100].length()])

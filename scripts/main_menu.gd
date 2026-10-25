@@ -206,7 +206,30 @@ func _toggle_flights() -> void:
 	title.add_theme_color_override("font_color", PartVisual.ORANGE)
 	title.add_theme_font_size_override("font_size", 18)
 	v.add_child(title)
-	for vs in Sim.vessels():
+	var all := Sim.vessels()
+	var debris := all.filter(func(x): return not x.get("control", true) and (x.crew_names as Array).is_empty())
+	if debris.size() >= 2:
+		var sweep := Button.new()
+		sweep.text = "Scrap all debris (%d)" % debris.size()
+		sweep.tooltip_text = "Spent stages and wreckage: nothing aboard that can steer and nobody aboard."
+		sweep.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		sweep.pressed.connect(func():
+			for x in debris:
+				Sim.game.core.vessel_remove(int(x.id))
+			Sim.save_game()
+			_toggle_flights()
+			_toggle_flights())
+		v.add_child(sweep)
+	# a long list scrolls instead of running off the screen
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(600, minf(all.size() * 52.0, 520.0))
+	v.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 6)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	for vs in all:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var l := Label.new()
@@ -244,7 +267,7 @@ func _toggle_flights() -> void:
 				_toggle_flights()
 				_toggle_flights())
 			row.add_child(scrap)
-		v.add_child(row)
+		list.add_child(row)
 
 
 func _toggle_corps() -> void:
