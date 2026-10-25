@@ -21,7 +21,7 @@
 ## enjoy it). Flights, records and the occasional infirmary stay are kept.
 extends Node
 
-const PATH := "user://crew.json"
+var path := "user://crew.json"  # gates switch to a scratch roster
 const FIRST := ["Pip", "Gus", "Nell", "Otto", "Mabel", "Tobias", "Wren", "Juniper", "Hector", "Olive", "Barnaby",
 	"Clementine", "Fitz", "Rosie", "Ignatius", "Dot", "Ferdinand", "Hazel", "Quill", "Winnie"]
 const LAST := ["Floeberg", "Icewing", "Snowfeather", "Krillsworth", "Waddlesby", "Frostbeak", "Glacierton",
@@ -38,8 +38,8 @@ func _ready() -> void:
 
 func load_roster() -> void:
 	crew.clear()
-	if FileAccess.file_exists(PATH):
-		var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(PATH))
+	if FileAccess.file_exists(path):
+		var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 		if typeof(d) == TYPE_DICTIONARY and d.has("crew"):
 			crew = d.crew
 	if crew.is_empty():
@@ -48,7 +48,7 @@ func load_roster() -> void:
 
 
 func save_roster() -> void:
-	var f := FileAccess.open(PATH, FileAccess.WRITE)
+	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify({"version": 1, "crew": crew}, "  "))
 

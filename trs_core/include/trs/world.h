@@ -184,6 +184,12 @@ typedef struct {
 
 void trs_world_init(trs_world *w, const trs_system *sys, double t0);
 void trs_world_free(trs_world *w);
+/* The whole world (time, every vessel's state, every part's runtime state)
+ * as JSON, and back: a restored world steps on exactly as the saved one.
+ * from_json keeps w's star system and replaces every vessel; on error w is
+ * untouched. (world_save.c) */
+trs_json *trs_world_to_json(const trs_world *w);
+int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_json *j, char *err, size_t errlen);
 int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v);
 void trs_world_remove_vessel(trs_world *w, int id);
 /* Adds a vessel built from a craft (copied). Position/velocity are for the

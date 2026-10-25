@@ -61,6 +61,33 @@ static void m_load_system(void *self, const trs_val *a, trs_val *r) {
 	r->s = trs_strdup_printf("%s", "");
 }
 
+/* world_save() -> the whole world as JSON text ("" if there is none) */
+static void m_world_save(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!h->world) {
+		r->s = trs_strdup_printf("%s", "");
+		return;
+	}
+	trs_json *j = trs_world_to_json(h->world);
+	r->s = trs_json_write_compact(j);
+	trs_json_free(j);
+}
+
+/* world_load(text) -> true, or false with last_error() set (world untouched) */
+static void m_world_load(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->b = 0;
+	if (!h->world || !h->catalog_loaded) {
+		snprintf(h->err, sizeof h->err, "load a system and a part catalog first");
+		return;
+	}
+	trs_json *j = trs_json_parse(a[0].s, h->err, sizeof h->err);
+	if (!j)
+		return;
+	r->b = trs_world_from_json(h->world, &h->catalog, j, h->err, sizeof h->err);
+	trs_json_free(j);
+}
+
 static void m_reset_time(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	if (h->world) {
@@ -292,6 +319,8 @@ static void m_predict(void *self, const trs_val *a, trs_val *r) {
 const trs_method_def TRS_SIM_WORLD_METHODS[] = {
 	{ "load_system", m_load_system, S, 1, { S }, { "path" } },
 	{ "reset_time", m_reset_time, V, 1, { F }, { "t" } },
+	{ "world_save", m_world_save, S, 0, { 0 }, { 0 } },
+	{ "world_load", m_world_load, B, 1, { S }, { "text" } },
 	{ "time", m_time, F, 0, { 0 }, { 0 } },
 	{ "body_count", m_body_count, I, 0, { 0 }, { 0 } },
 	{ "body_find", m_body_find, I, 1, { S }, { "id" } },

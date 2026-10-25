@@ -28,6 +28,12 @@ parachute) under the readouts. Exhaust is hot: anything left in a lit engine's j
 drop a spent stage before the engine above it lights. Engines tilted away from the rocket's axis
 lose the sideways part of their thrust, and the hangar's thrust and Δv count only what is left.
 
+**One world**: every launch joins the same saved world. **Esc → Space Center** leaves a craft
+where it is (once it's landed or in space), and the main menu's **Craft in flight** list takes you
+back aboard, recovers what's landed at home, or scraps debris. Time only passes while you fly. A
+craft still on the pad is recovered before the next launch, and **Revert** puts the world back as
+it was before the launch. Penguins aboard a craft left flying stay aboard until it comes home.
+
 **RCS**: Puffer RV-4 blocks are small monopropellant jets. Put them on the flanks in a symmetric
 set (4x is usual) near the centre of mass, add a Spritz mono tank (pods and the probe core carry a
 little), then press **R** in flight. They add to the reaction wheels' turning only when the wheels

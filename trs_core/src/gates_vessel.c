@@ -1230,3 +1230,105 @@ trs_gate_status trs_gate_rcs(trs_log *log, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* ---- persistence ----------------------------------------------------------- */
+
+static char *world_text(const trs_world *w) {
+	trs_json *j = trs_world_to_json(w);
+	char *s = trs_json_write_compact(j);
+	trs_json_free(j);
+	return s;
+}
+
+trs_gate_status trs_gate_persist(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	const trs_body *F = &sys.bodies[floe];
+	int failed = 0;
+	trs_craft orb, hop;
+	if (!trs_gate_load_craft(log, data_dir, "orbiter", &cat, &orb) || !trs_gate_load_craft(log, data_dir, "hopper", &cat, &hop))
+		return TRS_GATE_FAIL;
+
+	/* A world mid-flight: an Orbiter 20 s into its climb (boosters burning,
+	 * SAS holding, RCS armed), a Hopper coasting on rails in orbit, and a
+	 * second Hopper clamped to the pad far round the planet. */
+	trs_world *a = malloc(sizeof(trs_world)), *b = malloc(sizeof(trs_world));
+	trs_world_init(a, &sys, 0);
+	int ro = trs_world_launch(a, &orb, floe, F->site_lat, F->site_lon);
+	trs_world_launch(a, &hop, floe, F->site_lat + 0.3, F->site_lon + 2.0);
+	trs_v3 r = v3(F->radius + 120000, 0, 0);
+	int rh = trs_world_add_craft(a, &hop, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+	trs_vessel_set_mode(a, rh, TRS_MODE_RAILS);
+	a->vessels[ro].throttle = 1;
+	a->vessels[ro].rcs = 1;
+	a->vessels[ro].sas = TRS_SAS_STABILITY;
+	trs_world_stage(a, ro, NULL, 0);
+	for (int s = 0; s < 50 * 20; s++)
+		trs_world_step_physics(a);
+	char *saved = world_text(a);
+
+	/* 1. Load it into a fresh world: saving that again gives the same text. */
+	char err[256] = "";
+	trs_json *j = trs_json_parse(saved, err, sizeof err);
+	trs_world_init(b, &sys, 0);
+	int loaded = j && trs_world_from_json(b, &cat, j, err, sizeof err);
+	trs_json_free(j);
+	char *again = loaded ? world_text(b) : NULL;
+	int same = again && !strcmp(saved, again);
+	failed += !same;
+	int nv = 0;
+	for (int i = 0; i < a->nvessels; i++)
+		nv += a->vessels[i].alive;
+	trs_log_printf(log, "%s saved %d vessels at T+%.0f s (%zu bytes); loaded %s, saved again identical %s\n", same ? "ok  " : "FAIL",
+			nv, a->t, strlen(saved), loaded ? "yes" : err, same ? "yes" : "no");
+	free(again);
+
+	/* 2. Both worlds fly on for 60 s, staging at the same tick: every vessel
+	 *    and part stays bit-identical. */
+	int diverged = -1;
+	for (int s = 0; s < 50 * 60 && loaded && diverged < 0; s++) {
+		if (s == 50 * 10) {
+			trs_world_stage(a, ro, NULL, 0);
+			trs_world_stage(b, ro, NULL, 0);
+		}
+		trs_world_step_physics(a);
+		trs_world_step_physics(b);
+		if (s % 50 == 49) {
+			char *ta = world_text(a), *tb = world_text(b);
+			if (strcmp(ta, tb))
+				diverged = s;
+			free(ta);
+			free(tb);
+		}
+	}
+	int ok = loaded && diverged < 0;
+	failed += !ok;
+	trs_log_printf(log, "%s flown on 60 s side by side (a stage at 10 s): %s; Orbiter at %.1f km, %.1f m/s\n", ok ? "ok  " : "FAIL",
+			diverged < 0 ? "identical every second" : "DIVERGED", (v3_len(a->vessels[ro].r) - F->radius) / 1000, v3_len(a->vessels[ro].v));
+
+	/* 3. A bad save is refused and leaves the world as it was. */
+	char *before = world_text(b);
+	trs_json *bad = trs_json_parse("{\"format\":\"trs-world\",\"t\":5,\"vessels\":[{\"id\":0,\"body_id\":\"floe\",\"craft\":{\"parts\":[{\"part\":\"no_such_part\"}]}}]}", err, sizeof err);
+	int refused = !trs_world_from_json(b, &cat, bad, err, sizeof err);
+	trs_json_free(bad);
+	char *after = world_text(b);
+	ok = refused && !strcmp(before, after);
+	failed += !ok;
+	trs_log_printf(log, "%s a save naming an unknown part is refused (%s), world unchanged %s\n", ok ? "ok  " : "FAIL", err,
+			!strcmp(before, after) ? "yes" : "no");
+	free(before);
+	free(after);
+
+	free(saved);
+	trs_world_free(a);
+	trs_world_free(b);
+	free(a);
+	free(b);
+	trs_craft_free(&orb);
+	trs_craft_free(&hop);
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

@@ -25,6 +25,7 @@ var _t := 0.0
 var _corps: PanelContainer
 var _atmo: MeshInstance3D
 var _sun_node: DirectionalLight3D
+var _flights: PanelContainer
 
 
 func _ready() -> void:
@@ -32,6 +33,8 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for c in get_children():
 		c.queue_free()
+	_flights = null
+	_corps = null
 	_build_space()
 	var logo := PasaLogo.new()
 	logo.custom_minimum_size = Vector2(250, 250)
@@ -58,7 +61,12 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 10)
 	add_child(box)
 	Sim.tutorial = false
-	for item in [["First flight (tutorial)", _first_flight], ["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick], ["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]]:
+	var in_flight := Sim.game_session().core.vessel_list() != "[]"
+	var items := [["First flight (tutorial)", _first_flight], ["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick]]
+	if in_flight:
+		items.append(["Craft in flight (%d)" % Sim.vessels().size(), _toggle_flights])
+	items.append_array([["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]])
+	for item in items:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(340, 50)
@@ -175,6 +183,68 @@ func _first_flight() -> void:
 func _quick() -> void:
 	Sim.pending_craft_text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
 	get_tree().change_scene_to_file("res://scenes/flight.tscn")
+
+
+## Craft left flying (or landed) in the world: take one over, bring one
+## home, or clear away debris.
+func _toggle_flights() -> void:
+	if _flights:
+		_flights.queue_free()
+		_flights = null
+		return
+	if _corps:
+		_toggle_corps()
+	_flights = PanelContainer.new()
+	_flights.position = Vector2(470, 120)
+	_flights.custom_minimum_size = Vector2(620, 0)
+	add_child(_flights)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	_flights.add_child(v)
+	var title := Label.new()
+	title.text = "CRAFT IN FLIGHT"
+	title.add_theme_color_override("font_color", PartVisual.ORANGE)
+	title.add_theme_font_size_override("font_size", 18)
+	v.add_child(title)
+	for vs in Sim.vessels():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var l := Label.new()
+		var crew: Array = vs.crew_names
+		l.text = "%s\n%s · %s%s" % [vs.name, str(vs.situation).replace("_", " "), str(vs.body).capitalize(),
+			("   crew: " + ", ".join(crew)) if not crew.is_empty() else ("   %d part%s" % [int(vs.get("parts", 0)), "" if int(vs.get("parts", 0)) == 1 else "s"])]
+		l.custom_minimum_size = Vector2(380, 0)
+		l.add_theme_font_size_override("font_size", 14)
+		row.add_child(l)
+		var id := int(vs.id)
+		var fly := Button.new()
+		fly.text = "Fly"
+		fly.pressed.connect(func():
+			Sim.pending_vessel = id
+			get_tree().change_scene_to_file("res://scenes/flight.tscn"))
+		row.add_child(fly)
+		var home: bool = vs.body == "floe" and vs.situation in ["landed", "prelaunch"]
+		if home:
+			var rec := Button.new()
+			rec.text = "Recover"
+			rec.tooltip_text = "Bring it home: the crew are back in the corps."
+			rec.pressed.connect(func():
+				var names := Sim.recover_vessel(id, {})
+				Sim.save_game()
+				Sim.last_mission_note = "Recovered %s." % (", ".join(names) if not names.is_empty() else vs.name)
+				_ready())
+			row.add_child(rec)
+		elif crew.is_empty():
+			var scrap := Button.new()
+			scrap.text = "Scrap"
+			scrap.tooltip_text = "Nobody aboard: remove it from the world."
+			scrap.pressed.connect(func():
+				Sim.game.core.vessel_remove(id)
+				Sim.save_game()
+				_toggle_flights()
+				_toggle_flights())
+			row.add_child(scrap)
+		v.add_child(row)
 
 
 func _toggle_corps() -> void:

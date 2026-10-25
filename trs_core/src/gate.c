@@ -86,6 +86,7 @@ trs_gate_status trs_gate_landing(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_collision(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_rcs(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_persist(trs_log *log, const char *data_dir);
 
 static const trs_gate_def GATES[] = {
 	{ "test-smoke", "M0", gate_smoke },
@@ -99,9 +100,11 @@ static const trs_gate_def GATES[] = {
 	{ "test-heating", "M7", trs_gate_heating },
 	{ "test-collision", "M8", trs_gate_collision },
 	{ "test-rcs", "M9", trs_gate_rcs },
+	{ "test-persist", "M10", trs_gate_persist },
 	{ "test-craft-roundtrip", "M3", NULL },
 	{ "test-ascent", "M4", NULL },
 	{ "test-moon", "M5", NULL },
+	{ "test-world", "M10", NULL },
 	{ "screens", "M6", NULL },
 };
 

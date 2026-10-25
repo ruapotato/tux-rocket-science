@@ -643,7 +643,24 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 				crew += trs_craft_def(vs->craft, k)->crew;
 			trs_json_set(vj, "crew", trs_json_new_num(crew));
 			trs_json_set(vj, "parts", trs_json_new_num(vs->craft->count));
+			/* crewed parts by uid: the game seats penguins by part */
+			trs_json *pods = trs_json_new(TRS_JSON_ARRAY);
+			for (int k = 0; k < vs->craft->count; k++)
+				if (trs_craft_def(vs->craft, k)->crew > 0)
+					trs_json_push(pods, trs_json_new_num(vs->craft->parts[k].uid));
+			trs_json_set(vj, "pods", pods);
 		}
+		/* ground distance from the body's launch site (-1: no site there) */
+		const trs_body *b = &h->world->sys.bodies[vs->body];
+		double site_m = -1;
+		if (b->has_site) {
+			trs_v3 rr, vv;
+			trs_vessel_state(h->world, i, &rr, &vv);
+			trs_v3 fx = vs->mode == TRS_MODE_LANDED ? vs->fixed_r : trs_body_to_fixed(b, h->world->t, rr);
+			trs_v3 up = v3(cos(b->site_lat) * cos(b->site_lon), cos(b->site_lat) * sin(b->site_lon), sin(b->site_lat));
+			site_m = acos(fmax(-1, fmin(1, v3_dot(v3_norm(fx), up)))) * b->radius;
+		}
+		trs_json_set(vj, "site_m", trs_json_new_num(site_m));
 		trs_json_push(arr, vj);
 	}
 	ret_json(r, arr);

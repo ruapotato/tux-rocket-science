@@ -43,6 +43,7 @@ var nodes: Array = []
 var _accum := 0.0
 var _telemetry: Dictionary = {}
 var _telemetry_tick := -1
+var _pre_launch := ""  # the world just before the last launch (for reverts)
 
 
 func _init() -> void:
@@ -52,10 +53,14 @@ func _init() -> void:
 
 
 ## Resets the world and puts the craft on the body's launch pad.
-func launch(craft_text: String, body := "floe") -> bool:
-	core.load_system(ProjectSettings.globalize_path(Sim.SYSTEM_PATH))
+## fresh: a new, empty world (tests, the tutorial); otherwise the craft
+## joins the world as it is, with everything else still flying.
+func launch(craft_text: String, body := "floe", fresh := true) -> bool:
+	if fresh:
+		core.load_system(ProjectSettings.globalize_path(Sim.SYSTEM_PATH))
 	launch_text = craft_text
 	launch_body = body
+	_pre_launch = core.world_save()
 	active = core.flight_launch(craft_text, body)
 	ticks = 0
 	warp_kind = "physics"
@@ -81,8 +86,29 @@ func spawn_in_orbit(craft_text: String, body: String, altitude: float, inc_deg :
 	return active >= 0
 
 
+## Puts the world back as it was just before the launch and launches again.
 func revert_to_launch() -> bool:
-	return launch(launch_text, launch_body)
+	if _pre_launch == "" or not core.world_load(_pre_launch):
+		return launch(launch_text, launch_body)
+	return launch(launch_text, launch_body, false)
+
+
+## Puts the world back as it was before the launch (the craft never flew).
+func revert_before_launch() -> void:
+	if _pre_launch != "":
+		core.world_load(_pre_launch)
+	active = -1
+	_telemetry_tick = -1
+
+
+## Vessels sitting on (or right by) the launch pad of `body`, which a new
+## launch would land on top of: [{id, name, ...}] from vessel_list.
+func pad_blockers(body := "floe") -> Array:
+	var out := []
+	for v in JSON.parse_string(core.vessel_list()):
+		if v.body == body and v.situation in ["prelaunch", "landed"] and v.site_m >= 0.0 and v.site_m < 60.0:
+			out.append(v)
+	return out
 
 
 func time() -> float:
@@ -280,6 +306,8 @@ func _pick_new_active() -> void:
 	var best := -1
 	var score := -1.0
 	for v in vessels:
+		if v.mode != "physics":
+			continue  # far away: not a piece of what just broke up
 		var s: float = v.get("crew", 0) * 1000.0 + v.get("parts", 0)
 		if s > score:
 			score = s

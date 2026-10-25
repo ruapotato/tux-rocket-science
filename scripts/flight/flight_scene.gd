@@ -57,24 +57,56 @@ var tutorial: FirstFlight
 
 
 func _ready() -> void:
-	session = FlightSession.new()
 	var text := Sim.pending_craft_text
 	if text == "":
 		text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
 	Sim.pending_craft_text = text
-	session.launch(text, "floe")
+	_roster_snapshot = Crew.crew.duplicate(true)
+	var cleared := []
+	if Sim.tutorial:
+		# the walkthrough flies alone, in a world of its own
+		session = FlightSession.new()
+		session.launch(text, "floe")
+	else:
+		persistent = true
+		session = Sim.game_session()
+		if Sim.pending_vessel >= 0 and session.core.vessel_alive(Sim.pending_vessel):
+			session.switch_to(Sim.pending_vessel)
+			_resumed = true
+			_launched = true
+		else:
+			cleared = _clear_pad()
+			_seats_snapshot = Sim.seats.duplicate(true)
+			_roster_snapshot = Crew.crew.duplicate(true)
+			session.launch(text, "floe", false)
+		Sim.pending_vessel = -1
 	session.sim_event.connect(_on_sim_event)
 	var cs := get_node_or_null("/root/ControlSocket")
 	if cs:
 		cs.attach(session)
 	_build()
-	_roster_snapshot = Crew.crew.duplicate(true)
 	_assign_crew()
 	_cam_dist = 18.0 + _craft_height() * 1.2
+	if persistent:
+		Sim.save_game()
 	if Sim.tutorial:
 		_start_tutorial()
+	elif _resumed:
+		var tr := session.telemetry()
+		mission_start = session.time()
+		hud.toast("Back aboard %s: %s over %s." % [tr.get("name", "the vessel"), str(tr.get("situation", "")).replace("_", " "), str(tr.get("body", "")).capitalize()], 4.0)
 	else:
-		hud.toast("PASA, %s is on the pad. Z for full throttle, SPACE to launch." % session.telemetry().get("name", "vessel"), 5.0)
+		hud.toast("%sPASA, %s is on the pad. Z for full throttle, SPACE to launch." % [
+			("Cleared the pad first: recovered %s. " % ", ".join(cleared)) if not cleared.is_empty() else "", session.telemetry().get("name", "vessel")], 5.0)
+
+
+## Anything sitting on the pad is recovered before a launch.
+func _clear_pad() -> Array:
+	var names := []
+	for v in session.pad_blockers("floe"):
+		names.append(v.name)
+		Sim.recover_vessel(int(v.id), {})
+	return names
 
 
 ## The First Flight walkthrough, above the map so it stays readable there.
@@ -95,7 +127,12 @@ func _assign_crew() -> void:
 		p.queue_free()
 	_portraits.clear()
 	var seats := int(session.telemetry().get("crew_capacity", 0))
-	crew_names = Crew.assign(seats, Sim.pending_crew)
+	if _resumed:
+		crew_names = Sim.crew_of(session.active)
+	else:
+		crew_names = Crew.assign(seats, Sim.pending_crew)
+		if persistent:
+			Sim.seat_crew(session.active, crew_names)
 	var row := HBoxContainer.new()
 	row.name = "Crew"
 	row.add_theme_constant_override("separation", 6)
@@ -137,11 +174,44 @@ func _record(outcome: String) -> void:
 
 
 func _recover() -> void:
-	_record("recovered")
+	if persistent:
+		crew_names = Sim.recover_vessel(session.active, _mission)
+		_recorded = true
+		Sim.save_game()
+	else:
+		_record("recovered")
 	var names := ", ".join(crew_names) if not crew_names.is_empty() else "the uncrewed craft"
 	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s." % [names, FlightHUD.fmt_dist(_mission.max_altitude),
 		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else ""]
 	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
+
+
+## Why the pilot can't leave this flight for the Space Center now ("" = can).
+## Time stands still while nobody watches, but the next launch runs the
+## clock, and a craft left falling through the air would be lost.
+func leave_refusal() -> String:
+	if not persistent:
+		return "The tutorial flight can't be left running."
+	var t := session.telemetry()
+	if not t.get("alive", false):
+		return ""
+	if t.get("in_atmosphere", false) and not t.get("landed", false) and t.situation != "prelaunch":
+		return "Still flying through the air: land, splash down or reach space first."
+	return ""
+
+
+## Leaves the vessel where it is (it stays in the world) and goes to the
+## Space Center.
+func _leave() -> void:
+	session.set_throttle(0.0)
+	session.set_translate(0.0, 0.0, 0.0)
+	session.set_input(0.0, 0.0, 0.0)
+	session.set_warp("physics", 0)
+	Sim.sync_crew(_mission)
+	Sim.save_game()
+	var t := session.telemetry()
+	Sim.last_mission_note = "%s left %s over %s." % [t.get("name", "The vessel"), str(t.get("situation", "")).replace("_", " "), str(t.get("body", "")).capitalize()] if t.get("alive", false) else ""
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 ## The point of the active vessel furthest into the oncoming air, and the
@@ -508,6 +578,9 @@ func _on_menu(action: String) -> void:
 	hud.show_menu(false)
 	match action:
 		"revert_launch":
+			if _resumed:
+				hud.toast("This flight began before you came aboard: there is no launch to go back to.", 3.0)
+				return
 			_restore_crew()
 			_fail_in = 0.0
 			hud.hide_failure()
@@ -523,11 +596,24 @@ func _on_menu(action: String) -> void:
 			if tutorial:
 				_start_tutorial()
 		"revert_hangar":
+			if _resumed:
+				hud.toast("This flight began before you came aboard: there is no launch to go back to.", 3.0)
+				return
 			_restore_crew()
+			if persistent:
+				session.revert_before_launch()
+				Sim.save_game()
 			get_tree().change_scene_to_file("res://scenes/hangar.tscn")
 		"main_menu":
-			_record("lost" if _mission.pod_lost else "recovered")
-			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+			if not persistent:
+				_record("lost" if _mission.pod_lost else "recovered")
+				get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+				return
+			var why := leave_refusal()
+			if why != "":
+				hud.toast(why, 3.5)
+				return
+			_leave()
 
 
 func _on_sim_event(e: Dictionary) -> void:
@@ -845,7 +931,7 @@ func _render(delta: float) -> void:
 			_heat_alarm_t = session.time()
 			Sfx.play("alarm", 0.6)
 	hud.set_hint(hint)
-	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and _mission.max_altitude > 500.0
+	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and (_mission.max_altitude > 500.0 or _resumed)
 	if _map.visible:
 		_map.refresh()
 	_auto_unwarp(t, delta)
@@ -942,7 +1028,11 @@ func _crew_lost(part_name: String, how: String) -> void:
 		return
 	_mission.pod_lost = true
 	var names := ", ".join(crew_names) if not crew_names.is_empty() else "the crew"
-	if _launched and not crew_names.is_empty():
+	if persistent:
+		Sim.sync_crew(_mission)
+		Sim.save_game()
+		_recorded = true
+	elif _launched and not crew_names.is_empty():
 		Crew.record_loss(crew_names, _mission)
 		_recorded = true
 	for p in _portraits:
@@ -958,6 +1048,8 @@ func _restore_crew() -> void:
 	if not _roster_snapshot.is_empty():
 		Crew.crew = _roster_snapshot.duplicate(true)
 		Crew.save_roster()
+	if persistent:
+		Sim.seats = _seats_snapshot.duplicate(true)
 	_recorded = false
 
 
@@ -993,6 +1085,11 @@ var _fail_text: Array = []
 var _booms: Array[Explosion] = []
 var _shake := 0.0
 var _roster_snapshot: Array = []
+var _seats_snapshot: Dictionary = {}
+## The flight lives in the persistent game world (not the tutorial's own).
+var persistent := false
+## Took over a vessel already flying (no launch to revert to).
+var _resumed := false
 
 
 var _smoke: SmokeTrail

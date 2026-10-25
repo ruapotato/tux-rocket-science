@@ -62,6 +62,7 @@ func _ready() -> void:
 	if wanted.is_empty() and not all:
 		return  # normal game launch
 	OS.add_logger(_errors)
+	Sim.use_sandbox()  # never touch the player's saved game
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().paused = true  # keep the main scene inert while gates run
 	_arm_watchdog()

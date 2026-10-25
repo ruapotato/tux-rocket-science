@@ -311,7 +311,7 @@ func _build_menu() -> void:
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	t.add_theme_color_override("font_color", PartVisual.ORANGE)
 	v.add_child(t)
-	for item in [["Resume", "resume"], ["Revert to launch", "revert_launch"], ["Revert to hangar", "revert_hangar"], ["Main menu", "main_menu"]]:
+	for item in [["Resume", "resume"], ["Revert to launch", "revert_launch"], ["Revert to hangar", "revert_hangar"], ["Space Center (it keeps flying)", "main_menu"]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(0, 42)
