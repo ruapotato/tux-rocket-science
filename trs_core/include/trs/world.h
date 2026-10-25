@@ -152,6 +152,8 @@ typedef enum {
 	TRS_WEV_LANDED,
 	TRS_WEV_LIFTOFF,
 	TRS_WEV_FLAMEOUT,
+	TRS_WEV_DOCKED,   /* vessel absorbed `other` (now gone) */
+	TRS_WEV_UNDOCKED, /* vessel let go of `other` (new) */
 } trs_world_event_kind;
 
 typedef struct {
@@ -208,6 +210,16 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m);
 int trs_world_stage(trs_world *w, int id, int *new_ids, int max);
 /* Arms every stowed parachute (they open once the air allows). Returns how many. */
 int trs_vessel_deploy_chutes(trs_world *w, int id);
+/* Docking (docking.c). Latches every pair of free docking ports, on two
+ * vessels flying under physics, whose faces have come within capture range
+ * lined up face to face and slowly enough: the second vessel joins the
+ * first (momentum kept). Called every physics step. */
+void trs_world_dock_check(trs_world *w);
+/* Joins vessel b to vessel a at ports pa (on a) and pb (on b). */
+void trs_world_dock(trs_world *w, int a, int pa, int b, int pb);
+/* Lets go at docking port `port` of vessel id (either side of a docked
+ * pair). Returns the new vessel, or -1 if that port holds nothing. */
+int trs_world_undock(trs_world *w, int id, int port);
 /* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);
  * a part with propellant in it blasts its neighbours. */
 void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed);

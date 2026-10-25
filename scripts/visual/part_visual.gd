@@ -230,6 +230,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_rcs(root, d)
 		"sphere":
 			_sphere_tank(root, sh)
+		"dock":
+			_dock(root, sh)
 		_:
 			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, hull(WHITE))
 	if with_pick:
@@ -582,6 +584,23 @@ static func _rcs(root: Node3D, d: Dictionary) -> void:
 		jet.add_child(ci)
 		root.add_child(jet)
 		k += 1
+
+
+## Docking port: a short graphite collar under a raised steel ring, with a
+## soft seal on the face and three orange guide petals (you line those up).
+static func _dock(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r, h * 0.55, -h * 0.225, hull(GRAPHITE, {"panels": 12.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}))
+	_cyl(root, r * 0.8, r * 0.86, h * 0.45, h * 0.275, mat("steel", STEEL, 0.75, 0.3))
+	_ring(root, r * 0.72, h * 0.5, 0.03, mat("seal", Color(0.12, 0.12, 0.13), 0.0, 0.9))
+	_ring(root, r * 1.0, -h * 0.02, 0.03, mat("orange", ORANGE, 0.0, 0.45))
+	for k in 3:
+		var a := TAU * k / 3.0
+		var petal := BoxMesh.new()
+		petal.size = Vector3(0.16, h * 0.55, 0.05)
+		var b := Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, 0.35)
+		_mesh(root, petal, mat("orange", ORANGE, 0.0, 0.45), Transform3D(b, Basis(Vector3.UP, a) * Vector3(0, h * 0.55, r * 0.74)))
 
 
 ## Radial monopropellant tank: a ball on a strap.

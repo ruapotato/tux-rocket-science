@@ -1332,3 +1332,201 @@ trs_gate_status trs_gate_persist(trs_log *log, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* ---- docking ------------------------------------------------------------------- */
+
+/* A docking port on top of a probe core, a tank and an engine below. */
+static void dock_craft(trs_craft *c, const trs_part_catalog *cat, const char *name, int *port) {
+	trs_craft_init(c, cat);
+	snprintf(c->name, sizeof c->name, "%s", name);
+	int pc = trs_craft_add(c, trs_catalog_find(cat, "probe_core"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	int di = trs_catalog_find(cat, "dock_port");
+	const trs_attach_node *pt = trs_part_node(trs_craft_def(c, pc), "top"), *db = trs_part_node(&cat->defs[di], "bottom");
+	*port = trs_craft_add(c, di, pc, "bottom", "top", v3_sub(pt->pos, db->pos), quat_identity(), -1, 0);
+	int tk = stack_below(c, cat, pc, "tank_s", -1);
+	stack_below(c, cat, tk, "engine_small", 0);
+}
+
+/* Total momentum and angular momentum about the given point, frame moving at V. */
+static void pair_momentum(const trs_world *w, int a, int b, trs_v3 R, trs_v3 V, trs_v3 *P, trs_v3 *L) {
+	*P = v3(0, 0, 0);
+	*L = v3(0, 0, 0);
+	int ids[2] = { a, b };
+	for (int k = 0; k < (b >= 0 ? 2 : 1); k++) {
+		const trs_vessel *vs = &w->vessels[ids[k]];
+		trs_m3 I = m3_rotate_tensor(vs->q, &vs->inertia);
+		*P = v3_add(*P, v3_scale(vs->v, vs->mass));
+		*L = v3_add(*L, v3_add(m3_mulv(&I, vs->w), v3_scale(v3_cross(v3_sub(vs->r, R), v3_sub(vs->v, V)), vs->mass)));
+	}
+}
+
+/* Two probes nose to nose `gap` m apart in orbit, closing at `speed`, the
+ * second turned `tilt` rad off face-to-face. */
+static void dock_pair(trs_world *w, const trs_craft *ca, const trs_craft *cb, int floe, double gap, double speed, double tilt,
+		int *a, int *b) {
+	const trs_body *F = &w->sys.bodies[floe];
+	trs_v3 r0 = v3(F->radius + 200000, 0, 0), v0 = v3(0, sqrt(F->mu / v3_len(r0)), 0);
+	trs_quat qa = quat_from_to(v3(0, 1, 0), v3(0, 0, 1)); /* nose along +Z */
+	trs_quat qb = quat_mul(quat_axis_angle(v3(1, 0, 0), tilt), quat_from_to(v3(0, 1, 0), v3(0, 0, -1)));
+	*a = trs_world_add_craft(w, ca, floe, r0, v0, qa);
+	trs_vessel *A = &w->vessels[*a];
+	/* put B's port face `gap` beyond A's along +Z */
+	double ha = 0, hb = 0;
+	for (int i = 0; i < ca->count; i++)
+		if (trs_craft_def(ca, i)->is_dock)
+			ha = ca->parts[i].pos.y + 0.15 - A->cm.y;
+	*b = trs_world_add_craft(w, cb, floe, r0, v0, qb);
+	trs_vessel *B = &w->vessels[*b];
+	for (int i = 0; i < cb->count; i++)
+		if (trs_craft_def(cb, i)->is_dock)
+			hb = cb->parts[i].pos.y + 0.15 - B->cm.y;
+	B->r = v3_add(r0, v3(0, 0, ha + gap + hb));
+	B->v = v3_add(v0, v3(0, 0, -speed));
+	A->sas = B->sas = TRS_SAS_OFF;
+}
+
+trs_gate_status trs_gate_docking(trs_log *log, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	if (!trs_gate_load_catalog(log, data_dir, &cat) || !load_floe_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	int failed = 0, pa, pb;
+	trs_craft ca, cb;
+	dock_craft(&ca, &cat, "Chaser", &pa);
+	dock_craft(&cb, &cat, "Station", &pb);
+	/* the chaser's own tank is dry: after docking the station's feeds it */
+	for (int i = 0; i < ca.count; i++)
+		if (trs_craft_def(&ca, i)->fuel_liquid > 0)
+			ca.parts[i].fuel = 0;
+
+	/* 1. Closing at 0.3 m/s, lined up: they latch into one vessel with
+	 *    twice the parts; momentum and angular momentum (about the pair's
+	 *    CoM) are kept through the latch; fuel flows across. */
+	{
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int a, b;
+		dock_pair(w, &ca, &cb, floe, 1.0, 0.3, 0, &a, &b);
+		w->vessels[b].w = v3(0.01, 0.002, 0); /* a little tumble to carry over */
+		double t_dock = -1, t0 = w->t;
+		trs_v3 P0, L0, P1, L1;
+		int n0 = ca.count + cb.count;
+		for (int s = 0; s < 50 * 30 && t_dock < 0; s++) {
+			trs_world_step_physics(w);
+			for (int e = 0; e < w->nevents; e++)
+				if (w->events[e].kind == TRS_WEV_DOCKED)
+					t_dock = w->t - t0;
+			w->nevents = 0;
+		}
+		const trs_vessel *Mv = &w->vessels[a];
+		int alive_b = w->vessels[b].alive;
+		trs_fuel_net net;
+		trs_fuel_net_build(&net, Mv->craft);
+		int eng = -1;
+		for (int i = 0; i < Mv->craft->count && eng < 0; i++)
+			if (trs_craft_def(Mv->craft, i)->propellant == TRS_PROP_LIQUID)
+				eng = i; /* the chaser's engine comes first */
+		int fed = eng >= 0 && trs_craft_engine_fed(Mv->craft, &net, eng);
+		trs_fuel_net_free(&net);
+		/* the latch alone, on the same pair placed in range: momentum about
+		 * the pair's CoM (in its frame) before and after */
+		{
+			trs_world *w2 = malloc(sizeof(trs_world));
+			trs_world_init(w2, &sys, 0);
+			int a2, b2;
+			dock_pair(w2, &ca, &cb, floe, 0.2, 0.3, 0, &a2, &b2);
+			w2->vessels[b2].w = v3(0.01, 0.002, 0);
+			const trs_vessel *A = &w2->vessels[a2], *B = &w2->vessels[b2];
+			double M = A->mass + B->mass;
+			trs_v3 R = v3_scale(v3_add(v3_scale(A->r, A->mass), v3_scale(B->r, B->mass)), 1.0 / M);
+			trs_v3 V = v3_scale(v3_add(v3_scale(A->v, A->mass), v3_scale(B->v, B->mass)), 1.0 / M);
+			pair_momentum(w2, a2, b2, R, V, &P0, &L0);
+			int ia = -1, ib = -1;
+			for (int i = 0; i < A->craft->count; i++)
+				if (trs_craft_def(A->craft, i)->is_dock)
+					ia = i;
+			for (int i = 0; i < B->craft->count; i++)
+				if (trs_craft_def(B->craft, i)->is_dock)
+					ib = i;
+			trs_world_dock(w2, a2, ia, b2, ib);
+			const trs_vessel *J = &w2->vessels[a2];
+			pair_momentum(w2, a2, -1, J->r, V, &P1, &L1);
+			trs_world_free(w2);
+			free(w2);
+		}
+		double dP = v3_len(v3_sub(P1, P0)) / v3_len(P0);
+		double dL = v3_len(v3_sub(L1, L0)) / fmax(v3_len(L0), 1e-9);
+		int ok = t_dock > 2 && t_dock < 3 && !alive_b && Mv->craft->count == n0 && dP < 1e-12 && dL < 1e-9 && fed;
+		failed += !ok;
+		trs_log_printf(log, "%s latched after %.2f s (1 m gap at 0.3 m/s): 1 vessel of %d parts, momentum kept to %.1e, spin to %.1e, chaser's engine fed by the station %s\n",
+				ok ? "ok  " : "FAIL", t_dock, Mv->craft->count, dP, dL, fed ? "yes" : "no");
+
+		/* 2. Undocking: two vessels again, named as before, pushed apart at
+		 *    J (1/mA + 1/mB); they don't latch again until 2 m apart. */
+		int port = -1;
+		for (int i = 0; i < Mv->craft->count; i++)
+			if (trs_craft_def(Mv->craft, i)->is_dock)
+				port = i;
+		double ma = 0, mb = 0;
+		trs_craft_mass_props(&ca, &ma, NULL, NULL);
+		trs_craft_mass_props(&cb, &mb, NULL, NULL);
+		trs_v3 vbefore = w->vessels[a].v;
+		int nid = trs_world_undock(w, a, port);
+		int ok2 = nid >= 0;
+		double sep = 0, want = 0;
+		if (ok2) {
+			const trs_vessel *A2 = &w->vessels[a], *B2 = &w->vessels[nid];
+			/* the push, after the rigid spin both pieces carry away */
+			trs_v3 spin = v3_cross(w->vessels[a].w, v3_sub(B2->r, A2->r));
+			sep = v3_len(v3_sub(v3_sub(B2->v, A2->v), spin));
+			want = trs_craft_def(A2->craft, 1)->dock_impulse * (1 / A2->mass + 1 / B2->mass);
+			ok2 = !strcmp(A2->craft->name, "Chaser") && !strcmp(B2->craft->name, "Station") && A2->craft->count == ca.count
+					&& B2->craft->count == cb.count && fabs(sep / want - 1) < 1e-6;
+			(void)vbefore;
+		}
+		/* they drift apart; no re-latch on the way */
+		int relatched = 0;
+		for (int s = 0; s < 50 * 20; s++) {
+			trs_world_step_physics(w);
+			for (int e = 0; e < w->nevents; e++)
+				relatched |= w->events[e].kind == TRS_WEV_DOCKED;
+			w->nevents = 0;
+		}
+		int rearmed = 1;
+		for (int i = 0; ok2 && i < w->vessels[a].craft->count; i++)
+			if (w->vessels[a].craft->parts[i].dock_wait_uid)
+				rearmed = 0;
+		ok2 = ok2 && !relatched && rearmed;
+		failed += !ok2;
+		trs_log_printf(log, "%s undocked: 'Chaser' and 'Station' again, parting at %.4f m/s (J(1/mA+1/mB) = %.4f), no re-latch while close, re-armed past 2 m %s\n",
+				ok2 ? "ok  " : "FAIL", sep, want, rearmed ? "yes" : "no");
+		trs_world_free(w);
+		free(w);
+	}
+	/* 3. Too fast, or too far off face to face: no latch while passing
+	 *    through the capture range (what happens when they then hit is the
+	 *    collision model's business). */
+	struct { const char *what; double speed, tilt; } bad[] = { { "closing at 2 m/s", 2.0, 0 }, { "25 deg off", 0.3, 25 * TRS_PI / 180 } };
+	for (int k = 0; k < 2; k++) {
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int a, b, docked = 0;
+		dock_pair(w, &ca, &cb, floe, 1.0, bad[k].speed, bad[k].tilt, &a, &b);
+		/* until the faces would touch: 1 m at the closing speed */
+		for (int s = 0; s < (int)(50 * 1.0 / bad[k].speed) - 2; s++) {
+			trs_world_step_physics(w);
+			for (int e = 0; e < w->nevents; e++)
+				docked |= w->events[e].kind == TRS_WEV_DOCKED;
+			w->nevents = 0;
+		}
+		failed += docked;
+		trs_log_printf(log, "%s %s: no latch through the capture range\n", docked ? "FAIL" : "ok  ", bad[k].what);
+		trs_world_free(w);
+		free(w);
+	}
+	trs_craft_free(&ca);
+	trs_craft_free(&cb);
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

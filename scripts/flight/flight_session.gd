@@ -44,6 +44,7 @@ var _accum := 0.0
 var _telemetry: Dictionary = {}
 var _telemetry_tick := -1
 var _pre_launch := ""  # the world just before the last launch (for reverts)
+var target := -1  # the vessel picked as target (-1: none)
 
 
 func _init() -> void:
@@ -159,6 +160,39 @@ func stage() -> Array:
 	_telemetry_tick = -1
 	_collect_events()
 	return created
+
+
+## Where the target is and how it moves relative to us, and how the
+## nearest pair of free docking ports lines up ({} without a target).
+func target_info() -> Dictionary:
+	if target < 0 or not core.vessel_alive(target) or target == active:
+		target = -1
+		return {}
+	return JSON.parse_string(core.target_info(active, target))
+
+
+## Picks the next target: the other vessels in order of distance.
+func cycle_target() -> int:
+	var others := []
+	for v in JSON.parse_string(core.vessel_list()):
+		if int(v.id) != active:
+			others.append([_distance_to_active(int(v.id)), int(v.id)])
+	others.sort()
+	if others.is_empty():
+		target = -1
+		return target
+	var ids := others.map(func(x): return x[1])
+	var k := ids.find(target)
+	target = ids[(k + 1) % ids.size()] if k < ids.size() - 1 else -1
+	return target
+
+
+## Lets go at the first docked port: the new vessel's id, or -1.
+func undock() -> int:
+	var nid: int = core.vessel_undock(active)
+	_telemetry_tick = -1
+	_collect_events()
+	return nid
 
 
 func switch_to(id: int) -> void:
@@ -294,6 +328,12 @@ func _collect_events() -> void:
 	var evs: Array = JSON.parse_string(core.events_drain())
 	for e in evs:
 		events.append(e)
+		# docking absorbs one vessel into the other: follow it there
+		if e.kind == "docked":
+			if int(e.other) == active:
+				switch_to(int(e.vessel))
+			if int(e.other) == target or int(e.vessel) == target:
+				target = -1
 		sim_event.emit(e)
 	if not core.vessel_alive(active):
 		_pick_new_active()

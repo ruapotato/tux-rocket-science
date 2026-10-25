@@ -46,7 +46,7 @@ var _throttle := 0.0
 var _launched := false
 var _flicker := 0.0
 var _map: MapView
-var _sas_maneuver := false
+var _sas_follow := ""  # SAS chasing a moving direction: maneuver, target, antirel, dock
 var crew_names: Array = []
 var _portraits: Array[PenguinPortrait] = []
 var _mission := {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
@@ -415,6 +415,12 @@ func _key(k: InputEventKey) -> void:
 			_toggle_legs()
 		KEY_R:
 			_toggle_rcs()
+		KEY_Y:
+			var tg := session.cycle_target()
+			hud.toast("Target: %s" % session.target_info().get("name", "?") if tg >= 0 else "No target", 1.5)
+		KEY_U:
+			var nid := session.undock()
+			hud.toast("Undocked: %s floats free" % JSON.parse_string(session.core.telemetry(nid)).get("name", "it") if nid >= 0 else "Nothing docked here", 2.0)
 		KEY_V:
 			hud.speed_mode = "orbit" if hud.speed_mode == "surface" else "surface"
 		KEY_M:
@@ -552,14 +558,56 @@ func _cycle_vessel(dir: int) -> void:
 
 
 func _on_sas(mode: String) -> void:
-	_sas_maneuver = mode == "maneuver"
-	if _sas_maneuver:
-		if session.nodes.is_empty():
-			_sas_maneuver = false
-			hud.toast("No maneuver node", 1.5)
+	_sas_follow = mode if mode in ["maneuver", "target", "antirel", "dock"] else ""
+	if _sas_follow == "maneuver" and session.nodes.is_empty():
+		_sas_follow = ""
+		hud.toast("No maneuver node", 1.5)
+		return
+	if _sas_follow in ["target", "antirel", "dock"] and session.target_info().is_empty():
+		_sas_follow = ""
+		hud.toast("No target: Y picks one", 2.0)
+		return
+	if _sas_follow != "":
 		return
 	if not session.set_sas(mode):
 		hud.toast("SAS mode unavailable", 1.5)
+
+
+## The direction (sim axes) SAS should hold for the mode it follows, or
+## Vector3.ZERO when there is none any more.
+func _follow_dir() -> Vector3:
+	match _sas_follow:
+		"maneuver":
+			var nb := _node_burn()
+			return nb.vec if not nb.is_empty() else Vector3.ZERO
+		"target", "antirel", "dock":
+			var ti := session.target_info()
+			if ti.is_empty():
+				return Vector3.ZERO
+			if _sas_follow == "target":
+				return Vector3(ti.dir[0], ti.dir[1], ti.dir[2])
+			if _sas_follow == "antirel":
+				var rv := Vector3(ti.rel_v[0], ti.rel_v[1], ti.rel_v[2])
+				return rv if rv.length() > 0.01 else Vector3.ZERO
+			if ti.has("port_axis"):
+				return Vector3(ti.port_axis[0], ti.port_axis[1], ti.port_axis[2])
+	return Vector3.ZERO
+
+
+## The target panel: range and closing speed, and once a pair of free
+## docking ports is near, how well they line up (green when it would latch).
+func _target_text() -> String:
+	var ti := session.target_info()
+	if ti.is_empty():
+		return ""
+	var s := "[color=#ff8a2a][b]TARGET[/b][/color]  %s\n[color=#9fb4cc]Range[/color] [b]%s[/b]   [color=#9fb4cc]closing[/color] %+.2f m/s\n[color=#9fb4cc]Relative speed[/color] %.2f m/s" % [
+		ti.get("name", "?"), FlightHUD.fmt_dist(ti.distance), ti.closing, ti.rel_speed]
+	if ti.has("port_distance") and ti.port_distance < 200.0:
+		var d: Dictionary = Sim.part("dock_port").get("docking", {})
+		var good: bool = ti.port_angle_deg < d.get("max_angle_deg", 10.0) and ti.port_closing < d.get("max_speed", 0.8)
+		s += "\n[color=%s]PORT[/color] %.2f m · %.1f° off · %.2f m aside · closing %+.2f m/s" % [
+			"#7fe08a" if good else "#ffcf5a", ti.port_distance, ti.port_angle_deg, ti.port_lateral, ti.port_closing]
+	return s
 
 
 ## Direction (sim axes) and size of the first upcoming node's burn.
@@ -625,6 +673,13 @@ func _on_sim_event(e: Dictionary) -> void:
 				_crew_lost(Sim.part(e.part).name, how)
 			elif not _mission.pod_lost:
 				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
+		"docked":
+			if int(e.vessel) == session.active:
+				Sfx.play("stage")
+				_react("orbit", 3.0)
+				hud.toast("Docked! %s is one craft now (U to undock)" % session.telemetry().get("name", ""), 3.0)
+		"undocked":
+			Sfx.play("decouple")
 		"soi_change":
 			_react("orbit", 3.0)
 			if not _mission.visited.has(str(e.get("body", ""))):
@@ -674,12 +729,14 @@ func _controls(delta: float) -> void:
 	var sf := float(Input.is_key_pressed(KEY_H)) - float(Input.is_key_pressed(KEY_N))
 	var tr := _view_translate(sl, su, sf)
 	session.set_translate(tr.x, tr.y, tr.z)
-	if _sas_maneuver:
-		var nb := _node_burn()
-		if nb.is_empty():
-			_sas_maneuver = false
+	if _sas_follow != "":
+		var fd := _follow_dir()
+		if fd == Vector3.ZERO:
+			if _sas_follow == "antirel":
+				session.set_sas("stability")  # matched: hold here
+			_sas_follow = ""
 		else:
-			session.set_sas("target", PackedFloat64Array([nb.vec.x, nb.vec.y, nb.vec.z]))
+			session.set_sas("target", PackedFloat64Array([fd.x, fd.y, fd.z]))
 
 
 ## Turns screen-relative steering into the vessel's pitch (local X torque)
@@ -864,7 +921,8 @@ func _render(delta: float) -> void:
 	else:
 		hud.set_node_text("")
 	hud.navball.update_attitude(up, north, east, nose, q_top, markers)
-	hud.maneuver_active = _sas_maneuver
+	hud.follow_mode = _sas_follow
+	hud.set_target_text(_target_text())
 	# crew and mission bookkeeping
 	_mission.max_altitude = maxf(_mission.max_altitude, t.altitude)
 	_mission.max_g = maxf(_mission.max_g, t.g_force)

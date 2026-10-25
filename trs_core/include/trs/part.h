@@ -64,6 +64,13 @@ typedef struct {
 	double rcs_thrust, rcs_isp_vac, rcs_isp_sl; /* per nozzle, N in vacuum */
 	trs_v3 rcs_pos[TRS_MAX_NOZZLES], rcs_dir[TRS_MAX_NOZZLES];
 
+	/* docking port: its "top" node is the docking face */
+	int is_dock;
+	double dock_capture;   /* m: faces this close (and lined up, and slow) latch */
+	double dock_max_speed; /* m/s closing speed it can take */
+	double dock_max_angle; /* rad off face-to-face it can take */
+	double dock_impulse;   /* N s pushing the two apart on undocking */
+
 	/* decoupler */
 	trs_decoupler_kind decoupler;
 	double eject_impulse; /* N s */

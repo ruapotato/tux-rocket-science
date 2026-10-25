@@ -59,6 +59,8 @@ typedef struct {
 	double temp; /* K, skin temperature (runtime only, not saved) */
 	double chute_cda; /* m^2, canopy drag area while it inflates (runtime only) */
 	double rcs_fire[TRS_MAX_NOZZLES]; /* RCS nozzle throttles last tick (runtime only) */
+	char dock_name[48]; /* docking ports: the vessel it brought in when it docked */
+	int dock_wait_uid;  /* docking ports: won't latch onto this port again until clear of it */
 } trs_part;
 
 typedef struct {

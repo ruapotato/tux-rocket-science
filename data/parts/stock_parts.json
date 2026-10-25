@@ -471,6 +471,23 @@
         { "name": "bottom", "pos": [0, -0.25, 0], "dir": [0, -1, 0], "radius": 0.625 }
       ],
       "surface_attach": true
+    },
+    {
+      "id": "dock_port",
+      "name": "Huddle-Lock Docking Port",
+      "category": "structural",
+      "description": "Two of these meeting face to face, lined up and slow (under 0.8 m/s), lock the craft together. Fuel flows through. U lets go again. Put one on the nose of each craft you want to join.",
+      "mass": 60,
+      "docking": { "capture": 0.4, "max_speed": 0.8, "max_angle_deg": 10, "undock_impulse": 150 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "dock", "radius": 0.625, "height": 0.3 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.15, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.15, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": false
     }
   ]
 }

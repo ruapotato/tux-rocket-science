@@ -28,11 +28,14 @@ signal action_pressed(name: String) # "stage", "chute", "legs"
 const SAS_BUTTONS := [
 	["stability", "SAS"], ["prograde", "PRO"], ["retrograde", "RET"], ["normal", "NRM"],
 	["antinormal", "ANT"], ["radial_out", "RAD+"], ["radial_in", "RAD-"], ["maneuver", "MNV"],
+	["target", "TGT"], ["antirel", "RV-"], ["dock", "DOCK"],
 ]
 
 var navball: Navball
 var speed_mode := "surface"  # or "orbit"
 var maneuver_active := false
+var follow_mode := ""  # SAS following a moving direction: maneuver, target, antirel, dock
+var _target_text: RichTextLabel
 var _clock: Label
 var _status: Label
 var _left: RichTextLabel
@@ -99,6 +102,8 @@ func _ready() -> void:
 
 	_left = _panel_text(Vector2(10, 10), Vector2(270, 0))
 	_right = _panel_text(Vector2(-280, 10), Vector2(270, 0), true)
+	_target_text = _panel_text(Vector2(-280, 128), Vector2(270, 0), true)
+	_target_text.get_parent().visible = false
 	_stages = _panel_text(Vector2(10, 230), Vector2(230, 0))
 
 	# bottom centre: throttle | navball | g-meter, SAS row beneath
@@ -344,6 +349,8 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
 [b]W A S D[/b] / arrows steer [i]as you see it[/i]: W tips the nose away from the camera,
    D swings it right on screen.   [b]Q E[/b] roll   [b]T[/b] SAS on/off
 [b]R[/b] RCS on/off: [b]I J K L[/b] slide up / left / down / right on screen, [b]H N[/b] forward / back
+[b]Y[/b] pick a target (again for the next)   [b]U[/b] undock   SAS [b]TGT[/b] / [b]RV-[/b] / [b]DOCK[/b]: point at it /
+   against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
 [b]V[/b] surface / orbital speed
 
@@ -434,6 +441,12 @@ func show_failure(title: String, body: String, hint: String) -> void:
 
 func hide_failure() -> void:
 	_fail.visible = false
+
+
+## The target readout (empty hides it).
+func set_target_text(s: String) -> void:
+	_target_text.text = s
+	_target_text.get_parent().visible = s != ""
 
 
 func set_hint(s: String) -> void:
@@ -559,7 +572,7 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 		Sim.part(t.heat_part).get("name", t.heat_part), t.heat_temp, t.heat_limit] if t.has("heat_part") else "Skin heating"
 	_heat.queue_redraw()
 	for k in _sas_buttons:
-		_sas_buttons[k].set_pressed_no_signal(t.sas == k or (k == "maneuver" and maneuver_active))
+		_sas_buttons[k].set_pressed_no_signal((t.sas == k and follow_mode == "") or k == follow_mode)
 	var rb: Button = _action_buttons["rcs"]
 	rb.toggle_mode = true
 	rb.set_pressed_no_signal(t.get("rcs", false))

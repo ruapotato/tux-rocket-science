@@ -82,6 +82,14 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 			return 0;
 		}
 	}
+	const trs_json *dk = trs_json_get(j, "docking");
+	if (dk) {
+		d->is_dock = 1;
+		d->dock_capture = trs_json_num(dk, "capture", 0.4);
+		d->dock_max_speed = trs_json_num(dk, "max_speed", 1.0);
+		d->dock_max_angle = trs_json_num(dk, "max_angle_deg", 10) * TRS_PI / 180.0;
+		d->dock_impulse = trs_json_num(dk, "undock_impulse", 100);
+	}
 	const trs_json *dc = trs_json_get(j, "decoupler");
 	if (dc) {
 		d->decoupler = !strcmp(trs_json_str(dc, "kind", "stack"), "radial") ? TRS_DECOUPLER_RADIAL : TRS_DECOUPLER_STACK;

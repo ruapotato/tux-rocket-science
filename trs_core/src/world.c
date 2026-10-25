@@ -367,6 +367,7 @@ void trs_world_step_physics(trs_world *w) {
 			rk4(w, vs, t, h);
 	}
 	time_add(w, h);
+	trs_world_dock_check(w);
 	int n = w->nvessels; /* destruction may append vessels */
 	for (int i = 0; i < n; i++) {
 		trs_vessel *vs = &w->vessels[i];

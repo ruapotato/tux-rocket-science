@@ -124,6 +124,100 @@ static void m_vessel_set_input(void *self, const trs_val *a, trs_val *r) {
 		h->world->vessels[a[0].i].input = v3(fmax(-1, fmin(1, a[1].f)), fmax(-1, fmin(1, a[2].f)), fmax(-1, fmin(1, a[3].f)));
 }
 
+/* vessel_undock(id) -> the vessel that let go (-1: nothing docked). Lets go
+ * at the first docked port. */
+static void m_vessel_undock(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = -1;
+	if (!ok_vessel(h, a[0].i) || !h->world->vessels[a[0].i].craft)
+		return;
+	const trs_craft *c = h->world->vessels[a[0].i].craft;
+	for (int i = 0; i < c->count && r->i < 0; i++)
+		if (trs_craft_def(c, i)->is_dock && c->parts[i].parent >= 0 && !strcmp(c->parts[i].node, "top")
+				&& trs_craft_def(c, c->parts[i].parent)->is_dock)
+			r->i = trs_world_undock(h->world, (int)a[0].i, i);
+}
+
+/* Docking face of port i of vessel id: position (SOI frame), facing, velocity. */
+static void dock_face(const trs_vessel *vs, int i, trs_v3 *pos, trs_v3 *axis, trs_v3 *vel) {
+	const trs_part *p = &vs->craft->parts[i];
+	const trs_attach_node *top = trs_part_node(trs_craft_def(vs->craft, i), "top");
+	trs_v3 local = v3_add(p->pos, quat_rotate(p->rot, top ? top->pos : v3(0, 0, 0)));
+	trs_v3 arm = quat_rotate(vs->q, v3_sub(local, vs->cm));
+	*pos = v3_add(vs->r, arm);
+	*axis = v3_norm(quat_rotate(vs->q, quat_rotate(p->rot, top ? top->dir : v3(0, 1, 0))));
+	*vel = v3_add(vs->v, v3_cross(vs->w, arm));
+}
+
+static int dock_free(const trs_craft *c, int i) {
+	if (!trs_craft_def(c, i)->is_dock || (c->parts[i].parent >= 0 && !strcmp(c->parts[i].node, "top")))
+		return 0;
+	for (int k = i + 1; k < c->count; k++)
+		if (c->parts[k].parent == i && !strcmp(c->parts[k].parent_node, "top"))
+			return 0;
+	return 1;
+}
+
+/* target_info(id, target) -> JSON {distance, rel_speed, closing, dir[3],
+ * rel_v[3]} (SOI frame, from id to target) and, when both have a free
+ * docking port, the closest pair: {port_distance, port_angle_deg (0 = face
+ * to face), port_lateral (m off the line), port_closing, port_dir[3]}. */
+static void m_target_info(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
+	if (!ok_vessel(h, a[0].i) || !ok_vessel(h, a[1].i) || a[0].i == a[1].i) {
+		ret_json(r, j);
+		return;
+	}
+	trs_world *w = h->world;
+	int ia = (int)a[0].i, ib = (int)a[1].i;
+	trs_v3 ra, va, rb, vb;
+	trs_vessel_state(w, ia, &ra, &va);
+	trs_vessel_state(w, ib, &rb, &vb);
+	if (w->vessels[ib].body != w->vessels[ia].body)
+		trs_rebase_state(&w->sys, w->vessels[ib].body, w->vessels[ia].body, w->t, &rb, &vb);
+	trs_v3 d = v3_sub(rb, ra), dv = v3_sub(vb, va);
+	double dist = v3_len(d);
+	trs_json_set(j, "distance", trs_json_new_num(dist));
+	trs_json_set(j, "rel_speed", trs_json_new_num(v3_len(dv)));
+	trs_json_set(j, "closing", trs_json_new_num(dist > 0 ? -v3_dot(dv, d) / dist : 0));
+	trs_json_set(j, "dir", v3_json(dist > 0 ? v3_scale(d, 1 / dist) : v3(0, 0, 0)));
+	trs_json_set(j, "rel_v", v3_json(dv));
+	trs_json_set(j, "name", trs_json_new_str(w->vessels[ib].craft ? w->vessels[ib].craft->name : "?"));
+	const trs_vessel *A = &w->vessels[ia], *B = &w->vessels[ib];
+	if (A->craft && B->craft && A->mode == TRS_MODE_PHYSICS && B->mode == TRS_MODE_PHYSICS && A->body == B->body) {
+		double best = 1e30;
+		trs_v3 bpa = v3(0, 0, 0), bxa = bpa, bva = bpa, bpb = bpa, bxb = bpa, bvb = bpa;
+		for (int i = 0; i < A->craft->count; i++) {
+			if (!dock_free(A->craft, i))
+				continue;
+			for (int k = 0; k < B->craft->count; k++) {
+				if (!dock_free(B->craft, k))
+					continue;
+				trs_v3 pa, xa, vpa, pb, xb, vpb;
+				dock_face(A, i, &pa, &xa, &vpa);
+				dock_face(B, k, &pb, &xb, &vpb);
+				double dd = v3_len(v3_sub(pb, pa));
+				if (dd < best) {
+					best = dd;
+					bpa = pa, bxa = xa, bva = vpa, bpb = pb, bxb = xb, bvb = vpb;
+				}
+			}
+		}
+		if (best < 1e29) {
+			trs_v3 sep = v3_sub(bpb, bpa);
+			double along = v3_dot(sep, bxa);
+			trs_json_set(j, "port_distance", trs_json_new_num(best));
+			trs_json_set(j, "port_angle_deg", trs_json_new_num(acos(fmax(-1, fmin(1, -v3_dot(bxa, bxb)))) * DEG));
+			trs_json_set(j, "port_lateral", trs_json_new_num(v3_len(v3_sub(sep, v3_scale(bxa, along)))));
+			trs_json_set(j, "port_closing", trs_json_new_num(best > 0 ? -v3_dot(v3_sub(bvb, bva), sep) / best : 0));
+			trs_json_set(j, "port_dir", v3_json(best > 0 ? v3_scale(sep, 1 / best) : bxa));
+			trs_json_set(j, "port_axis", v3_json(v3_neg(bxb)));
+		}
+	}
+	ret_json(r, j);
+}
+
 /* vessel_set_rcs(id, on) */
 static void m_vessel_set_rcs(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -667,7 +761,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 }
 
 static const char *EVENT_NAMES[] = { "", "part_destroyed", "vessel_created", "soi_change", "landed", "liftoff",
-	"flameout" };
+	"flameout", "docked", "undocked" };
 
 /* events_drain() -> JSON [{kind, t, vessel, other, uid, part, speed}] */
 static void m_events_drain(void *self, const trs_val *a, trs_val *r) {
@@ -1063,6 +1157,8 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_set_input", m_vessel_set_input, V, 4, { I, F, F, F }, { "id", "pitch", "yaw", "roll" } },
 	{ "vessel_set_sas", m_vessel_set_sas, B, 3, { I, S, A }, { "id", "mode", "target" } },
 	{ "vessel_set_rcs", m_vessel_set_rcs, V, 2, { I, B }, { "id", "on" } },
+	{ "vessel_undock", m_vessel_undock, I, 1, { I }, { "id" } },
+	{ "target_info", m_target_info, S, 2, { I, I }, { "id", "target" } },
 	{ "vessel_set_translate", m_vessel_set_translate, V, 4, { I, F, F, F }, { "id", "x", "y", "z" } },
 	{ "vessel_stage", m_vessel_stage, S, 1, { I }, { "id" } },
 	{ "vessel_set_legs", m_vessel_set_legs, V, 2, { I, B }, { "id", "deployed" } },

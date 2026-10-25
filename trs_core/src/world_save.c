@@ -128,6 +128,9 @@ static trs_json *craft_json(const trs_craft *c) {
 		PUT_D(pj, p, temp);
 		PUT_D(pj, p, chute_cda);
 		trs_json_set(pj, "rcs_fire", darr(p->rcs_fire, TRS_MAX_NOZZLES));
+		if (p->dock_name[0])
+			trs_json_set(pj, "dock_name", trs_json_new_str(p->dock_name));
+		PUT_I(pj, p, dock_wait_uid);
 		trs_json_push(parts, pj);
 	}
 	trs_json_set(cj, "parts", parts);
@@ -161,6 +164,8 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 		GET_I(pj, p, fired);
 		GET_D(pj, p, temp);
 		GET_D(pj, p, chute_cda);
+		snprintf(p->dock_name, sizeof p->dock_name, "%s", trs_json_str(pj, "dock_name", ""));
+		GET_I(pj, p, dock_wait_uid);
 		const trs_json *rf = trs_json_get(pj, "rcs_fire");
 		for (int n = 0; n < TRS_MAX_NOZZLES; n++)
 			p->rcs_fire[n] = dval(trs_json_at(rf, (size_t)n), 0);

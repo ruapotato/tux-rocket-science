@@ -453,14 +453,15 @@ static void mark_subtree(const trs_craft *c, int root, unsigned char *mask) {
 void trs_craft_detach_set(const trs_craft *c, int d, unsigned char *mask) {
 	memset(mask, 0, (size_t)c->count);
 	const trs_part_def *dd = trs_craft_def(c, d);
-	if (!dd->decoupler)
+	if (!dd->decoupler && !dd->is_dock)
 		return;
 	if (dd->decoupler == TRS_DECOUPLER_RADIAL) {
 		if (c->parts[d].parent >= 0)
 			mark_subtree(c, d, mask); /* decoupler leaves with the booster */
 		return;
 	}
-	/* Stack: separates across its "top" node, whichever side that is. */
+	/* Stack (and docking ports): separates across its "top" node,
+	 * whichever side that is. */
 	if (c->parts[d].parent >= 0 && !strcmp(c->parts[d].node, "top")) {
 		mark_subtree(c, d, mask);
 		return;

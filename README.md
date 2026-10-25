@@ -15,7 +15,7 @@ orbit, plan a burn to the moon, land, and come home.
 | Where | Keys |
 |---|---|
 | Hangar | click a part, then click a node or surface · **X** symmetry · **Q/E W/S A/D** rotate · arrows / PgUp / PgDn offset · **[ ]** thrust limit of the engine under the cursor (Shift: 20% steps) · **Del** · **Ctrl+Z/Y** · right-drag orbit · wheel zoom |
-| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **R** RCS: **IJKL** slide on screen, **H/N** forward/back · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
+| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **R** RCS: **IJKL** slide on screen, **H/N** forward/back · **Y** target · **U** undock · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
 | Map | centred on your vessel · click the trajectory to add a maneuver node, drag its handles (Shift = fine) · **Tab** vessel / planet focus · **Skip to burn** fast-forwards to just before the node · **MNV** SAS points at the burn |
 | Hangar | the craft hangs at a working height; while holding a part, free attach nodes show orange and the one it will snap to turns green · **F** frame craft · **PgUp/PgDn** move the view |
 
@@ -27,6 +27,13 @@ reaches nothing, an engine firing into part of its own rocket) and likely surpri
 parachute) under the readouts. Exhaust is hot: anything left in a lit engine's jet burns up, so
 drop a spent stage before the engine above it lights. Engines tilted away from the rocket's axis
 lose the sideways part of their thrust, and the hangar's thrust and Δv count only what is left.
+
+**Docking**: put a **Huddle-Lock Docking Port** on each craft. In flight, **Y** picks the other
+craft as target. The target panel shows range, closing speed and, near a free port pair, how
+well the ports line up; the PORT line turns green when they would latch. SAS **DOCK** points your
+port at theirs, **RV-** points against your relative speed (burn to stop), and RCS slides you
+onto the line. Ports latch when they meet within 10° of face to face, closing at under 0.8 m/s.
+The two craft become one: fuel flows across, crew stay where they are. **U** pushes them apart.
 
 **One world**: every launch joins the same saved world. **Esc → Space Center** leaves a craft
 where it is (once it's landed or in space), and the main menu's **Craft in flight** list takes you
