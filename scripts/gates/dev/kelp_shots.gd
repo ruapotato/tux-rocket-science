@@ -40,6 +40,8 @@ func run(runner: Node) -> Dictionary:
 	var scene := await _flight(tree)
 	var s: FlightSession = scene.session
 	scene._cam_dist = 30.0
+	if OS.get_environment("PITCH") != "":
+		scene._cam_pitch = float(OS.get_environment("PITCH"))  # look down on a small world
 	await _frames(tree, 30)
 	await _shot(scene, "orbit")
 	# down to 4 km on a chute

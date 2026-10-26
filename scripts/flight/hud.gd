@@ -644,7 +644,7 @@ static func mining_text(t: Dictionary) -> String:
 	var dr := int(t.get("drills", 0))
 	var rf := int(t.get("refineries", 0))
 	if int(t.get("drills_on", 0)) == 0 and int(t.get("refineries_on", 0)) == 0:
-		return "(C: mine)" if dr + rf > 0 else ""
+		return "Mining off (C to start)" if dr + rf > 0 else ""
 	var bits := []
 	if dr > 0:
 		if float(t.get("ore_rate", 0.0)) > 0.0:
@@ -668,7 +668,8 @@ static func mining_text(t: Dictionary) -> String:
 			bits.append("tanks full")
 		else:
 			bits.append("refinery: no power")
-	return "· " + ", ".join(bits) + " (%.2f kW)" % float(t.get("mining_kw", 0.0))
+	var out := ", ".join(bits) + " (%.2f kW)" % float(t.get("mining_kw", 0.0))
+	return out.left(1).to_upper() + out.substr(1)
 
 
 func _update_fuel(t: Dictionary) -> void:
@@ -741,10 +742,19 @@ func _update_fuel(t: Dictionary) -> void:
 		of.bg_color = Color(0.78, 0.55, 0.32)
 		obar.add_theme_stylebox_override("fill", of)
 		var ol := Label.new()
-		ol.text = "Ore  %.0f / %.0f kg  %s" % [t.ore, t.ore_capacity, mining_text(t)]
+		ol.text = "Ore  %.0f / %.0f kg" % [t.ore, t.ore_capacity]
 		ol.add_theme_font_size_override("font_size", 12)
 		v.add_child(ol)
 		v.add_child(obar)
+		var st := mining_text(t)
+		if st != "":
+			var ml2 := Label.new()
+			ml2.text = st
+			ml2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			ml2.custom_minimum_size = Vector2(250, 0)
+			ml2.add_theme_font_size_override("font_size", 11)
+			ml2.add_theme_color_override("font_color", Color(0.9, 0.75, 0.55))
+			v.add_child(ml2)
 	if t.get("stage_liquid_capacity", 0.0) <= 0.0 and t.get("stage_solid_capacity", 0.0) <= 0.0:
 		var none := Label.new()
 		none.text = "No engine in this stage"
