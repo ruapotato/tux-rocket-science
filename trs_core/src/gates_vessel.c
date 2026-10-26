@@ -869,7 +869,7 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 			double sp = v3_len(vair);
 			double cs = v3_dot(v3_norm(vair), quat_rotate(vs->q, v3(0, 1, 0)));
 			/* a lone pod: both end faces fully exposed */
-			double f = fmax(fabs(cs), 0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs)));
+			double f = fmax(fabs(cs) * trs_lead_slant(pd, cs), 0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs)));
 			double hc = 2 * 1005.0 * 1.7415e-4 * sqrt(rho_used / pd->radius) * sp;
 			double t_rec = TRS_T_AMBIENT + sp * sp / (2 * 1005.0);
 			double q = f * hc * (t_rec - T0) - pd->emissivity * 5.670374419e-8 * (pow(T0, 4) - pow(TRS_T_AMBIENT, 4));
@@ -976,6 +976,44 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 		trs_world_free(w);
 		free(w);
 		trs_craft_free(&c);
+	}
+	/* 5. Nose cones: diving nose-first at 2 km/s, a bare tank's flat top
+	 *    heats faster than a nosecone on the same tank (the cone meets the
+	 *    air at a slant), and the tank behind the cone barely warms. Both
+	 *    widths of cone. */
+	for (int k = 0; k < 2; k++) {
+		const char *tank_id = k ? "tank_xl" : "tank_l", *cone_id = k ? "nosecone_xl" : "nosecone";
+		double rise[3]; /* bare tank top, cone, tank behind the cone */
+		for (int withcone = 0; withcone < 2; withcone++) {
+			trs_craft c;
+			trs_craft_init(&c, &cat);
+			int root = trs_craft_add(&c, trs_catalog_find(&cat, withcone ? cone_id : tank_id), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+			int tank = withcone ? stack_below(&c, &cat, root, tank_id, -1) : root;
+			trs_world *w = malloc(sizeof(trs_world));
+			trs_world_init(w, &sys, 0);
+			int id = drop_at(w, &c, floe, 30000, 2000);
+			trs_vessel *vs = &w->vessels[id];
+			vs->sas = TRS_SAS_OFF;
+			trs_quat nose_down = quat_from_to(v3(0, 1, 0), v3(-1, 0, 0));
+			for (int s = 0; s < 50 * 5; s++) {
+				vs->q = nose_down; /* held exactly nose-first */
+				vs->w = v3(0, 0, 0);
+				trs_world_step_physics(w);
+			}
+			const trs_craft *cc = vs->craft;
+			if (withcone) {
+				rise[1] = cc->parts[root].temp - TRS_T_AMBIENT;
+				rise[2] = cc->parts[tank].temp - TRS_T_AMBIENT;
+			} else
+				rise[0] = cc->parts[root].temp - TRS_T_AMBIENT;
+			trs_world_free(w);
+			free(w);
+			trs_craft_free(&c);
+		}
+		int ok = rise[0] > 1.5 * rise[1] && rise[2] < 0.5 * rise[0] && rise[1] > 0;
+		failed += !ok;
+		trs_log_printf(log, "%s 5 s nose-first at 2 km/s from 30 km: bare %s top +%.0f K; under a %s the cone +%.0f K, the tank +%.0f K\n",
+				ok ? "ok  " : "FAIL", tank_id, rise[0], cone_id, rise[1], rise[2]);
 	}
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
@@ -1661,6 +1699,52 @@ trs_gate_status trs_gate_fins(trs_log *log, const char *data_dir) {
 		int ok = rho_vac == 0 && fabs(got / wheel - 1) < 1e-6 && fabs(fl_vac[0]) + fabs(fl_vac[1]) + fabs(fl_vac[2]) + fabs(fl_vac[3]) == 0;
 		failed += !ok;
 		trs_log_printf(log, "%s vacuum (200 km): torque %.1f N m = wheel %.0f, flaps still\n", ok ? "ok  " : "FAIL", got, wheel);
+	}
+	/* 5. letting go of the stick under stability SAS: the turn stops where
+	 *    it is and holds there, without swinging back toward where the nose
+	 *    was when the key went down. In vacuum, and with a short tap in the
+	 *    air (a long one turns it far enough off the airflow to tumble). */
+	for (int k = 0; k < 2; k++) {
+		double a_alt = k ? alt : 200000;
+		trs_world *w = malloc(sizeof(trs_world));
+		int id = fin_world(w, &sys, &c, floe, a_alt, spd);
+		trs_vessel *vs = &w->vessels[id];
+		vs->sas = TRS_SAS_STABILITY;
+		trs_v3 nose0 = quat_rotate(vs->q, v3(0, 1, 0));
+		vs->input = v3(1, 0, 0);
+		for (int s2 = 0; s2 < (k ? 10 : 50); s2++)
+			trs_world_step_physics(w);
+		vs->input = v3(0, 0, 0);
+		double at_release = acos(fmin(1, fmax(-1, v3_dot(quat_rotate(vs->q, v3(0, 1, 0)), nose0))));
+		double furthest = at_release, settled_at = -1, last_wp = 0;
+		int flips = 0; /* the pitch rate changing sign: a wobble */
+		trs_quat stop_q = vs->q;
+		for (int s2 = 0; s2 < 50 * (k ? 2 : 8); s2++) {
+			trs_world_step_physics(w);
+			double ang = acos(fmin(1, fmax(-1, v3_dot(quat_rotate(vs->q, v3(0, 1, 0)), nose0))));
+			furthest = fmax(furthest, ang);
+			double wp = v3_dot(vs->w, quat_rotate(vs->q, v3(1, 0, 0)));
+			if (fabs(wp) > 1e-3) {
+				flips += last_wp * wp < 0;
+				last_wp = wp;
+			}
+			if (settled_at < 0 && vs->sas_settle == 0) {
+				settled_at = (s2 + 1) * h;
+				stop_q = vs->q;
+			}
+		}
+		double end = acos(fmin(1, fmax(-1, v3_dot(quat_rotate(vs->q, v3(0, 1, 0)), nose0))));
+		double drift = acos(fmin(1, fmax(-1, v3_dot(quat_rotate(vs->q, v3(0, 1, 0)), quat_rotate(stop_q, v3(0, 1, 0))))));
+		double back = furthest - end, d = 180 / TRS_PI;
+		/* in the air, the air itself pushes the nose back toward the airflow
+		 * a little before the hold leans against it */
+		int ok = settled_at > 0 && settled_at < 3 && flips <= (k ? 2 : 0) &&
+				(k ? back < 2 / d && drift < 2 / d : back < 0.2 / d && drift < 0.2 / d && v3_len(vs->w) < 0.002);
+		failed += !ok;
+		trs_log_printf(log, "%s let go after %.1f s of full pitch (%s): %.1f deg at release, stopped at %.1f deg after %.2f s, swung back %.3f deg, then held for %.0f s (drift %.3f deg), %d reversals\n",
+				ok ? "ok  " : "FAIL", k ? 0.2 : 1.0, k ? "air, 3 km" : "vacuum", at_release * d, furthest * d, settled_at, back * d, k ? 2.0 : 8.0, drift * d, flips);
+		trs_world_free(w);
+		free(w);
 	}
 	trs_craft_free(&c);
 	trs_catalog_free(&cat);

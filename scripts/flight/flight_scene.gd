@@ -92,7 +92,9 @@ func _ready() -> void:
 		cs.attach(session)
 	_build()
 	_assign_crew()
-	_cam_dist = minf(CAM_MAX_DIST, 18.0 + _craft_height() * 1.2)
+	# far enough that the whole craft fits between the top and bottom HUD
+	var ch := _craft_height()
+	_cam_dist = minf(CAM_MAX_DIST, maxf(18.0 + ch * 1.2, 2.0 * (ch + 3.0)))
 	if persistent:
 		Sim.save_game()
 	if Sim.tutorial:
@@ -303,15 +305,18 @@ func _windward_fronts(flow: Vector3) -> Dictionary:
 	return {"fronts": out, "exposure": exposure}
 
 
+## The craft's size: the widest span between two of its parts' centres
+## (the feed is in the world frame, which is not lined up with the craft).
 func _craft_height() -> float:
 	var r: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
-	var lo := INF
-	var hi := -INF
+	var pts: Array[Vector3] = []
 	for k in r.size() / VesselView.RPP:
-		var p := Frame.vec(r, k * VesselView.RPP + 1)
-		lo = minf(lo, p.y)
-		hi = maxf(hi, p.y)
-	return hi - lo if hi > lo else 5.0
+		pts.append(Frame.vec(r, k * VesselView.RPP + 1))
+	var span := 0.0
+	for i in pts.size():
+		for j in range(i + 1, pts.size()):
+			span = maxf(span, pts[i].distance_to(pts[j]))
+	return span if span > 0.0 else 5.0
 
 
 func _build() -> void:
@@ -594,17 +599,9 @@ func _deploy_chutes() -> void:
 
 
 func _change_warp(dir: int) -> void:
-	var t := session.telemetry()
-	var kind := session.warp_kind
-	var idx := session.warp_index + dir
-	if session.warp_index == 0 and dir > 0:
-		kind = "rails" if session.rails_refusal() == "" else "physics"
-		idx = 1
-	if kind == "physics":
-		idx = clampi(idx, 0, FlightSession.PHYSICS_WARP.size() - 1)
-	var reason := session.set_warp(kind, idx)
+	var reason := session.step_warp(dir)
 	if reason != "":
-		hud.toast("Warp refused: " + reason, 2.0)
+		hud.toast(reason, 2.0)
 
 
 func _cycle_vessel(dir: int) -> void:
@@ -932,6 +929,9 @@ func _render(delta: float) -> void:
 	if clear < CAM_CLEARANCE:
 		_cam.position += up * (CAM_CLEARANCE - clear)
 	_cam.look_at(focus, up)
+	# centre the craft in the band between the top panels and the navball
+	var vh := get_viewport().get_visible_rect().size.y
+	_cam.v_offset = -_cam_dist * tan(deg_to_rad(_cam.fov) * 0.5) * clampf((FlightHUD.BOTTOM_H - FlightHUD.TOP_H) / maxf(vh, 1.0), 0.0, 0.5)
 	_update_booms(delta, drift)
 	_update_failure(delta)
 

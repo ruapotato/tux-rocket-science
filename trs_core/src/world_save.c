@@ -211,6 +211,7 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_V(o, vs, input);
 		PUT_I(o, vs, sas);
 		PUT_Q(o, vs, sas_hold);
+		PUT_D(o, vs, sas_settle);
 		PUT_V(o, vs, sas_target);
 		PUT_I(o, vs, next_stage);
 		PUT_I(o, vs, rcs);
@@ -316,6 +317,7 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_V(o, vs, input);
 		GET_I(o, vs, sas);
 		GET_Q(o, vs, sas_hold);
+		GET_D(o, vs, sas_settle);
 		GET_V(o, vs, sas_target);
 		GET_I(o, vs, next_stage);
 		GET_I(o, vs, rcs);

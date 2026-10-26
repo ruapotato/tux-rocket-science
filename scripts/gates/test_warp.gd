@@ -93,10 +93,10 @@ func run(_runner: Node) -> Dictionary:
 	for p in s.trajectory([], 4, 1.0e5):
 		if p.end == "surface":
 			t_hit = float(p.t_end)
-	var why := s.warp_to(s.time() + 1.0e5)
+	var skip_why := s.warp_to(s.time() + 1.0e5)
 	var ts := s.telemetry()
-	_check(t_hit > 0.0 and ts.alive and not ts.landed and absf(t_hit - s.time() - FlightSession.WARP_TO_LEAD) < 1.0 and why.contains("ground"),
-		"skip ahead past an impact: stopped %.1f s before it, %.1f km up ('%s')" % [t_hit - s.time(), ts.altitude_terrain / 1000.0, why])
+	_check(t_hit > 0.0 and ts.alive and not ts.landed and absf(t_hit - s.time() - FlightSession.WARP_TO_LEAD) < 1.0 and skip_why.contains("ground"),
+		"skip ahead past an impact: stopped %.1f s before it, %.1f km up ('%s')" % [t_hit - s.time(), ts.altitude_terrain / 1000.0, skip_why])
 
 	# 2. the Orbiter in orbit, engine lit at zero throttle, warping
 	s = FlightSession.new()
@@ -123,4 +123,21 @@ func run(_runner: Node) -> Dictionary:
 	_check(tb.liquid < fuel0 and tb.thrust > 0.0, "and the engine really burns: %.1f -> %.1f kg in %.2f s, thrust %.0f kN" % [fuel0, tb.liquid, s.time() - t0, tb.thrust / 1000.0])
 	var refuse := s.set_warp("rails", 2)
 	_check(refuse != "" and s.warp_index == 0, "asking to warp under thrust: refused ('%s')" % refuse)
+	# 3. stepping up the ladder: under thrust it tops out at 4x; with the
+	#    engine idle the next step up from 4x goes on to the rails rates
+	var climb := []
+	var why := ""
+	for i in 6:
+		why = s.step_warp(1)
+		climb.append("%s %d" % [s.warp_kind, s.warp_index])
+	_check(s.warp_kind == "physics" and s.warp_index == FlightSession.PHYSICS_WARP.size() - 1 and why.contains("thrust"),
+		"stepping up under thrust: %s, stops at 4x ('%s')" % [", ".join(climb), why])
+	s.set_throttle(0.0)
+	for i in 3:
+		s.advance(dt)
+	why = s.step_warp(1)
+	_check(why == "" and s.warp_kind == "rails" and s.warp_index == 1,
+		"engine idle, one more step up from 4x: %s %dx ('%s')" % [s.warp_kind, FlightSession.RAILS_WARP[s.warp_index], why])
+	s.step_warp(1)
+	_check(s.warp_kind == "rails" and s.warp_index == 2, "and on up: %dx" % FlightSession.RAILS_WARP[s.warp_index])
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}

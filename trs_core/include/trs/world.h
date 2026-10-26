@@ -99,6 +99,7 @@ typedef struct {
 	trs_v3 input;     /* pilot: pitch (about local X), yaw (local Z), roll (local Y), -1..1 */
 	trs_sas_mode sas;
 	trs_quat sas_hold;
+	double sas_settle; /* stick just let go: the spin rate (rad/s) being braked, 0 when holding */
 	trs_v3 sas_target;
 	int next_stage;   /* stage fired by the next trs_world_stage() */
 	int rcs;          /* RCS thrusters armed */
@@ -234,6 +235,8 @@ void trs_vessel_refresh(trs_world *w, int id);
  * jet), and the skin temperature (K) part i settles at under it. */
 double trs_plume_flux(const trs_craft *c, int e, int i, double mdot, double isp);
 double trs_plume_soak_temp(const trs_craft *c, int i, double flux);
+/* share of the stagnation heat flux a part's leading end takes (1 flat, less tapering) */
+double trs_lead_slant(const trs_part_def *d, double cs);
 /* Vessel-vessel contact forces for this tick (vessel_contact.c). */
 void trs_world_vessel_contacts(trs_world *w);
 /* Lets vessel v pass through `other` until they are apart and t >= until. */

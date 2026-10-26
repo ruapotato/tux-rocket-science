@@ -403,6 +403,21 @@
       "surface_attach": true
     },
     {
+      "id": "nosecone_xl",
+      "name": "Big Beak Nosecone",
+      "category": "aero",
+      "description": "The Beak, for the wide tanks. Same point, four times the shoulders.",
+      "mass": 320,
+      "aero": { "cd_top": 0.12, "cd_bottom": 0.8, "cd_side": 0.8, "cop": -0.3 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1300, "skin_heat": 10000, "emissivity": 0.8 },
+      "shape": { "type": "cone", "radius_bottom": 1.25, "radius_top": 0.0, "height": 2.2 },
+      "nodes": [
+        { "name": "bottom", "pos": [0, -1.1, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
       "id": "reaction_wheel",
       "name": "Spin-Cycle Reaction Wheel",
       "category": "control",

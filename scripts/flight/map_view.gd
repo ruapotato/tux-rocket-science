@@ -23,6 +23,7 @@ class_name MapView
 extends Control
 
 const SCALE := 1.0e-5
+const MOON_MERGE_PX := 40.0  # a moon this close to its planet on screen is left out
 const HANDLE_RATE := 0.6  # m/s per pixel dragged (grows with distance)
 const AIR_PATH := Color(1.0, 0.45, 0.35, 0.55)  # drag-free continuation through the air
 const COLORS := [Color(0.35, 0.85, 1.0), Color(1.0, 0.62, 0.2), Color(0.6, 1.0, 0.45), Color(1.0, 0.45, 0.8), Color(0.9, 0.9, 0.4)]
@@ -258,8 +259,26 @@ func refresh() -> void:
 		var rel := pos - _target
 		if rel.length() > 5.0e4:
 			k = 5.0e4 / rel.length()
-		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * 0.012)), _target + rel * k)
+		# never smaller than a dot on screen; a moon's dot is the smaller one
+		var moon := int(b.info.parent) > 0
+		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * (0.006 if moon else 0.012))), _target + rel * k)
+		b.node.visible = true
 		_draw_body_orbit(i, offs)
+	# zoomed out so far that a moon would sit on its planet on screen (dots
+	# and names on top of each other): the moon and its orbit are left out
+	# until you zoom back in
+	for i in _bodies.size():
+		var b: Dictionary = _bodies[i]
+		var parent := int(b.info.parent)
+		if parent <= 0 or i == focus_body:
+			continue
+		var pn: MeshInstance3D = _bodies[parent].node
+		if _cam.is_position_behind(pn.position) or _cam.is_position_behind(b.node.position):
+			continue
+		var gap := _cam.unproject_position(b.node.position).distance_to(_cam.unproject_position(pn.position))
+		if gap < MOON_MERGE_PX:
+			b.node.visible = false
+			(b.orbit_mesh as ImmediateMesh).clear_surfaces()
 	# vessel trajectory with nodes
 	var nodes := FlightSession.pack_nodes(session.nodes)
 	_patches = JSON.parse_string(session.core.trajectory(session.active, nodes, 8, 3.0e6))
@@ -561,7 +580,7 @@ func _draw_overlay() -> void:
 				ov.draw_circle(h.pos, 8.0, h.color)
 	for b in _bodies:
 		var p3: Vector3 = b.node.position
-		if _cam.is_position_behind(p3):
+		if not b.node.visible or _cam.is_position_behind(p3):
 			continue
 		var p := _cam.unproject_position(p3)
 		ov.draw_string(font, p + Vector2(10, 18), b.info.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0, 0.85))

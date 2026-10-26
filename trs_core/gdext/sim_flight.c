@@ -520,7 +520,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "stages", stages);
 		trs_json_set(j, "dv_total", trs_json_new_num(dv_total));
 		/* what each remaining SPACE press does, next one first:
-		 * [{stage, engines, decouplers, chutes}] */
+		 * [{stage, engines, decouplers, chutes, parts: [{id, n}]}] */
 		trs_json *plan = trs_json_new(TRS_JSON_ARRAY);
 		for (int sg = vs->next_stage; sg >= 0; sg--) {
 			int ne = 0, nd = 0, nc = 0;
@@ -535,6 +535,25 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			if (ne + nd + nc == 0)
 				continue;
 			trs_json *pj = trs_json_new(TRS_JSON_OBJECT);
+			trs_json *pp = trs_json_new(TRS_JSON_ARRAY);
+			for (int i = 0; i < c->count; i++) {
+				const trs_part_def *d = trs_craft_def(c, i);
+				if (c->parts[i].stage != sg || !(d->propellant != TRS_PROP_NONE || (d->decoupler && !c->parts[i].fired) || d->is_parachute))
+					continue;
+				int seen = 0;
+				for (int k = 0; k < i; k++)
+					seen |= c->parts[k].stage == sg && c->parts[k].def == c->parts[i].def;
+				if (seen)
+					continue;
+				int n = 0;
+				for (int k = i; k < c->count; k++)
+					n += c->parts[k].stage == sg && c->parts[k].def == c->parts[i].def && !(trs_craft_def(c, k)->decoupler && c->parts[k].fired);
+				trs_json *e = trs_json_new(TRS_JSON_OBJECT);
+				trs_json_set(e, "id", trs_json_new_str(d->id));
+				trs_json_set(e, "n", trs_json_new_num(n));
+				trs_json_push(pp, e);
+			}
+			trs_json_set(pj, "parts", pp);
 			trs_json_set(pj, "stage", trs_json_new_num(sg));
 			trs_json_set(pj, "engines", trs_json_new_num(ne));
 			trs_json_set(pj, "decouplers", trs_json_new_num(nd));

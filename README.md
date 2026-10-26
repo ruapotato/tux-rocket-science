@@ -52,7 +52,8 @@ run out, and **IJKL / H N** slide the craft for docking and fine trims. Every RC
 every mono tank on the vessel. The hangar shows the blocks, the mono and how much Δv a pure slide
 gets from it.
 
-**Time warp**: above the air with the engines idle, warp runs on rails up to 100000x. Nothing
+**Time warp**: **.** steps up through 2x, 3x, 4x (physics warp, allowed anywhere) and on into the
+rails rates; under thrust or in the air 4x is the top. Above the air with the engines idle, warp runs on rails up to 100000x. Nothing
 burns on rails, so throttling up drops straight back to normal time and the engine really fires.
 Slowing down is always allowed. Diving toward the ground (or the top of the air), the warp eases
 itself down a level at a time and always keeps at least 15 s of real time before you'd hit. A
@@ -66,7 +67,15 @@ onto it.
 **Flipper Fins** steer only in air: the white flap on each fin's trailing edge swings with the
 stick, and the faster and lower you fly, the harder they bite. Fins further aft turn the rocket
 more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono. Engine gimbal
-helps whenever an engine burns.
+helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
+holds that attitude (it doesn't swing back to where you started).
+
+**Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak
+Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
+of it, and keeps the tank behind it cool. It also cuts the drag.
+
+The flight screen's **STAGES** panel lists every SPACE press still to come, next first: what it
+lights, drops or opens, and the Δv, burn time and TWR of the burn it starts.
 
 Boosters go on a **Calving Radial Decoupler**: put the decoupler on the core's flank, then click
 its orange node with a tank, engine or solid booster and it hangs upright beside the core

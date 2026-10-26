@@ -567,6 +567,7 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
  * rate loop is explicit, so SAS_KR * TRS_PHYSICS_DT stays well under 1. */
 #define SAS_KP 4.0
 #define SAS_KR 15.0
+#define SAS_SETTLED 0.002 /* rad/s: a let-go turn counts as stopped */
 
 /* a fin's torque per newton along its plate normal (local X), craft frame */
 static trs_v3 fin_lever(const trs_craft *c, const trs_vessel *vs, int i) {
@@ -615,6 +616,16 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	double Ix = vs->inertia.m[0][0], Iy = vs->inertia.m[1][1], Iz = vs->inertia.m[2][2];
 	trs_v3 cmd = v3(0, 0, 0);
 	int manual = fabs(vs->input.x) + fabs(vs->input.y) + fabs(vs->input.z) > 1e-6;
+	/* Letting go of the stick under stability SAS stops the turn where it
+	 * is (rate brought to rest, the hold point following the nose) and only
+	 * then holds that attitude, so the nose does not swing back to where it
+	 * was when the key came up. Braking ends once the rate is next to
+	 * nothing, or stops falling (air pushing on it: holding takes over). */
+	if (vs->sas == TRS_SAS_STABILITY && !manual && vs->sas_settle > 0) {
+		double rate = v3_len(wb);
+		vs->sas_settle = rate < SAS_SETTLED || rate >= vs->sas_settle ? 0 : rate;
+		vs->sas_hold = vs->q;
+	}
 
 	if (vs->sas >= TRS_SAS_TARGET || (vs->sas == TRS_SAS_STABILITY && !manual)) {
 		trs_v3 err; /* rotation vector from current to target, local frame */
@@ -654,8 +665,10 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 		if (fabs(vs->input.x) > 1e-6) cmd.x = man.x;
 		if (fabs(vs->input.z) > 1e-6) cmd.y = man.y;
 		if (fabs(vs->input.y) > 1e-6) cmd.z = man.z;
-		if (vs->sas == TRS_SAS_STABILITY)
+		if (vs->sas == TRS_SAS_STABILITY) {
 			vs->sas_hold = vs->q; /* recapture while the pilot steers */
+			vs->sas_settle = 1e9;
+		}
 	}
 	(void)Iw;
 	double o[3] = { own.x, own.y, own.z }, ra[3] = { rcs_a.x, rcs_a.y, rcs_a.z }, cm[3] = { cmd.x, cmd.y, cmd.z }, u[3];
@@ -863,6 +876,19 @@ static double plume_flux(const trs_vessel *vs, const engine_set *es, int i) {
 	return q;
 }
 
+/* How squarely a leading end takes the air head-on: a flat end takes the
+ * full stagnation flux, a tapering one (nosecone, capsule shoulder) meets
+ * it at a slant and takes sin(wall angle) of it over the area it grows by
+ * (the Newtonian/Lees falloff along an inclined wall). Area-weighted. */
+double trs_lead_slant(const trs_part_def *d, double cs) {
+	double r_lead = cs > 0 ? d->radius_top : d->radius_bottom, r_tail = cs > 0 ? d->radius_bottom : d->radius_top;
+	if (r_lead >= r_tail - 1e-9 || d->height <= 0)
+		return 1;
+	double flat = r_lead * r_lead, grow = r_tail * r_tail - r_lead * r_lead;
+	double s = sin(atan2(r_tail - r_lead, d->height));
+	return (flat + grow * s) / (flat + grow);
+}
+
 static void heat(const trs_world *w, trs_vessel *vs, double h) {
 	trs_craft *c = vs->craft;
 	const trs_body *b = &w->sys.bodies[vs->body];
@@ -881,7 +907,7 @@ static void heat(const trs_world *w, trs_vessel *vs, double h) {
 			double cs = v3_dot(dl, part_axis(p));
 			double exposed = (cs > 0 ? vs->face_top[i] : vs->face_bottom[i]) / fmax(d->area_axial, 1e-6);
 			double wake = cs > 0 ? vs->wake_top[i] : vs->wake_bottom[i];
-			double f = fmax(clampd(exposed, 0, 1) * fabs(cs), (0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs))) * wake);
+			double f = fmax(clampd(exposed, 0, 1) * fabs(cs) * trs_lead_slant(d, cs), (0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs))) * wake);
 			double hc = 2 * CP_AIR * SG_K * sqrt(rho / fmax(d->radius, 0.05)) * sp;
 			q += f * hc * (t_rec - p->temp);
 		}

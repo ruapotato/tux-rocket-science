@@ -246,6 +246,26 @@ func set_warp(kind: String, index: int) -> String:
 	return ""
 
 
+## One step up (dir > 0) or down the warp ladder: physics 1x..4x, then on
+## to the rails rates when they are allowed. "" or why it went no further.
+func step_warp(dir: int) -> String:
+	var kind := warp_kind
+	var idx := warp_index + dir
+	if warp_index == 0 and dir > 0:
+		kind = "rails" if rails_refusal() == "" else "physics"
+		idx = 1
+	elif kind == "physics" and idx >= PHYSICS_WARP.size():
+		var why := rails_refusal()
+		if why != "":
+			return "%dx is the limit %s" % [PHYSICS_WARP[-1], why.trim_prefix("cannot warp ")]
+		kind = "rails"
+		idx = 1
+	if kind == "physics":
+		idx = clampi(idx, 0, PHYSICS_WARP.size() - 1)
+	var reason := set_warp(kind, idx)
+	return "Warp refused: " + reason if reason != "" else ""
+
+
 ## The fastest on-rails warp level that still leaves WARP_LEAD seconds of
 ## real time before the craft reaches the ground (or the top of the air) at
 ## its present descent rate; 0 means none.

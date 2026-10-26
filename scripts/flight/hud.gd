@@ -31,6 +31,10 @@ const SAS_BUTTONS := [
 	["target", "TGT"], ["antirel", "RV-"], ["dock", "DOCK"],
 ]
 
+## Height of the bottom-centre block (throttle, navball, g-meter, buttons):
+## the flight camera frames the craft in the screen above it.
+const BOTTOM_H := 330
+const TOP_H := 105  # the clock and warp panel along the top
 var navball: Navball
 var speed_mode := "surface"  # or "orbit"
 var maneuver_active := false
@@ -104,14 +108,18 @@ func _ready() -> void:
 	_right = _panel_text(Vector2(-280, 10), Vector2(270, 0), true)
 	_target_text = _panel_text(Vector2(-280, 128), Vector2(270, 0), true)
 	_target_text.get_parent().visible = false
-	_stages = _panel_text(Vector2(10, 230), Vector2(230, 0))
+	_stages = _panel_text(Vector2(10, 150), Vector2(300, 0))
+	# stacked in columns, so a panel that grows a line pushes the next down
+	# instead of running under it
+	_column([_left, _stages], false)
+	_column([_right, _target_text], true)
 
 	# bottom centre: throttle | navball | g-meter, SAS row beneath
 	var bottom := VBoxContainer.new()
 	bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	bottom.offset_left = -230
 	bottom.offset_right = 230
-	bottom.offset_top = -330
+	bottom.offset_top = -BOTTOM_H
 	bottom.offset_bottom = -6
 	bottom.alignment = BoxContainer.ALIGNMENT_END
 	add_child(bottom)
@@ -223,6 +231,41 @@ func _label(parent: Node, size: int, col: Color) -> Label:
 	l.add_theme_color_override("font_color", col)
 	parent.add_child(l)
 	return l
+
+
+## What one SPACE press sets off, by part: "ignite Walrus ×3 · drop Calving ×2".
+static func stage_what(p: Dictionary) -> String:
+	var groups := {"ignite": PackedStringArray(), "drop": PackedStringArray(), "chute": PackedStringArray()}
+	for e in p.get("parts", []):
+		var def := Sim.part(e.id)
+		var verb := "chute" if def.has("parachute") else ("drop" if def.has("decoupler") else "ignite")
+		var nm: String = String(def.get("name", e.id)).get_slice(" ", 0)
+		groups[verb].append(nm + (" ×%d" % int(e.n) if int(e.n) > 1 else ""))
+	var out := PackedStringArray()
+	for verb in ["ignite", "drop", "chute"]:
+		if not groups[verb].is_empty():
+			out.append(("open " if verb == "chute" else verb + " ") + ", ".join(groups[verb]))
+	return " · ".join(out)
+
+
+func _column(texts: Array, right: bool) -> void:
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", 8)
+	if right:
+		col.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		col.offset_left = -280
+		col.offset_right = -10
+		col.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	else:
+		col.position = Vector2(10, 10)
+	col.offset_top = 10
+	add_child(col)
+	for t in texts:
+		var p: Control = t.get_parent()
+		p.reparent(col, false)
+		p.position = Vector2.ZERO
+		p.set_anchors_preset(Control.PRESET_TOP_LEFT)
 
 
 func _panel_text(pos: Vector2, size: Vector2, right := false) -> RichTextLabel:
@@ -554,17 +597,12 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 		st += "[color=#ffcf6a]▶ burning[/color]  [b]%.0f m/s[/b]  %s\n" % [b.dv if t.in_atmosphere else b.dv_vac, "TWR %.2f" % b.twr if b.twr > 0 else ""]
 	var first := true
 	for p in t.get("stage_plan", []):
-		var what := PackedStringArray()
-		if p.decouplers > 0:
-			what.append("drop %d" % p.decouplers if p.decouplers > 1 else "drop")
-		if p.engines > 0:
-			what.append("ignite %d" % p.engines)
-		if p.chutes > 0:
-			what.append("chute")
-		var line := "%s [color=#9fb4cc]%d[/color] %s" % ["[color=#ffcf6a]SPACE[/color]" if first else "       ", p.stage, ", ".join(what)]
+		var line := "%s [color=#9fb4cc]%d[/color] %s" % ["[color=#ffcf6a]SPACE[/color]" if first else "       ", p.stage, stage_what(p)]
+		# the Δv of the burn this press leads into, until the next press
 		var d: Dictionary = dv_of.get(int(p.stage), {})
-		if p.engines > 0 and not d.is_empty() and d.dv_vac >= 0.5:
-			line += "  [b]%.0f m/s[/b]" % (d.dv if t.in_atmosphere else d.dv_vac)
+		if not d.is_empty() and d.dv_vac >= 0.5:
+			line += "\n            [b]%.0f m/s[/b]  [color=#6f86a6]%s burn%s[/color]" % [
+				d.dv if t.in_atmosphere else d.dv_vac, fmt_time(d.burn_time), ("  TWR %.2f" % d.twr if d.twr < 100.0 else "  TWR >100") if d.twr > 0 else ""]
 		st += line + "\n"
 		first = false
 	st += "[color=#9fb4cc]Total[/color] [b]%.0f m/s[/b] %s" % [total, "(local pressure)" if t.in_atmosphere else "(vacuum)"]
