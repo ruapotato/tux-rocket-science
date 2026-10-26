@@ -1498,8 +1498,10 @@ func _render(delta: float) -> void:
 		hint = "No power: point a solar panel at the sun (or wait for daylight) to charge the batteries"
 	if t.get("eva", false):
 		var near := _hatch_near()
-		hint = "On EVA · WASD walk · Space jump · G plant a flag · R jetpack (%.1f kg mono)%s" % [t.get("mono", 0.0),
-			" · F climbs into %s" % near if near != "" else ""]
+		var standing: bool = int(t.get("contacts", 0)) > 0
+		var fly := ("jetpack on: WASD and Shift / Ctrl fly (%.1f kg mono)" if t.get("rcs", false) else "R turns the jetpack on (%.1f kg mono)") % t.get("mono", 0.0)
+		hint = ("On EVA · WASD walk · Space jump · G plant a flag · " if standing else "On EVA, floating · ") + fly + \
+			(" · F climbs into %s" % near if near != "" else "")
 	hud.set_hint(hint)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and (_mission.max_altitude > 500.0 or _resumed)
 	if _map.visible:
