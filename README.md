@@ -108,7 +108,10 @@ original save) and a **Career** (its own world, crew and program). A career star
 and Basic Rocketry. Every part has a cost; launching pays for the craft and recovering it at
 Floe refunds 90%. **Mission Control** lists PASA's missions (first hop, space, orbit, a spacewalk,
 Krill, rendezvous, docking...): they pay funds and research when you do them. **R&D** spends
-research to unlock the rest of the parts.
+research to unlock the rest of the parts. Mission Control also keeps three **surveys** standing: a
+particular result not yet brought home (say, a temperature reading flying high over Floe), paid in
+funds and extra research when it comes home; each done is replaced, and new worlds join as you
+reach them.
 
 **Science**: pods carry crew reports, penguins on EVA make EVA reports and (standing on the
 ground) surface samples, and the Science tab has a thermometer, a barometer and the Snowflake

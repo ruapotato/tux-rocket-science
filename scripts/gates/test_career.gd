@@ -125,16 +125,25 @@ func run(runner: Node) -> Dictionary:
 	Career.run(s.active, pod_uid, "crew_report", s.telemetry())
 	var research_before := Career.research
 	var funds_before := Career.funds
+	# surveys wanting these results pay on top
+	var aboard_now := Career.results_subjects(s.active)
+	var bonus_r := 0.0
+	var bonus_f := 0.0
+	for sv0 in Career.surveys:
+		if sv0.subject in aboard_now:
+			bonus_r += float(sv0.research)
+			bonus_f += float(sv0.funds)
 	var parts_cost := 0.0
 	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
 		parts_cost += float(Sim.part(p.part).cost)
 	Sim.recover_vessel(s.active, {})
 	var got: Dictionary = Sim.last_recovery
 	var refund: float = parts_cost * float(Career.missions_def.recovery_refund)
-	_check(int(got.results) == 2 and _near(float(got.research), want_pad + want_low) and _near(Career.research, research_before + want_pad + want_low)
-		and _near(float(got.funds), refund) and _near(Career.funds, funds_before + refund),
-		"recovered: 2 results +%.2f research (%.2f + %.2f), parts refunded %s (%.0f%% of %s on the craft)" % [got.research, want_pad, want_low,
-			Career.money(refund), 100.0 * Career.missions_def.recovery_refund, Career.money(parts_cost)])
+	_check(int(got.results) == 2 and _near(float(got.research), want_pad + want_low) and _near(Career.research, research_before + want_pad + want_low + bonus_r)
+		and _near(float(got.funds), refund) and _near(Career.funds, funds_before + refund + bonus_f),
+		"recovered: 2 results +%.2f research (%.2f + %.2f), parts refunded %s (%.0f%% of %s on the craft)%s" % [got.research, want_pad, want_low,
+			Career.money(refund), 100.0 * Career.missions_def.recovery_refund, Career.money(parts_cost),
+			"; surveys paid +%.1f research, +%s" % [bonus_r, Career.money(bonus_f)] if bonus_r > 0 else ""])
 	var again := Career.value("crew_report", "floe", "landed")
 	_check(_near(again, want_pad * sci.repeat_factor), "the same report again would be worth %.3f (half of %.2f)" % [again, want_pad])
 
@@ -165,6 +174,33 @@ func run(runner: Node) -> Dictionary:
 	var aboard := Career.results_on(hop)
 	_check(not samp.is_empty() and _near(samp[0].value, want_s) and rs == "" and s.active == hop and aboard.size() == 1 and aboard[0].exp == "surface_sample",
 		"EVA surface sample worth %.1f, carried back in: Hopper holds %s" % [want_s, aboard.map(func(r): return r.subject)])
+	# 8b. surveys: three standing contracts; bringing one's result home
+	#     pays its funds and research on top of the result's worth, and a
+	#     new one takes its place
+	var sv: Array = Career.surveys.duplicate(true)
+	var done0 := Career.surveys_done
+	var want_s0: Dictionary = sv[0]
+	var all_floe := sv.all(func(x): return x.body == "floe")
+	scene = await _flight(tree, hopper)
+	s = scene.session
+	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
+		if p.part == "pod_1":
+			pod_uid = str(int(p.uid))
+	Career.aboard[pod_uid] = [{"subject": want_s0.subject, "exp": want_s0.exp, "body": want_s0.body, "situation": want_s0.situation}]
+	var f0 := Career.funds
+	var r0s := Career.research
+	var worth_s := Career.value(want_s0.exp, want_s0.body, want_s0.situation)
+	var refund_s := 0.0
+	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
+		refund_s += float(Sim.part(p.part).cost) * float(Career.missions_def.recovery_refund)
+	Sim.recover_vessel(s.active, {})
+	var subjects := Career.surveys.map(func(x): return x.subject)
+	_check(sv.size() == 3 and all_floe and _near(Career.funds - f0, float(want_s0.funds) + refund_s) and _near(Career.research - r0s, worth_s + float(want_s0.research))
+		and Career.surveys.size() == 3 and not want_s0.subject in subjects and Career.surveys_done == done0 + 1,
+		"surveys: %s; brought home '%s': +%s (and the parts' refund) and %.2f + %.1f research; a new one offered (%d standing)" % [
+			sv.map(func(x): return Career.describe_survey(x)), Career.describe_survey(want_s0), Career.money(float(want_s0.funds)),
+			worth_s, want_s0.research, Career.surveys.size()])
+
 	# 9. an antenna sends a result home: half its worth, for kJ per point
 	var m := CraftModel.new()
 	m.load_text(hopper)

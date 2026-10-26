@@ -58,6 +58,19 @@ static func missions() -> PanelContainer:
 		l.text = "%s [b]%s[/b] · %s\n[color=#9fb4cc]%s[/color]" % ["[color=#7fe08a]✓[/color]" if done else "[color=#ffcf6a]▶[/color]",
 			m.title, reward, m.text]
 		v.add_child(l)
+	var sh := Label.new()
+	sh.text = "SURVEYS · standing contracts for results not yet brought home (%d done)" % Career.surveys_done
+	sh.add_theme_color_override("font_color", PartVisual.ORANGE)
+	v.add_child(sh)
+	for s in Career.surveys:
+		var l := RichTextLabel.new()
+		l.bbcode_enabled = true
+		l.fit_content = true
+		l.scroll_active = false
+		l.custom_minimum_size = Vector2(590, 0)
+		l.text = "[color=#ffcf6a]▶[/color] [b]%s[/b] · +%.1f research%s" % [Career.describe_survey(s), s.research,
+			", +%s" % Career.money(float(s.funds)) if Career.is_career() else ""]
+		v.add_child(l)
 	var later: int = Career.missions_def.missions.size() - Career.done.size() - active.size()
 	if later > 0:
 		var more := Label.new()

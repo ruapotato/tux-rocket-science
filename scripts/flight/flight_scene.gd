@@ -437,6 +437,8 @@ func _build() -> void:
 	hud.throttle_set.connect(func(x: float): _throttle = x)
 	hud.action_pressed.connect(_on_action)
 	Career.mission_done.connect(_on_mission_done)
+	Career.survey_done.connect(func(sv: Dictionary): hud.toast("Survey done: %s! +%.1f research%s" % [Career.describe_survey(sv), sv.research,
+		" · +%s" % Career.money(float(sv.funds)) if Career.is_career() else ""], 4.0))
 
 
 func _on_action(a: String) -> void:

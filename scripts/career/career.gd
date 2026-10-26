@@ -29,6 +29,7 @@ const MISSIONS_PATH := "res://data/career/missions.json"
 
 signal changed  # funds, research, tech or missions moved
 signal mission_done(m: Dictionary)
+signal survey_done(s: Dictionary)
 
 var science: Dictionary = {}
 var tech: Array = []
@@ -42,6 +43,8 @@ var done: Array = []          # mission ids
 var credited: Dictionary = {} # subject -> results brought home
 var aboard: Dictionary = {}   # part uid (string) -> [{subject, exp, body, situation}]
 var visited: Dictionary = {}  # vessel serial (string) -> [bodies landed on]
+var surveys: Array = []       # standing contracts: [{subject, exp, body, situation, funds, research}]
+var surveys_done := 0
 var path := ""
 
 
@@ -80,6 +83,9 @@ func load_from(file: String, new_mode := "sandbox") -> void:
 	credited = d.get("credited", {})
 	aboard = d.get("aboard", {})
 	visited = d.get("visited", {})
+	surveys = d.get("surveys", [])
+	surveys_done = int(d.get("surveys_done", 0))
+	refresh_surveys()
 	changed.emit()
 
 
@@ -93,7 +99,7 @@ func save() -> void:
 
 func state() -> Dictionary:
 	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
-		"credited": credited, "aboard": aboard, "visited": visited}
+		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done}
 
 
 ## Puts the program back as `s` (a revert undoes the flight's results).
@@ -106,6 +112,8 @@ func restore(s: Dictionary) -> void:
 	credited = s.credited.duplicate(true)
 	aboard = s.aboard.duplicate(true)
 	visited = s.visited.duplicate(true)
+	surveys = s.get("surveys", []).duplicate(true)
+	surveys_done = int(s.get("surveys_done", 0))
 	save()
 	changed.emit()
 
@@ -163,6 +171,7 @@ func unlock(id: String) -> String:
 		return why
 	research -= float(tech_node(id).cost)
 	unlocked.append(id)
+	refresh_surveys()
 	save()
 	changed.emit()
 	return ""
@@ -344,6 +353,7 @@ func transmit(id: int, subject_id: String, t: Dictionary) -> Dictionary:
 			research += pts
 			credited[r.subject] = int(credited.get(r.subject, 0)) + 1
 			list.remove_at(k)
+			_survey_check(r.subject)
 			if list.is_empty():
 				aboard.erase(uid)
 			save()
@@ -387,6 +397,7 @@ func recover(id: int, serial: int) -> Dictionary:
 			got += value(r.exp, r.body, r.situation)
 			credited[r.subject] = int(credited.get(r.subject, 0)) + 1
 			n += 1
+			_survey_check(r.subject)
 		aboard.erase(uid)
 	research += got
 	var refund := 0.0
@@ -401,6 +412,73 @@ func recover(id: int, serial: int) -> Dictionary:
 	save()
 	changed.emit()
 	return {"research": got, "funds": refund, "results": n}
+
+
+# ---- surveys -----------------------------------------------------------------------
+
+const SURVEYS := 3
+const SURVEY_FUNDS_PER_POINT := 1500.0
+const SURVEY_RESEARCH_SHARE := 0.5
+## a world joins the survey pool once its mission is done
+const SURVEY_BODIES := {"floe": "", "krill": "orbit", "kelp": "krill_soi", "pebble": "kelp_soi"}
+
+
+## Experiments the program can fly now (every part of it researched).
+func _flyable_experiments() -> Array:
+	var out := []
+	for id in Sim.catalog_order:
+		if part_unlocked(id):
+			for exp in Sim.part(id).get("science", []):
+				if not exp in out:
+					out.append(exp)
+	return out
+
+
+## Keeps SURVEYS standing contracts: results not yet brought home, from
+## worlds the program has reached, by experiments it can fly. Each pays
+## SURVEY_FUNDS_PER_POINT funds per research point of the result (and
+## SURVEY_RESEARCH_SHARE of it again as research) when it comes home.
+func refresh_surveys() -> void:
+	var have := surveys.map(func(s): return s.subject)
+	var pool := []
+	for body in SURVEY_BODIES:
+		var need: String = SURVEY_BODIES[body]
+		if need != "" and not need in done:
+			continue
+		for exp in _flyable_experiments():
+			for sit in science.experiments[exp].situations:
+				if body in ["krill", "pebble"] and sit.begins_with("flying"):
+					continue  # no air
+				var subj := subject(exp, body, sit)
+				if int(credited.get(subj, 0)) == 0 and not subj in have:
+					pool.append([exp, body, sit])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7919 * (surveys_done + 1) + surveys.size()
+	while surveys.size() < SURVEYS and not pool.is_empty():
+		var pick: Array = pool.pop_at(rng.randi() % pool.size())
+		var v := value(pick[0], pick[1], pick[2])
+		surveys.append({"subject": subject(pick[0], pick[1], pick[2]), "exp": pick[0], "body": pick[1], "situation": pick[2],
+			"funds": roundf(v * SURVEY_FUNDS_PER_POINT / 100.0) * 100.0, "research": snappedf(v * SURVEY_RESEARCH_SHARE, 0.1)})
+
+
+func describe_survey(s: Dictionary) -> String:
+	var where := describe(s.situation, s.body)
+	return "%s %s" % [science.experiments[s.exp].name, where.left(1).to_lower() + where.substr(1)]
+
+
+## A result of `subj` came home: a survey that wanted it pays out.
+func _survey_check(subj: String) -> void:
+	for k in surveys.size():
+		var s: Dictionary = surveys[k]
+		if s.subject == subj:
+			research += float(s.research)
+			if is_career():
+				funds += float(s.funds)
+			surveys.remove_at(k)
+			surveys_done += 1
+			survey_done.emit(s)
+			refresh_surveys()
+			return
 
 
 # ---- missions ----------------------------------------------------------------------
@@ -430,6 +508,7 @@ func complete(m: Dictionary) -> void:
 	if m.id in done:
 		return
 	done.append(m.id)
+	refresh_surveys.call_deferred()  # new worlds may join the pool
 	research += float(m.research)
 	if is_career():
 		funds += float(m.funds)
