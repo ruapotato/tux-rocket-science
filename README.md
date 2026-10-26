@@ -100,7 +100,7 @@ burn to leave from your orbit, and the trip time.
 
 **Kelp**: the second planet, sunward of Floe: green, a little bigger, with 1.2x Floe's surface
 gravity and air three and a half times as thick reaching 110 km up. Parachutes bite hard there,
-coming in is hot, and climbing back out takes a real rocket. Its research is worth 7x Floe's.
+coming in is hot, and climbing back out takes a real rocket. Its research is worth 7x Floe's. Kelp has a little moon, **Pebble** (60 km across, a twentieth of Floe's gravity).
 Planet looks live in `data/bodies/` ("look": colours, sky, haze, clouds), so new worlds need no code.
 
 **Career**: the main menu's first button switches between the **Sandbox** (every part, free; your

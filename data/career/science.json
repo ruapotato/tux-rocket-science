@@ -12,6 +12,7 @@
     "floe": { "value": 1.0, "flying_high_alt": 18000, "space_high_alt": 250000 },
     "krill": { "value": 4.0, "space_high_alt": 60000 },
     "kelp": { "value": 7.0, "flying_high_alt": 30000, "space_high_alt": 400000 },
+    "pebble": { "value": 9.0, "space_high_alt": 40000 },
     "austra": { "value": 6.0, "space_high_alt": 1.0e9 }
   },
   "experiments": {

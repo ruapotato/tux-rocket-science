@@ -15,8 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-## Dev: Kelp, the second planet: from orbit, falling through its air on a
-## parachute, standing on it, and on the map with Floe and Austra.
+## Dev: a body (BODY=, default Kelp): from orbit, falling (on a parachute
+## where there's air), standing on it, and on the map.
 extends RefCounted
 
 const DIR := "user://dev_shots/"
@@ -28,13 +28,14 @@ func run(runner: Node) -> Dictionary:
 	var tree := runner.get_tree()
 	tree.paused = false
 	var g := Sim.game_session()
-	var info: Dictionary = JSON.parse_string(g.core.body_info(g.core.body_find("kelp")))
-	_log.append("Kelp: radius %.0f km, g %.2f m/s2, air %.0f km, SOI %.0f km" % [info.radius / 1000.0, info.mu / pow(info.radius, 2),
+	var bid := OS.get_environment("BODY") if OS.get_environment("BODY") != "" else "kelp"
+	var info: Dictionary = JSON.parse_string(g.core.body_info(g.core.body_find(bid)))
+	_log.append(bid + ": radius %.0f km, g %.2f m/s2, air %.0f km, SOI %.0f km" % [info.radius / 1000.0, info.mu / pow(info.radius, 2),
 		info.atmosphere_height / 1000.0, info.soi / 1000.0])
 	var orbiter := FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
 	var R: float = info.radius + 150000.0
 	var v := sqrt(info.mu / R)
-	var id: int = g.core.flight_spawn_state(orbiter, "kelp", PackedFloat64Array([R, 0, 0, 0, v, 0]))
+	var id: int = g.core.flight_spawn_state(orbiter, bid, PackedFloat64Array([R, 0, 0, 0, v, 0]))
 	Sim.pending_vessel = id
 	var scene := await _flight(tree)
 	var s: FlightSession = scene.session
@@ -45,7 +46,7 @@ func run(runner: Node) -> Dictionary:
 	s.core.vessel_remove(s.active)
 	s.events.clear()
 	var r2: float = info.radius + 4000.0
-	var d: int = s.core.flight_spawn_state(orbiter, "kelp", PackedFloat64Array([r2, 0, 0, -40.0, 0, 0]))
+	var d: int = s.core.flight_spawn_state(orbiter, bid, PackedFloat64Array([r2, 0, 0, -40.0, 0, 0]))
 	Sim.pending_vessel = d
 	scene = await _flight(tree)  # a fresh scene (the removed orbiter would leave a wreck to look at)
 	s = scene.session
@@ -107,4 +108,5 @@ func _frames(tree: SceneTree, n: int) -> void:
 
 func _shot(n: Node, name: String) -> void:
 	await RenderingServer.frame_post_draw
-	n.get_viewport().get_texture().get_image().save_png(DIR + "kelp_" + name + ".png")
+	var body := OS.get_environment("BODY") if OS.get_environment("BODY") != "" else "kelp"
+	n.get_viewport().get_texture().get_image().save_png(DIR + body + "_" + name + ".png")

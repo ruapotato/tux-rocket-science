@@ -25,6 +25,8 @@
       "funds": 60000, "research": 50, "after": ["krill_soi"] },
     { "id": "kelp_land", "title": "Land on Kelp", "text": "Through Kelp's thick, hot air to the ground in one piece.", "goal": { "kind": "landed", "body": "kelp" },
       "funds": 120000, "research": 90, "after": ["kelp_soi"] },
+    { "id": "pebble_land", "title": "Land on Pebble", "text": "Kelp's little moon: set down on it (and mind the jump, its gravity is a twentieth of Floe's).", "goal": { "kind": "landed", "body": "pebble" },
+      "funds": 150000, "research": 120, "after": ["kelp_soi"] },
     { "id": "meet", "title": "Rendezvous", "text": "Fly within 200 m of another craft in orbit.", "goal": { "kind": "rendezvous", "value": 200 },
       "funds": 30000, "research": 25, "after": ["orbit"] },
     { "id": "dock", "title": "Docking", "text": "Dock two craft together.", "goal": { "kind": "docked" },

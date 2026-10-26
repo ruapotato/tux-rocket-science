@@ -66,6 +66,18 @@
       "look": { "style": "moss", "sky": [0.56, 0.78, 0.62], "tau": [0.16, 0.24, 0.30], "clouds": true,
                 "low": [0.20, 0.36, 0.20], "high": [0.56, 0.52, 0.34], "slope": [0.26, 0.30, 0.18], "rock": [0.21, 0.19, 0.15],
                 "basin": [0.08, 0.26, 0.22], "range": 2000 }
+    },
+    {
+      "id": "pebble",
+      "name": "Pebble",
+      "kind": "moon",
+      "parent": "kelp",
+      "mu": 1800000000,
+      "radius": 60000,
+      "tidally_locked": true,
+      "terrain": { "seed": 59, "amplitude": 1400, "base_freq": 2.0, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.25, "crater_freq": 7, "crater_depth": 1600, "mountain_amplitude": 1800, "mountain_freq": 22, "mountain_coverage": 0.2 },
+      "orbit": { "a": 5000000, "e": 0.01, "inc_deg": 4, "lan_deg": 30, "argp_deg": 0, "mean_anomaly_deg": 40 },
+      "look": { "style": "rock", "low": [0.36, 0.32, 0.28], "high": [0.62, 0.56, 0.48], "slope": [0.26, 0.23, 0.2], "rock": [0.18, 0.16, 0.14], "range": 1500 }
     }
   ]
 }
