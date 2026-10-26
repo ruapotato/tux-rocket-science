@@ -37,11 +37,15 @@ var last_mission_note := ""
 ## The next flight takes over this vessel already in the world (-1: launch).
 var pending_vessel := -1
 
+## What the last recovery brought home: {research, funds, results}.
+var last_recovery := {}
+
 ## The persistent game: one world every launch joins, saved to disk.
 var game: FlightSession
 ## Penguins aboard, by the uid of the crewed part they sit in: {"uid": [names]}.
 var seats: Dictionary = {}
 var save_dir := "user://save/"
+var program_chosen := false
 
 
 func _init() -> void:
@@ -107,14 +111,38 @@ func decode(text: String) -> Dictionary:
 
 ## Gates and dev runs play in a scratch save that starts empty every run.
 func use_sandbox() -> void:
+	program_chosen = true  # gates never switch to the player's saves
 	save_dir = "user://save_sandbox/"
 	game = null
 	seats = {}
 	DirAccess.make_dir_recursive_absolute(save_dir)
-	for f in ["world.json", "game.json", "crew.json"]:
+	for f in ["world.json", "game.json", "crew.json", "career.json"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(save_dir + f))
 	Crew.path = save_dir + "crew.json"
 	Crew.load_roster()
+	Career.load_from(save_dir + "career.json", "sandbox")
+
+
+## Switches between the two games: "sandbox" (everything unlocked, free;
+## the original save) and "career" (its own world, crew and program).
+func use_program(kind: String) -> void:
+	program_chosen = true
+	save_dir = "user://career/" if kind == "career" else "user://save/"
+	game = null
+	seats = {}
+	DirAccess.make_dir_recursive_absolute(save_dir)
+	Crew.path = save_dir + "crew.json" if kind == "career" else "user://crew.json"
+	Crew.load_roster()
+	Career.load_from(save_dir + "career.json", kind)
+	var f := FileAccess.open("user://program.txt", FileAccess.WRITE)
+	if f:
+		f.store_string(kind)
+
+
+## The program played last time (sandbox if never chosen).
+func last_program() -> String:
+	var k := FileAccess.get_file_as_string("user://program.txt").strip_edges()
+	return k if k == "career" else "sandbox"
 
 
 ## The game's world, loaded from the save the first time it is needed.
@@ -127,6 +155,8 @@ func game_session() -> FlightSession:
 		var gtext := FileAccess.get_file_as_string(save_dir + "game.json")
 		var g = JSON.parse_string(gtext) if gtext != "" else null
 		seats = g.get("seats", {}) if g is Dictionary else {}
+		if Career.path != save_dir + "career.json":
+			Career.load_from(save_dir + "career.json", "career" if save_dir == "user://career/" else "sandbox")
 		sync_crew()
 	return game
 
@@ -186,6 +216,7 @@ func crew_of(id: int) -> Array:
 ## stats) and it leaves the world.
 func recover_vessel(id: int, stats: Dictionary) -> Array:
 	var names := crew_of(id)
+	last_recovery = Career.recover(id, game.core.vessel_serial(id))
 	_unseat(id)
 	if not names.is_empty():
 		Crew.record_flight(names, "recovered", stats)
@@ -205,10 +236,14 @@ func _unseat(id: int) -> void:
 ## Anyone still marked flying without a seat comes home (old saves).
 func sync_crew(stats := {}) -> Array:
 	var alive := {}
+	var parts := {}
 	if game != null:
 		for v in JSON.parse_string(game.core.vessel_list()):
 			for uid in v.get("pods", []):
 				alive[str(int(uid))] = true
+			for p in JSON.parse_string(game.core.vessel_parts(int(v.id))):
+				parts[str(int(p.uid))] = true
+		Career.sync(parts)  # results on lost parts are lost with them
 	var lost := []
 	for uid in seats.keys():
 		if not alive.has(uid):

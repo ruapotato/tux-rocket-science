@@ -26,10 +26,10 @@ const SNAP_PX := 60.0
 ## below the pod would reach the floor.
 const BUILD_HEIGHT := 7.0
 const ROT_STEP := deg_to_rad(15.0)
-const CATEGORIES := ["pods", "tanks", "engines", "structural", "aero", "utility", "control"]
+const CATEGORIES := ["pods", "tanks", "engines", "structural", "aero", "utility", "control", "science"]
 const CATEGORY_NAMES := {
 	"pods": "Pods", "tanks": "Tanks", "engines": "Engines", "structural": "Structure",
-	"aero": "Aero", "utility": "Utility", "control": "Control",
+	"aero": "Aero", "utility": "Utility", "control": "Control", "science": "Science",
 }
 
 var model := CraftModel.new()
@@ -311,7 +311,11 @@ func _build_ui() -> void:
 			var b := _button(d.name, _on_palette.bind(id), _part_tooltip(d))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.text = "%s\n   %.2f t" % [d.name, (d.mass + d.get("fuel_liquid", 0) + d.get("fuel_solid", 0)) / 1000.0]
+			b.text = "%s\n   %.2f t%s" % [d.name, (d.mass + d.get("fuel_liquid", 0) + d.get("fuel_solid", 0)) / 1000.0,
+				"  ·  %s" % Career.money(Career.part_cost(id)) if Career.is_career() else ""]
+			if not Career.part_unlocked(id):
+				b.disabled = true
+				b.text = "🔒 %s\n   R&D: %s" % [d.name, Career.tech_node(Career.node_of_part(id)).get("name", "?")]
 			list.add_child(b)
 		if any:
 			_parts_tabs.add_child(scroll)
@@ -445,6 +449,11 @@ func _refresh_readouts() -> void:
 	if int(_stats.get("rcs_blocks", 0)) > 0 or _stats.get("mono", 0.0) > 0.0:
 		t += "\n[color=#9fb4cc]RCS[/color] %d block%s · mono %.0f kg · [color=#5fd8c4]%.0f m/s[/color] of sliding" % [
 			int(_stats.get("rcs_blocks", 0)), "" if int(_stats.get("rcs_blocks", 0)) == 1 else "s", _stats.get("mono", 0.0), _stats.get("rcs_dv", 0.0)]
+	if Career.is_career():
+		var ids := model.parts.map(func(p): return str(p.part))
+		var cost := Career.craft_cost(ids)
+		t += "\n[color=#9fb4cc]Cost[/color] [color=%s]%s[/color]   [color=#9fb4cc]PASA has[/color] %s" % [
+			"#7fe08a" if cost <= Career.funds else "#ff6a5a", Career.money(cost), Career.money(Career.funds)]
 	for w in craft_warnings():
 		t += "\n[color=%s]%s[/color]" % ["#ff6a5a" if w.bad else "#ffcf5a", w.text]
 	_summary.text = t
@@ -461,6 +470,10 @@ func craft_warnings() -> Array:
 	var chutes := 0
 	var top_engines := 0
 	var top := model.stage_count() - 1
+	var locked := Career.locked_parts(model.parts.map(func(p): return str(p.part)))
+	if not locked.is_empty():
+		out.append({"bad": true, "text": "NOT RESEARCHED: %s. Unlock %s in R&D first (from the main menu)." % [
+			", ".join(locked.map(func(i): return Sim.part(i).name)), "it" if locked.size() == 1 else "them"]})
 	for p in model.parts:
 		var d := Sim.part(p.part)
 		if d.has("engine"):
@@ -745,6 +758,10 @@ func _on_load_pick(id: int) -> void:
 func _on_launch() -> void:
 	if model.parts.is_empty():
 		toast("Nothing to launch yet")
+		return
+	var why := Career.launch_refusal(model.save_text())
+	if why != "":
+		toast("Can't launch: " + why)
 		return
 	if not _loose.is_empty():
 		toast("%d set-aside assembl%s stay in the hangar" % [_loose.size(), "y" if _loose.size() == 1 else "ies"])

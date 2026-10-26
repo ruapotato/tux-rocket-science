@@ -1,0 +1,21 @@
+{
+  "_doc": "R&D: each node costs research and needs the nodes it lists. Parts in no node are always available.",
+  "nodes": [
+    { "id": "basics", "name": "Basic Rocketry", "cost": 0, "requires": [],
+      "parts": ["pod_1", "tank_s", "tank_m", "engine_lifter", "decoupler_stack", "fin", "parachute", "nosecone", "thermometer"] },
+    { "id": "rocketry", "name": "Bigger Rockets", "cost": 5, "requires": ["basics"],
+      "parts": ["tank_l", "srb", "engine_small"] },
+    { "id": "orbits", "name": "Getting to Orbit", "cost": 15, "requires": ["rocketry"],
+      "parts": ["engine_vac", "heat_shield", "reaction_wheel", "barometer"] },
+    { "id": "staging", "name": "Clever Staging", "cost": 20, "requires": ["rocketry"],
+      "parts": ["decoupler_radial", "feed_line"] },
+    { "id": "control", "name": "Fine Control", "cost": 30, "requires": ["orbits"],
+      "parts": ["rcs_block", "mono_tank", "mono_radial", "probe_core"] },
+    { "id": "landing", "name": "Landing Elsewhere", "cost": 35, "requires": ["orbits"],
+      "parts": ["landing_leg", "snow_lab"] },
+    { "id": "heavy", "name": "Heavy Lifting", "cost": 45, "requires": ["staging"],
+      "parts": ["tank_xm", "tank_xl", "decoupler_xl", "adapter_21", "mount_tri", "engine_big", "pod_3", "nosecone_xl"] },
+    { "id": "docking", "name": "Docking", "cost": 60, "requires": ["control"],
+      "parts": ["dock_port"] }
+  ]
+}

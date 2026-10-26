@@ -140,7 +140,8 @@ func _ready() -> void:
 	act_row.add_theme_constant_override("separation", 6)
 	bottom.add_child(act_row)
 	for a in [["stage", "STAGE  (Space)", "Fire the next stage"], ["chute", "CHUTE  (P)", "Arm the parachutes: they open once the air is thick enough and you are slow enough"],
-			["legs", "LEGS  (G)", "Landing legs down / up"], ["rcs", "RCS  (R)", "Arm the RCS thrusters: they help steer and slide the craft (I J K L, H N)"]]:
+			["legs", "LEGS  (G)", "Landing legs down / up"], ["rcs", "RCS  (R)", "Arm the RCS thrusters: they help steer and slide the craft (I J K L, H N)"],
+			["science", "SCIENCE  (O)", "Run the experiments aboard and see what they're worth here"]]:
 		var ab := Button.new()
 		ab.text = a[1]
 		ab.tooltip_text = a[2]

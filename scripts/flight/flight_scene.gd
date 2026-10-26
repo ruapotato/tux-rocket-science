@@ -79,6 +79,9 @@ func _ready() -> void:
 			cleared = _clear_pad()
 			_seats_snapshot = Sim.seats.duplicate(true)
 			_roster_snapshot = Crew.crew.duplicate(true)
+			_career_snapshot = Career.state().duplicate(true)
+			_launch_cost = Career.craft_cost(Career.craft_parts(text)) if Career.is_career() else 0.0
+			Career.charge_launch(Career.craft_parts(text))
 			session.launch(text, "floe", false)
 		Sim.pending_vessel = -1
 	session.sim_event.connect(_on_sim_event)
@@ -208,8 +211,14 @@ func _recover() -> void:
 	else:
 		_record("recovered")
 	var names := ", ".join(crew_names) if not crew_names.is_empty() else "the uncrewed craft"
-	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s." % [names, FlightHUD.fmt_dist(_mission.max_altitude),
-		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else ""]
+	var lr: Dictionary = Sim.last_recovery if persistent else {}
+	var gain := ""
+	if int(lr.get("results", 0)) > 0:
+		gain += " %d results: +%.1f research." % [int(lr.results), float(lr.research)]
+	if float(lr.get("funds", 0.0)) > 0.0:
+		gain += " Parts refunded %s." % Career.money(float(lr.funds))
+	Sim.last_mission_note = "Recovered %s. Max altitude %s, peak %.1f g%s.%s" % [names, FlightHUD.fmt_dist(_mission.max_altitude),
+		_mission.max_g, ", landed on Krill!" if _mission.krill_landings > 0 else "", gain]
 	get_tree().change_scene_to_file("res://scenes/hangar.tscn")
 
 
@@ -421,6 +430,7 @@ func _build() -> void:
 			_change_warp(dir))
 	hud.throttle_set.connect(func(x: float): _throttle = x)
 	hud.action_pressed.connect(_on_action)
+	Career.mission_done.connect(_on_mission_done)
 
 
 func _on_action(a: String) -> void:
@@ -429,6 +439,8 @@ func _on_action(a: String) -> void:
 			_stage()
 		"chute":
 			_deploy_chutes()
+		"science":
+			_toggle_science()
 		"legs":
 			_toggle_legs()
 		"rcs":
@@ -471,6 +483,8 @@ func _key(k: InputEventKey) -> void:
 				_stage()
 		KEY_F:
 			_eva_key()
+		KEY_O:
+			_toggle_science()
 		KEY_Z:
 			_throttle = 1.0
 		KEY_X:
@@ -717,6 +731,8 @@ func _on_menu(action: String) -> void:
 			_throttle = 0.0
 			_wreck_set = false
 			_mission = {"max_altitude": 0.0, "max_g": 0.0, "orbits": 0, "krill_landings": 0, "visited": ["floe"], "pod_lost": false}
+			if persistent:
+				Career.charge_launch(Career.craft_parts(session.launch_text))  # the same rocket, bought again
 			_assign_crew()
 			hud.toast("Reverted to launch. The penguins pretend nothing happened.", 2.5)
 			if tutorial:
@@ -758,6 +774,7 @@ func _on_sim_event(e: Dictionary) -> void:
 			elif not _mission.pod_lost:
 				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
 		"docked":
+			_docked_seen = true
 			_refresh_crew()
 			if int(e.vessel) == session.active:
 				Sfx.play("stage")
@@ -799,6 +816,99 @@ func _process(delta: float) -> void:
 	_controls(delta)
 	session.advance(delta)
 	_render(delta)
+	_mission_tick += delta
+	if persistent and _mission_tick > 0.25:
+		_mission_tick = 0.0
+		_check_missions()
+		if _science and _science.visible:
+			_fill_science()
+
+
+## PASA's missions, against the craft being flown.
+func _check_missions() -> void:
+	var t := session.telemetry()
+	if not t.get("alive", false):
+		return
+	var ti := session.target_info()
+	Career.check(t, session.core.vessel_serial(session.active), {"eva": t.get("eva", false),
+		"target_distance": ti.get("distance", INF), "docked": _docked_seen})
+	_docked_seen = false
+
+
+func _on_mission_done(m: Dictionary) -> void:
+	Sfx.play("stage")
+	_react("orbit", 3.0)
+	hud.toast("Mission complete: %s! +%d research%s" % [m.title, int(m.research), " · +%s" % Career.money(float(m.funds)) if Career.is_career() else ""], 4.0)
+
+
+## O: the science panel: each experiment aboard, what it would bring home
+## from here, and a button to run it.
+func _toggle_science() -> void:
+	if _science == null:
+		_science = PanelContainer.new()
+		_science.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.06, 0.1, 0.18, 0.94), 8, Color(0.4, 0.8, 1.0), 2))
+		_science.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+		_science.offset_left = -230
+		_science.offset_right = 230
+		_science.offset_top = 112  # under the clock
+		_science.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		hud.add_child(_science)
+		_science.add_child(VBoxContainer.new())
+		_science.visible = false
+	_science.visible = not _science.visible
+	if _science.visible:
+		_fill_science()
+
+
+func _fill_science() -> void:
+	var box: VBoxContainer = _science.get_child(0)
+	var t := session.telemetry()
+	var sig := JSON.stringify([Career.situation(t), t.get("body", ""), Career.results_on(session.active).size(), session.active])
+	if box.get_meta("sig", "") == sig:
+		return
+	box.set_meta("sig", sig)
+	for c in box.get_children():
+		c.queue_free()
+	var head := Label.new()
+	var sit := Career.situation(t)
+	head.text = "SCIENCE · %s" % Career.describe(sit, t.get("body", ""))
+	head.add_theme_color_override("font_color", Color(0.45, 0.85, 1.0))
+	box.add_child(head)
+	var exps := Career.experiments_on(session.active, t) if persistent else []
+	if exps.is_empty():
+		var none := Label.new()
+		none.text = "No experiments aboard. Pods (crew reports) and the Science parts carry them."
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD
+		box.add_child(none)
+	for x in exps:
+		var row := HBoxContainer.new()
+		var b := Button.new()
+		b.text = "Run"
+		b.focus_mode = Control.FOCUS_NONE
+		b.disabled = x.why != ""
+		var uid: String = x.uid
+		var exp: String = x.exp
+		b.pressed.connect(func():
+			var why := Career.run(session.active, uid, exp, session.telemetry())
+			Sfx.play("click")
+			hud.toast("%s: %s" % [Career.science.experiments[exp].name, "recorded. Bring it home to Floe to count it" if why == "" else why], 2.5)
+			box.set_meta("sig", "")
+			_fill_science())
+		row.add_child(b)
+		var l := Label.new()
+		l.text = "%s · %s" % [x.name, x.why if x.why != "" else "%.1f research" % x.value]
+		l.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0) if x.why == "" else Color(0.55, 0.62, 0.72))
+		row.add_child(l)
+		box.add_child(row)
+	var res := Career.results_on(session.active)
+	var worth := 0.0
+	for r in res:
+		worth += Career.value(r.exp, r.body, r.situation)
+	var foot := Label.new()
+	foot.text = "Aboard: %d results, worth %.1f research once recovered at Floe (O to close)" % [res.size(), worth]
+	foot.add_theme_font_size_override("font_size", 12)
+	foot.add_theme_color_override("font_color", Color(0.6, 0.7, 0.85))
+	box.add_child(foot)
 
 
 ## Leaving flight (hangar, menu, revert) takes its engine roar with it.
@@ -967,6 +1077,7 @@ func _board() -> void:
 	seated.append_array(who)
 	Sim.seats[best_uid] = seated
 	Sim.seats.erase(my_uid)
+	Career.move_results(my_uid, best_uid)  # the samples come aboard too
 	session.switch_to(best)
 	session.core.vessel_remove(me)
 	session.switch_to(best)  # the telemetry cache forgets the penguin
@@ -1354,6 +1465,8 @@ func _crew_lost(part_name: String, how: String) -> void:
 
 
 func _restore_crew() -> void:
+	if persistent and not _career_snapshot.is_empty():
+		Career.restore(_career_snapshot)
 	if not _roster_snapshot.is_empty():
 		Crew.crew = _roster_snapshot.duplicate(true)
 		Crew.save_roster()
@@ -1395,6 +1508,11 @@ var _booms: Array[Explosion] = []
 var _shake := 0.0
 var _roster_snapshot: Array = []
 var _seats_snapshot: Dictionary = {}
+var _career_snapshot: Dictionary = {}  # the program before this launch (reverts put it back)
+var _launch_cost := 0.0
+var _mission_tick := 0.0
+var _docked_seen := false
+var _science: PanelContainer
 ## The flight lives in the persistent game world (not the tutorial's own).
 var persistent := false
 ## Took over a vessel already flying (no launch to revert to).

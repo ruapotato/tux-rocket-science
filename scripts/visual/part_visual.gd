@@ -193,6 +193,50 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A small science instrument on a hull (its back, -Z, on the surface): a
+## graphite case with a dial face, a thermometer tube or a puffball sphere.
+static func _instrument(root: Node3D, sh: Dictionary) -> void:
+	var h: float = sh.get("height", 0.16)
+	var w: float = sh.get("radius", 0.06) * 2.0
+	var case := BoxMesh.new()
+	case.size = Vector3(w, h, 0.05)
+	_mesh(root, case, hull(GRAPHITE, {"panels": 2.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}), Transform3D(Basis.IDENTITY, Vector3(0, 0, -0.01)))
+	var face := CylinderMesh.new()
+	face.top_radius = w * 0.36
+	face.bottom_radius = w * 0.36
+	face.height = 0.012
+	_mesh(root, face, mat("dial", WHITE, 0.0, 0.3), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, h * 0.12, 0.02)))
+	var needle := BoxMesh.new()
+	needle.size = Vector3(0.004, w * 0.3, 0.004)
+	_mesh(root, needle, mat("red", RED, 0.0, 0.4), Transform3D(Basis(Vector3.BACK, 0.6), Vector3(0, h * 0.12 + w * 0.1, 0.03)))
+	if sh.get("dial", "") == "thermo":
+		var tube := CylinderMesh.new()
+		tube.top_radius = 0.008
+		tube.bottom_radius = 0.008
+		tube.height = h * 0.55
+		_mesh(root, tube, mat("glass_red", Color(0.9, 0.25, 0.2), 0.0, 0.2), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.25, 0.03)))
+	else:
+		var ball := SphereMesh.new()
+		ball.radius = w * 0.22
+		ball.height = w * 0.44
+		_mesh(root, ball, mat("orange", ORANGE, 0.0, 0.45), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.3, 0.035)))
+
+
+## The Snowflake Lab: a stack drum with a ring of frosted windows.
+static func _lab(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r, h, 0.0, hull(WHITE, {"panels": 8.0, "ring_spacing": 0.0, "grime": 0.2}), 64)
+	_cyl(root, r * 1.004, r * 1.004, h * 0.36, 0.05, mat("lab_glass", Color(0.55, 0.85, 1.0), 0.2, 0.15, Color(0.2, 0.45, 0.6)), 64)
+	for y in [h * 0.5 - 0.02, -h * 0.5 + 0.02]:
+		_ring(root, r * 1.005, y, 0.03, mat("steel", STEEL, 0.75, 0.3))
+	for k in 6:
+		var a := TAU * k / 6.0
+		var frame := BoxMesh.new()
+		frame.size = Vector3(0.04, h * 0.4, 0.03)
+		_mesh(root, frame, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis(Vector3.UP, a), Vector3(sin(a), 0, cos(a)) * r * 1.01 + Vector3(0, 0.05, 0)))
+
+
 ## A penguin on EVA: the Tux rig (feet at the part's bottom) in a bubble
 ## helmet with a jetpack, under a "Facing" pivot the flight view turns
 ## toward where it walks. The rig's joints are animated by TuxAnimator.
@@ -294,6 +338,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_booster(root, sh)
 		"cone":
 			_cone(root, d, sh)
+		"instrument":
+			_instrument(root, sh)
+		"lab":
+			_lab(root, sh)
 		"penguin":
 			_penguin(root, sh)
 			_jets(root, d, 0.45, false)

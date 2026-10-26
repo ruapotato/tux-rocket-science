@@ -115,6 +115,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-world", "M10", NULL },
 	{ "test-warp", "M13", NULL },
 	{ "test-spacewalk", "M14", NULL },
+	{ "test-career", "M16", NULL },
 	{ "screens", "M6", NULL },
 };
 

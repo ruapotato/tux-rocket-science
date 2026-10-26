@@ -72,6 +72,20 @@ more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono.
 helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
 holds that attitude (it doesn't swing back to where you started).
 
+**Career**: the main menu's first button switches between the **Sandbox** (every part, free; your
+original save) and a **Career** (its own world, crew and program). A career starts with ƒ25,000
+and Basic Rocketry. Every part has a cost; launching pays for the craft and recovering it at
+Floe refunds 90%. **Mission Control** lists PASA's missions (first hop, space, orbit, a spacewalk,
+Krill, rendezvous, docking...): they pay funds and research when you do them. **R&D** spends
+research to unlock the rest of the parts.
+
+**Science**: pods carry crew reports, penguins on EVA make EVA reports and (standing on the
+ground) surface samples, and the Science tab has a thermometer, a barometer and the Snowflake
+Lab. Press **O** (or SCIENCE) in flight to see what each would bring home from where you are,
+and run it. A result is worth base x body x situation (landed, flying low or high, in space
+near or high over; Krill is worth 4x Floe) and counts once the craft is recovered at Floe; each
+repeat of the same result is worth half the last. Everything is in `data/career/`.
+
 **EVA**: **F** sends a penguin out of the pod you're flying. Out there, **WASD** walks (relative
 to the view, up to 1.6 m/s, as far as friction lets the feet push), **Space** jumps (2.2 m/s off
 the ground: knee height on Floe, a couple of metres on Krill), and **R** arms the jetpack: then

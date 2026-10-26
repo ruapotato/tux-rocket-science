@@ -1,0 +1,27 @@
+{
+  "_doc": "PASA missions, offered in order once their 'after' missions are done. goal kinds: altitude (above sea level, m, at body), space (above the air at body), orbit (periapsis above the air at body), soi (in body's sphere of influence), landed (at body, not at Floe's launch site), eva_space (a penguin out in space), eva_landed (a penguin standing on body), recover_from (a craft that landed at body comes home), rendezvous (within value m of another craft), docked.",
+  "start_funds": 25000,
+  "recovery_refund": 0.9,
+  "missions": [
+    { "id": "hop", "title": "First hop", "text": "Get a penguin 1 km up and back down.", "goal": { "kind": "altitude", "body": "floe", "value": 1000 },
+      "funds": 4000, "research": 4, "after": [] },
+    { "id": "space", "title": "Touch space", "text": "Climb above Floe's air (70 km).", "goal": { "kind": "space", "body": "floe" },
+      "funds": 10000, "research": 8, "after": ["hop"] },
+    { "id": "orbit", "title": "Orbit Floe", "text": "Get into an orbit whose low point clears the air.", "goal": { "kind": "orbit", "body": "floe" },
+      "funds": 20000, "research": 15, "after": ["space"] },
+    { "id": "spacewalk", "title": "Spacewalk", "text": "Send a penguin outside in space (F).", "goal": { "kind": "eva_space" },
+      "funds": 12000, "research": 10, "after": ["orbit"] },
+    { "id": "krill_soi", "title": "To Krill", "text": "Reach Krill's sphere of influence.", "goal": { "kind": "soi", "body": "krill" },
+      "funds": 25000, "research": 20, "after": ["orbit"] },
+    { "id": "krill_land", "title": "Land on Krill", "text": "Set a craft down on Krill in one piece.", "goal": { "kind": "landed", "body": "krill" },
+      "funds": 50000, "research": 40, "after": ["krill_soi"] },
+    { "id": "krill_walk", "title": "Footprints", "text": "A penguin standing on Krill.", "goal": { "kind": "eva_landed", "body": "krill" },
+      "funds": 30000, "research": 30, "after": ["krill_land"] },
+    { "id": "krill_home", "title": "Home from Krill", "text": "Bring a craft that landed on Krill back to Floe and recover it.", "goal": { "kind": "recover_from", "body": "krill" },
+      "funds": 80000, "research": 60, "after": ["krill_land"] },
+    { "id": "meet", "title": "Rendezvous", "text": "Fly within 200 m of another craft in orbit.", "goal": { "kind": "rendezvous", "value": 200 },
+      "funds": 30000, "research": 25, "after": ["orbit"] },
+    { "id": "dock", "title": "Docking", "text": "Dock two craft together.", "goal": { "kind": "docked" },
+      "funds": 40000, "research": 30, "after": ["meet"] }
+  ]
+}

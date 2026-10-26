@@ -1,0 +1,443 @@
+# Tux Rocket Science
+# Copyright (C) 2026 Tux Rocket Science contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+## The space program's progress: research and funds, the R&D tree, PASA's
+## missions, and the experiment results riding aboard craft (by the uid of
+## the part holding them, as crew seats are). Physics stays in trs_core;
+## this is bookkeeping over its telemetry. Every number comes from
+## data/career/*.json and the part catalog. In a sandbox game everything is
+## unlocked and free, but research and missions still count.
+extends Node
+
+const SCIENCE_PATH := "res://data/career/science.json"
+const TECH_PATH := "res://data/career/tech.json"
+const MISSIONS_PATH := "res://data/career/missions.json"
+
+signal changed  # funds, research, tech or missions moved
+signal mission_done(m: Dictionary)
+
+var science: Dictionary = {}
+var tech: Array = []
+var missions_def: Dictionary = {}
+
+var mode := "sandbox"  # or "career"
+var funds := 0.0
+var research := 0.0
+var unlocked: Array = []      # tech node ids
+var done: Array = []          # mission ids
+var credited: Dictionary = {} # subject -> results brought home
+var aboard: Dictionary = {}   # part uid (string) -> [{subject, exp, body, situation}]
+var visited: Dictionary = {}  # vessel serial (string) -> [bodies landed on]
+var path := ""
+
+
+var _body_names := {}
+
+
+func _init() -> void:
+	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/bodies/austra_system.json")).bodies:
+		_body_names[b.id] = b.name
+	science = JSON.parse_string(FileAccess.get_file_as_string(SCIENCE_PATH))
+	tech = JSON.parse_string(FileAccess.get_file_as_string(TECH_PATH)).nodes
+	missions_def = JSON.parse_string(FileAccess.get_file_as_string(MISSIONS_PATH))
+
+
+# ---- save --------------------------------------------------------------------
+
+## Loads the program's state from `file` (a new program if there is none).
+func load_from(file: String, new_mode := "sandbox") -> void:
+	path = file
+	var text := FileAccess.get_file_as_string(file) if FileAccess.file_exists(file) else ""
+	var d = JSON.parse_string(text) if text != "" else null
+	if not d is Dictionary:
+		d = {"mode": new_mode, "funds": float(missions_def.start_funds), "research": 0.0, "unlocked": ["basics"]}
+	mode = d.get("mode", new_mode)
+	funds = float(d.get("funds", 0.0))
+	research = float(d.get("research", 0.0))
+	unlocked = d.get("unlocked", ["basics"])
+	done = d.get("done", [])
+	credited = d.get("credited", {})
+	aboard = d.get("aboard", {})
+	visited = d.get("visited", {})
+	changed.emit()
+
+
+func save() -> void:
+	if path == "":
+		return
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(state(), "  "))
+
+
+func state() -> Dictionary:
+	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
+		"credited": credited, "aboard": aboard, "visited": visited}
+
+
+## Puts the program back as `s` (a revert undoes the flight's results).
+func restore(s: Dictionary) -> void:
+	mode = s.mode
+	funds = s.funds
+	research = s.research
+	unlocked = s.unlocked.duplicate()
+	done = s.done.duplicate()
+	credited = s.credited.duplicate(true)
+	aboard = s.aboard.duplicate(true)
+	visited = s.visited.duplicate(true)
+	save()
+	changed.emit()
+
+
+func is_career() -> bool:
+	return mode == "career"
+
+
+# ---- parts, costs and R&D ------------------------------------------------------
+
+func part_cost(id: String) -> float:
+	return float(Sim.part(id).get("cost", 0))
+
+
+## The tech node that unlocks part `id` ("" if none: always available).
+func node_of_part(id: String) -> String:
+	for n in tech:
+		if id in n.parts:
+			return n.id
+	return ""
+
+
+func part_unlocked(id: String) -> bool:
+	if not is_career():
+		return true
+	var n := node_of_part(id)
+	return n == "" or n in unlocked
+
+
+func tech_node(id: String) -> Dictionary:
+	for n in tech:
+		if n.id == id:
+			return n
+	return {}
+
+
+## Why node `id` can't be researched now ("" if it can).
+func tech_refusal(id: String) -> String:
+	var n := tech_node(id)
+	if n.is_empty():
+		return "no such node"
+	if id in unlocked:
+		return "already researched"
+	for r in n.requires:
+		if not r in unlocked:
+			return "needs %s first" % tech_node(r).get("name", r)
+	if research < float(n.cost):
+		return "needs %d research (have %d)" % [int(n.cost), int(research)]
+	return ""
+
+
+func unlock(id: String) -> String:
+	var why := tech_refusal(id)
+	if why != "":
+		return why
+	research -= float(tech_node(id).cost)
+	unlocked.append(id)
+	save()
+	changed.emit()
+	return ""
+
+
+## The part ids of saved craft text.
+static func craft_parts(text: String) -> Array:
+	var d = JSON.parse_string(text)
+	if not d is Dictionary:
+		return []
+	return (d.get("parts", []) as Array).map(func(p): return str(p.part))
+
+
+## Why craft text can't be launched in this program now ("" if it can).
+func launch_refusal(text: String) -> String:
+	if not is_career():
+		return ""
+	var ids := craft_parts(text)
+	var locked := locked_parts(ids)
+	if not locked.is_empty():
+		return "%s isn't researched yet (R&D)" % Sim.part(locked[0]).get("name", locked[0])
+	if craft_cost(ids) > funds:
+		return "it costs %s and PASA has %s" % [money(craft_cost(ids)), money(funds)]
+	return ""
+
+
+## What a craft costs to build: the sum of its parts' costs.
+func craft_cost(part_ids: Array) -> float:
+	var c := 0.0
+	for p in part_ids:
+		c += part_cost(p)
+	return c
+
+
+## Parts of a craft that R&D hasn't unlocked yet.
+func locked_parts(part_ids: Array) -> Array:
+	var out := []
+	for p in part_ids:
+		if not part_unlocked(p) and not p in out:
+			out.append(p)
+	return out
+
+
+## Pays for a launch; "" or why not (career only; a sandbox launch is free).
+func charge_launch(part_ids: Array) -> String:
+	if not is_career():
+		return ""
+	var locked := locked_parts(part_ids)
+	if not locked.is_empty():
+		return "%s isn't researched yet" % Sim.part(locked[0]).get("name", locked[0])
+	var c := craft_cost(part_ids)
+	if c > funds:
+		return "costs %s, you have %s" % [money(c), money(funds)]
+	funds -= c
+	save()
+	changed.emit()
+	return ""
+
+
+static func money(x: float) -> String:
+	var s := str(int(roundf(x)))
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.right(3) + out
+		s = s.left(s.length() - 3)
+	return "ƒ" + s + out
+
+
+# ---- science ---------------------------------------------------------------------
+
+## Where telemetry `t` puts a craft for science: landed, flying_low,
+## flying_high, space_low or space_high ("" if nowhere that counts).
+func situation(t: Dictionary) -> String:
+	if not t.get("alive", false):
+		return ""
+	var b: Dictionary = science.bodies.get(t.body, {})
+	if b.is_empty():
+		return ""
+	if t.landed:
+		return "landed"
+	if t.in_atmosphere:
+		return "flying_low" if float(t.altitude) < float(b.get("flying_high_alt", 0.0)) else "flying_high"
+	return "space_low" if float(t.altitude) < float(b.get("space_high_alt", 1.0e30)) else "space_high"
+
+
+static func subject(exp: String, body: String, sit: String) -> String:
+	return "%s@%s:%s" % [exp, body, sit]
+
+
+## A result's worth if brought home now: base x body x situation, halved
+## for each earlier result of the same subject already home.
+func value(exp: String, body: String, sit: String) -> float:
+	var e: Dictionary = science.experiments.get(exp, {})
+	var b: Dictionary = science.bodies.get(body, {})
+	var s: Dictionary = science.situations.get(sit, {})
+	if e.is_empty() or b.is_empty() or s.is_empty() or not sit in e.situations:
+		return 0.0
+	var n := int(credited.get(subject(exp, body, sit), 0))
+	return float(e.base) * float(b.value) * float(s.value) * pow(float(science.repeat_factor), n)
+
+
+func describe(sit: String, body: String) -> String:
+	return "%s %s" % [science.situations[sit].phrase, body_name(body)] if sit != "" else "nowhere to study"
+
+
+func body_name(id: String) -> String:
+	return _body_names.get(id, id.capitalize())
+
+
+## The experiments vessel `id` can run: [{uid, part, exp, name, value, why}]
+## (why: "" if it can run here and now).
+func experiments_on(id: int, t: Dictionary) -> Array:
+	var out := []
+	var sit := situation(t)
+	var have := results_subjects(id)
+	for p in JSON.parse_string(Sim.game.core.vessel_parts(id)) if Sim.game else []:
+		for exp in Sim.part(p.part).get("science", []):
+			var e: Dictionary = science.experiments.get(exp, {})
+			var why := ""
+			var v := 0.0
+			if sit == "":
+				why = "nothing to study here"
+			elif not sit in e.situations:
+				why = "not while %s" % science.situations[sit].name.to_lower()
+			else:
+				v = value(exp, t.body, sit)
+				if subject(exp, t.body, sit) in have:
+					why = "already have this one aboard"
+			out.append({"uid": str(int(p.uid)), "part": p.part, "exp": exp, "name": e.get("name", exp), "value": v, "why": why})
+	return out
+
+
+## Runs experiment `exp` on part `uid` of vessel `id`: "" or why not.
+func run(id: int, uid: String, exp: String, t: Dictionary) -> String:
+	for x in experiments_on(id, t):
+		if x.uid == uid and x.exp == exp:
+			if x.why != "":
+				return x.why
+			var list: Array = aboard.get(uid, [])
+			list.append({"subject": subject(exp, t.body, situation(t)), "exp": exp, "body": t.body, "situation": situation(t)})
+			aboard[uid] = list
+			save()
+			return ""
+	return "no such experiment aboard"
+
+
+## Every result aboard vessel `id`.
+func results_on(id: int) -> Array:
+	var out := []
+	if Sim.game == null:
+		return out
+	for p in JSON.parse_string(Sim.game.core.vessel_parts(id)):
+		out.append_array(aboard.get(str(int(p.uid)), []))
+	return out
+
+
+func results_subjects(id: int) -> Array:
+	return results_on(id).map(func(r): return r.subject)
+
+
+## Moves the results held by part `from_uid` to part `to_uid` (a penguin
+## climbing back in hands its samples over).
+func move_results(from_uid: String, to_uid: String) -> void:
+	if aboard.has(from_uid):
+		var to: Array = aboard.get(to_uid, [])
+		to.append_array(aboard[from_uid])
+		aboard[to_uid] = to
+		aboard.erase(from_uid)
+		save()
+
+
+## Results on parts that no longer exist are lost with them.
+func sync(alive_uids: Dictionary) -> void:
+	var gone := false
+	for uid in aboard.keys():
+		if not alive_uids.has(uid):
+			aboard.erase(uid)
+			gone = true
+	if gone:
+		save()
+
+
+## Vessel `id` is recovered at Floe: its results count (each at its worth
+## now) and, in a career, most of its parts' cost comes back. Returns
+## {research, funds, results}.
+func recover(id: int, serial: int) -> Dictionary:
+	var got := 0.0
+	var n := 0
+	var parts: Array = JSON.parse_string(Sim.game.core.vessel_parts(id))
+	for p in parts:
+		var uid := str(int(p.uid))
+		for r in aboard.get(uid, []):
+			got += value(r.exp, r.body, r.situation)
+			credited[r.subject] = int(credited.get(r.subject, 0)) + 1
+			n += 1
+		aboard.erase(uid)
+	research += got
+	var refund := 0.0
+	if is_career():
+		refund = craft_cost(parts.map(func(p): return p.part)) * float(missions_def.recovery_refund)
+		funds += refund
+	var came_from: Array = visited.get(str(serial), [])
+	visited.erase(str(serial))
+	for m in active_missions():
+		if m.goal.kind == "recover_from" and m.goal.body in came_from:
+			complete(m)
+	save()
+	changed.emit()
+	return {"research": got, "funds": refund, "results": n}
+
+
+# ---- missions ----------------------------------------------------------------------
+
+func mission(id: String) -> Dictionary:
+	for m in missions_def.missions:
+		if m.id == id:
+			return m
+	return {}
+
+
+## Missions on offer now: not done, and every mission they follow done.
+func active_missions() -> Array:
+	var out := []
+	for m in missions_def.missions:
+		if m.id in done:
+			continue
+		var ok := true
+		for a in m.after:
+			ok = ok and a in done
+		if ok:
+			out.append(m)
+	return out
+
+
+func complete(m: Dictionary) -> void:
+	if m.id in done:
+		return
+	done.append(m.id)
+	research += float(m.research)
+	if is_career():
+		funds += float(m.funds)
+	save()
+	changed.emit()
+	mission_done.emit(m)
+
+
+## Checks the active missions against vessel telemetry `t` (the craft being
+## flown); `extra` carries {eva, target_distance, target_orbiting, docked}.
+## Also notes where each vessel has landed, for "recover_from".
+func check(t: Dictionary, serial: int, extra := {}) -> void:
+	if not t.get("alive", false):
+		return
+	if t.landed:
+		var v: Array = visited.get(str(serial), [])
+		if not t.body in v:
+			v.append(t.body)
+			visited[str(serial)] = v
+			save()
+	var atm := float(t.get("atmosphere_height", 0.0))
+	for m in active_missions():
+		var g: Dictionary = m.goal
+		var hit := false
+		match g.kind:
+			"altitude":
+				hit = t.body == g.body and float(t.altitude) >= float(g.value)
+			"space":
+				hit = t.body == g.body and not t.in_atmosphere and float(t.altitude) > atm
+			"orbit":
+				var pe = t.get("orbit", {}).get("pe_alt", null)
+				hit = t.body == g.body and pe != null and float(pe) > atm and not t.landed
+			"soi":
+				hit = t.body == g.body
+			"landed":
+				hit = t.body == g.body and t.landed and not extra.get("eva", false)
+			"eva_space":
+				hit = extra.get("eva", false) and not t.in_atmosphere and not t.landed
+			"eva_landed":
+				hit = extra.get("eva", false) and t.body == g.body and t.landed
+			"rendezvous":
+				hit = float(extra.get("target_distance", INF)) <= float(g.value) and situation(t).begins_with("space")
+			"docked":
+				hit = extra.get("docked", false)
+		if hit:
+			complete(m)
+

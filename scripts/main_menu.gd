@@ -58,19 +58,24 @@ func _ready() -> void:
 	add_child(sub)
 	var box := VBoxContainer.new()
 	box.position = Vector2(88, 460)
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", 6)
 	add_child(box)
 	Sim.tutorial = false
+	if not Sim.program_chosen:
+		Sim.use_program(Sim.last_program())
 	var in_flight := Sim.game_session().core.vessel_list() != "[]"
-	var items := [["First flight (tutorial)", _first_flight], ["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick]]
+	var other := "sandbox" if Career.is_career() else "career"
+	var items := [["Game: %s  (switch to %s)" % [Career.mode.capitalize(), other.capitalize()], func(): _switch_program(other)],
+		["First flight (tutorial)", _first_flight], ["Assembly Hangar", _hangar], ["Quick launch: Orbiter", _quick]]
 	if in_flight:
 		items.append(["Craft in flight (%d)" % Sim.vessels().size(), _toggle_flights])
-	items.append_array([["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]])
+	items.append_array([["Mission Control", func(): _show_program("missions")], ["R&D", func(): _show_program("rnd")],
+		["Astronaut Corps", _toggle_corps], ["Quit", func(): get_tree().quit()]])
 	for item in items:
 		var b := Button.new()
 		b.text = item[0]
-		b.custom_minimum_size = Vector2(340, 50)
-		b.add_theme_font_size_override("font_size", 19)
+		b.custom_minimum_size = Vector2(340, 38)
+		b.add_theme_font_size_override("font_size", 17)
 		b.pressed.connect(item[1])
 		box.add_child(b)
 	var foot := Label.new()
@@ -181,8 +186,49 @@ func _first_flight() -> void:
 
 
 func _quick() -> void:
-	Sim.pending_craft_text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
+	var text := FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
+	var why := Career.launch_refusal(text)
+	if why != "":
+		_note("Can't launch the Orbiter: " + why)
+		return
+	Sim.pending_craft_text = text
 	get_tree().change_scene_to_file("res://scenes/flight.tscn")
+
+
+func _switch_program(kind: String) -> void:
+	Sim.use_program(kind)
+	_ready()
+
+
+var _program: PanelContainer
+var _program_kind := ""
+
+
+## Mission Control or R&D (pressing it again closes it).
+func _show_program(kind: String) -> void:
+	if _program:
+		_program.queue_free()
+		_program = null
+		if _program_kind == kind:
+			_program_kind = ""
+			return
+	if _corps:
+		_toggle_corps()
+	if _flights:
+		_toggle_flights()
+	_program_kind = kind
+	_program = ProgramPanels.missions() if kind == "missions" else ProgramPanels.rnd(func(): _program_kind = ""; _show_program(kind))
+	_program.position = Vector2(470, 80)
+	add_child(_program)
+
+
+func _note(text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.position = Vector2(88, 820)
+	l.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
+	add_child(l)
+	get_tree().create_timer(4.0).timeout.connect(l.queue_free)
 
 
 ## Craft left flying (or landed) in the world: take one over, bring one
