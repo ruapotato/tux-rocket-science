@@ -54,4 +54,14 @@ trs_v3 trs_node_vector(const trs_orbit *o, const trs_node *n);
 int trs_trajectory(const trs_system *sys, int body, const trs_orbit *o, double t, const trs_node *nodes, int nn,
 		double horizon, trs_patch *out, int max);
 
+/* Closest approach of two predicted paths (patches a and b) between t0 and
+ * t1, wherever both are around the same body at the same time. */
+typedef struct {
+	double t, dist, rel_speed;
+	int body;
+	trs_v3 ra, rb; /* positions relative to that body at t */
+} trs_approach;
+/* Returns 1 and fills *out if the paths share a body somewhere in [t0, t1]. */
+int trs_closest_approach(const trs_patch *a, int na, const trs_patch *b, int nb, double t0, double t1, trs_approach *out);
+
 #endif

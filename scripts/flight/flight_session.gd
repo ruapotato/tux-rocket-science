@@ -190,6 +190,27 @@ func target_info() -> Dictionary:
 	return JSON.parse_string(core.target_info(active, target))
 
 
+const APPROACH_ORBITS := 3.0
+## How far ahead to look for a closest approach: APPROACH_ORBITS orbits
+## (or a few hours on an open path).
+func approach_horizon() -> float:
+	var per: float = float(telemetry().get("orbit", {}).get("period", 0.0))
+	return clampf(per * APPROACH_ORBITS if per > 0.0 else 2.0e4, 600.0, 2.0e6)
+
+
+## The closest approach to the target along our path (planned burns and
+## all): {t, dist, rel_speed, body_index, pos, target_pos, edge}, or {}.
+## edge: still closing when the look-ahead ends (so not a true pass).
+func closest_approach() -> Dictionary:
+	if target_info().is_empty():
+		return {}
+	var hz := approach_horizon()
+	var ca: Dictionary = JSON.parse_string(core.closest_approach(active, target, pack_nodes(nodes), hz))
+	if not ca.is_empty():
+		ca["edge"] = float(ca.t) > time() + hz - 1.0
+	return ca
+
+
 ## Picks the next target: the other vessels in order of distance.
 func cycle_target() -> int:
 	var others := []

@@ -89,3 +89,63 @@ int trs_trajectory(const trs_system *sys, int body, const trs_orbit *o0, double 
 	}
 	return n;
 }
+
+/* ---- closest approach ------------------------------------------------------- */
+
+#define CA_SAMPLES 720
+
+static double ca_dist(const trs_orbit *a, const trs_orbit *b, double t) {
+	trs_v3 ra, va, rb, vb;
+	trs_orbit_state_at(a, t, &ra, &va);
+	trs_orbit_state_at(b, t, &rb, &vb);
+	return v3_len(v3_sub(ra, rb));
+}
+
+/* Sampled over each overlap of same-body patches, then the best sample's
+ * bracket is narrowed by golden section to a millisecond: the true minimum
+ * of the distance between the two conics there. */
+int trs_closest_approach(const trs_patch *a, int na, const trs_patch *b, int nb, double t0, double t1, trs_approach *out) {
+	int found = 0;
+	out->dist = INFINITY;
+	for (int i = 0; i < na; i++)
+		for (int j = 0; j < nb; j++) {
+			if (a[i].body != b[j].body)
+				continue;
+			double lo = fmax(t0, fmax(a[i].t0, b[j].t0)), hi = fmin(t1, fmin(a[i].t1, b[j].t1));
+			if (hi <= lo)
+				continue;
+			double step = (hi - lo) / CA_SAMPLES, best_t = lo, best = INFINITY;
+			for (int k = 0; k <= CA_SAMPLES; k++) {
+				double t = lo + step * k, d = ca_dist(&a[i].orbit, &b[j].orbit, t);
+				if (d < best)
+					best = d, best_t = t;
+			}
+			double x0 = fmax(lo, best_t - step), x1 = fmin(hi, best_t + step);
+			const double gr = 0.6180339887498949;
+			double c = x1 - gr * (x1 - x0), d = x0 + gr * (x1 - x0);
+			double fc = ca_dist(&a[i].orbit, &b[j].orbit, c), fd = ca_dist(&a[i].orbit, &b[j].orbit, d);
+			for (int it = 0; it < 200 && x1 - x0 > 1e-3; it++) {
+				if (fc < fd) {
+					x1 = d, d = c, fd = fc;
+					c = x1 - gr * (x1 - x0);
+					fc = ca_dist(&a[i].orbit, &b[j].orbit, c);
+				} else {
+					x0 = c, c = d, fc = fd;
+					d = x0 + gr * (x1 - x0);
+					fd = ca_dist(&a[i].orbit, &b[j].orbit, d);
+				}
+			}
+			double t = 0.5 * (x0 + x1), dist = ca_dist(&a[i].orbit, &b[j].orbit, t);
+			if (best < dist)
+				t = best_t, dist = best; /* an end of the overlap */
+			if (dist < out->dist) {
+				trs_v3 va, vb;
+				trs_orbit_state_at(&a[i].orbit, t, &out->ra, &va);
+				trs_orbit_state_at(&b[j].orbit, t, &out->rb, &vb);
+				out->t = t, out->dist = dist, out->body = a[i].body;
+				out->rel_speed = v3_len(v3_sub(va, vb));
+				found = 1;
+			}
+		}
+	return found;
+}

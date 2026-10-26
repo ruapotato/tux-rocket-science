@@ -674,6 +674,12 @@ func _target_text() -> String:
 		return ""
 	var s := "[color=#ff8a2a][b]TARGET[/b][/color]  %s\n[color=#9fb4cc]Range[/color] [b]%s[/b]   [color=#9fb4cc]closing[/color] %s m/s\n[color=#9fb4cc]Relative speed[/color] %.2f m/s" % [
 		ti.get("name", "?"), FlightHUD.fmt_dist(ti.distance), FlightHUD.signed(ti.closing, 2), ti.rel_speed]
+	var ca := session.closest_approach()
+	if not ca.is_empty() and float(ca.t) - session.time() > 1.0:
+		if ca.edge:
+			s += "\n[color=#9fb4cc]Closest[/color] none under %s in %d orbits" % [FlightHUD.fmt_dist(ca.dist), int(FlightSession.APPROACH_ORBITS)]
+		else:
+			s += "\n[color=#9fb4cc]Closest[/color] [b]%s[/b] in %s at %.1f m/s" % [FlightHUD.fmt_dist(ca.dist), FlightHUD.fmt_time(float(ca.t) - session.time()), ca.rel_speed]
 	if ti.has("port_distance") and ti.port_distance < 200.0:
 		var d: Dictionary = Sim.part("dock_port").get("docking", {})
 		var good: bool = ti.port_angle_deg < d.get("max_angle_deg", 10.0) and ti.port_closing < d.get("max_speed", 0.8)

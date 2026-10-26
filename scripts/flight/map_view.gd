@@ -26,6 +26,7 @@ const SCALE := 1.0e-5
 const MOON_MERGE_PX := 40.0  # a moon this close to its planet on screen is left out
 const HANDLE_RATE := 0.6  # m/s per pixel dragged (grows with distance)
 const AIR_PATH := Color(1.0, 0.45, 0.35, 0.55)  # drag-free continuation through the air
+const TARGET_PATH := Color(0.95, 0.4, 1.0)  # the target's orbit and its closest-approach mark
 const COLORS := [Color(0.35, 0.85, 1.0), Color(1.0, 0.62, 0.2), Color(0.6, 1.0, 0.45), Color(1.0, 0.45, 0.8), Color(0.9, 0.9, 0.4)]
 
 var session: FlightSession
@@ -34,6 +35,7 @@ var focus_body := 1
 ## focus to the bodies and back.
 var focus_vessel := true
 var _target := Vector3.ZERO
+var _ca_line: Array = []  # [our point, theirs] at the closest approach
 var _vp: SubViewport
 var _cam: Camera3D
 var _yaw := 0.6
@@ -308,6 +310,40 @@ func refresh() -> void:
 			prev = world
 			prev_patch = pi
 		_imesh.surface_end()
+	# the target's path, and where we pass closest to it
+	_ca_line = []
+	var ti := session.target_info()
+	if not ti.is_empty():
+		var hz := session.approach_horizon()
+		var tp: Array = JSON.parse_string(session.core.trajectory(session.target, PackedFloat64Array(), 8, hz))
+		var tpts: PackedFloat64Array = session.core.trajectory_points(session.target, PackedFloat64Array(), 8, hz, 256)
+		if tpts.size() >= 10:
+			_imesh.surface_begin(Mesh.PRIMITIVE_LINES)
+			var tprev := Vector3.ZERO
+			var tpp := -999
+			for k in tpts.size() / 5:
+				var o := k * 5
+				var pi := int(tpts[o])
+				var p: Dictionary = tp[pi if pi >= 0 else -1 - pi]
+				var world: Vector3 = (offs[int(p.body_index)] + Frame.vec(tpts, o + 2)) * SCALE
+				if pi == tpp:
+					_imesh.surface_set_color(TARGET_PATH)
+					_imesh.surface_add_vertex(tprev)
+					_imesh.surface_add_vertex(world)
+				tprev = world
+				tpp = pi
+			_imesh.surface_end()
+		var ca := session.closest_approach()
+		if not ca.is_empty():
+			var bo: Vector3 = offs[int(ca.body_index)]
+			var pa: Vector3 = (bo + Frame.vec_arr(ca.pos)) * SCALE
+			var pb: Vector3 = (bo + Frame.vec_arr(ca.target_pos)) * SCALE
+			var lbl := "Closest %s in %s · %.1f m/s" % [FlightHUD.fmt_dist(ca.dist), FlightHUD.fmt_time(float(ca.t) - session.time()), ca.rel_speed]
+			if ca.edge:
+				lbl = "No pass closer than %s in the next %d orbits" % [FlightHUD.fmt_dist(ca.dist), int(FlightSession.APPROACH_ORBITS)]
+			_markers.append({"pos": pa, "label": lbl, "color": COLORS[0]})
+			_markers.append({"pos": pb, "label": str(ti.get("name", "target")), "color": TARGET_PATH})
+			_ca_line = [pa, pb]
 	# apses and SOI transitions, at exact positions from trs_core
 	for pi in _patches.size():
 		var p: Dictionary = _patches[pi]
@@ -561,6 +597,8 @@ func _draw_overlay() -> void:
 		var vname := str(session.telemetry().get("name", "vessel"))
 		var vw := font.get_string_size(vname, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 		ov.draw_string(font, vp + Vector2(-14 - vw, 5), vname, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.9))
+	if _ca_line.size() == 2 and not _cam.is_position_behind(_ca_line[0]) and not _cam.is_position_behind(_ca_line[1]):
+		ov.draw_dashed_line(_cam.unproject_position(_ca_line[0]), _cam.unproject_position(_ca_line[1]), Color(TARGET_PATH, 0.8), 1.5, 6.0)
 	for m in _markers:
 		if _cam.is_position_behind(m.pos):
 			continue

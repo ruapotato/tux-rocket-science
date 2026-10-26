@@ -980,6 +980,30 @@ static int vessel_trajectory(trs_sim_handle *h, int id, const trs_val *nodes_arr
 
 static const char *PATCH_END[] = { "horizon", "soi_exit", "soi_enter", "atmosphere", "surface", "node" };
 
+/* closest_approach(id, target, nodes, horizon) -> JSON {t, dist, rel_speed,
+ * body_index, pos, target_pos} (positions relative to that body, sim axes)
+ * or {} if the two paths never share a body in that time */
+static void m_closest_approach(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
+	if (ok_vessel(h, a[0].i) && ok_vessel(h, a[1].i) && a[0].i != a[1].i) {
+		trs_patch pa[32], pb[32];
+		trs_val none = { 0 }; /* no nodes */
+		int na = vessel_trajectory(h, (int)a[0].i, &a[2], 8, a[3].f, pa);
+		int nb = vessel_trajectory(h, (int)a[1].i, &none, 8, a[3].f, pb);
+		trs_approach ap;
+		if (trs_closest_approach(pa, na, pb, nb, h->world->t, h->world->t + a[3].f, &ap)) {
+			trs_json_set(j, "t", trs_json_new_num(ap.t));
+			trs_json_set(j, "dist", trs_json_new_num(ap.dist));
+			trs_json_set(j, "rel_speed", trs_json_new_num(ap.rel_speed));
+			trs_json_set(j, "body_index", trs_json_new_num(ap.body));
+			trs_json_set(j, "pos", v3_json(ap.ra));
+			trs_json_set(j, "target_pos", v3_json(ap.rb));
+		}
+	}
+	ret_json(r, j);
+}
+
 /* trajectory(id, nodes[t,pro,nrm,rad]*, max_patches, horizon) -> JSON patches */
 static void m_trajectory(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -1275,6 +1299,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "terrain_patch", m_terrain_patch, A, 3, { I, A, I }, { "body", "patch", "res" } },
 	{ "sas_direction", m_sas_direction, A, 2, { I, S }, { "id", "mode" } },
 	{ "trajectory", m_trajectory, S, 4, { I, A, I, F }, { "id", "nodes", "max_patches", "horizon" } },
+	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },

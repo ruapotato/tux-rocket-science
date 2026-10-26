@@ -29,7 +29,9 @@ drop a spent stage before the engine above it lights. Engines tilted away from t
 lose the sideways part of their thrust, and the hangar's thrust and Δv count only what is left.
 
 **Docking**: put a **Huddle-Lock Docking Port** on each craft. In flight, **Y** picks the other
-craft as target. The target panel shows range, closing speed and, near a free port pair, how
+craft as target. The map draws the target's orbit in magenta and marks the **closest approach** on both
+paths (how close, when, and how fast you'd pass), counting any burns you've planned, so you can
+drag a maneuver node until the pass gets close. The target panel shows range, closing speed and, near a free port pair, how
 well the ports line up; the PORT line turns green when they would latch. SAS **DOCK** points your
 port at theirs, **RV-** points against your relative speed (burn to stop), and RCS slides you
 onto the line. Ports latch when they meet within 10° of face to face, closing at under 0.8 m/s.

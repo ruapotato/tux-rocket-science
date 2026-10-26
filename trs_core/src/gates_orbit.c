@@ -21,10 +21,12 @@
 /* M1 gates: on-rails Kepler drift, and rails <-> physics mode switching. */
 #include "trs/gate.h"
 #include "trs/kepler.h"
+#include "trs/trajectory.h"
 #include "trs/world.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define DEG (TRS_PI / 180.0)
 
@@ -407,6 +409,64 @@ trs_gate_status trs_gate_patched_conics(trs_log *log, const char *data_dir) {
 		failed += !ok;
 		trs_log_printf(log, "%s escape to Austra at t=%.1f s, r/SOI(Floe)=%.9f, heliocentric e=%.4f\n", ok ? "ok  " : "FAIL",
 				vs->orbit.t0, rr / F->soi, vs->orbit.e);
+	}
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}
+
+/* test-approach: closest approach of two paths. Two circular, coplanar
+ * orbits a phase angle apart pass closest when the inner one has gained
+ * that angle (t = phase / (n1 - n2)), at r2 - r1, with the difference of
+ * their speeds; two equal circles in different planes, timed to reach the
+ * line of nodes together, meet there. */
+static trs_patch ca_patch(int body, double t1) {
+	trs_patch p;
+	memset(&p, 0, sizeof p);
+	p.body = body, p.t1 = t1, p.end = TRS_PATCH_END_HORIZON, p.node = -1;
+	return p;
+}
+
+trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir) {
+	trs_system sys;
+	if (!load_system(log, data_dir, &sys))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	double mu = sys.bodies[floe].mu, R = sys.bodies[floe].radius;
+	int failed = 0;
+	{
+		double r1 = R + 100e3, r2 = R + 120e3, phase = 40 * DEG;
+		trs_patch a = ca_patch(floe, 1e6), b = a;
+		trs_orbit_from_elements(&a.orbit, mu, r1, 0, 0, 0, 0, 0, 0);
+		trs_orbit_from_elements(&b.orbit, mu, r2, 0, 0, 0, 0, phase, 0);
+		double n1 = sqrt(mu / (r1 * r1 * r1)), n2 = sqrt(mu / (r2 * r2 * r2));
+		double want_t = phase / (n1 - n2), want_v = sqrt(mu / r1) - sqrt(mu / r2);
+		trs_approach ap;
+		int got = trs_closest_approach(&a, 1, &b, 1, 0, want_t * 1.5, &ap);
+		int ok = got && fabs(ap.t - want_t) < 0.05 && fabs(ap.dist - (r2 - r1)) < 1e-3 && fabs(ap.rel_speed - want_v) < 1e-6;
+		failed += !ok;
+		trs_log_printf(log, "%s coplanar circles 20 km apart, 40 deg ahead: closest at t %.3f s (want %.3f), %.4f m (want %.4f), %.4f m/s (want %.4f)\n",
+				ok ? "ok  " : "FAIL", ap.t, want_t, ap.dist, r2 - r1, ap.rel_speed, want_v);
+	}
+	{
+		double r = R + 150e3;
+		trs_patch a = ca_patch(floe, 1e6), b = a;
+		/* both start a quarter turn before the ascending node (along +X) */
+		trs_orbit_from_elements(&a.orbit, mu, r, 0, 0, 0, 0, -90 * DEG, 0);
+		trs_orbit_from_elements(&b.orbit, mu, r, 0, 30 * DEG, 0, 0, -90 * DEG, 0);
+		double n = sqrt(mu / (r * r * r)), want_t = 0.5 * TRS_PI / n;
+		trs_approach ap;
+		int got = trs_closest_approach(&a, 1, &b, 1, 0, want_t * 1.8, &ap);
+		int ok = got && fabs(ap.t - want_t) < 0.05 && ap.dist < 1.0;
+		failed += !ok;
+		trs_log_printf(log, "%s equal circles 30 deg apart in inclination: meet at the node at t %.3f s (want %.3f), %.4f m apart, %.1f m/s\n",
+				ok ? "ok  " : "FAIL", ap.t, want_t, ap.dist, ap.rel_speed);
+	}
+	{
+		trs_patch a = ca_patch(floe, 100), b = a;
+		b.body = floe + 1;
+		trs_approach ap;
+		int got = trs_closest_approach(&a, 1, &b, 1, 0, 100, &ap);
+		failed += got;
+		trs_log_printf(log, "%s paths around different bodies: no approach reported\n", got ? "FAIL" : "ok  ");
 	}
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
