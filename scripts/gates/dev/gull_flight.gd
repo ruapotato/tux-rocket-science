@@ -73,7 +73,51 @@ func run(runner: Node) -> Dictionary:
 		if t.altitude_terrain > 600.0 or not t.alive:
 			break
 	t = s.telemetry()
-	log.append("end: alive %s, %.1f m/s, alt %.0f m" % [t.alive, t.surface_speed, t.altitude_terrain])
+	log.append("end: alive %s, %.1f m/s, alt %.0f m, steering by the craft %s" % [t.alive, t.surface_speed, t.altitude_terrain, scene.steer_craft])
+	# craft-relative keys: D yaws right (east -> south), then E rolls right
+	s.set_input(0, 0, 0)
+	if OS.get_environment("DIRECT") != "":
+		var ta := s.telemetry()
+		for k in 15:
+			s.set_input(0, 0, 1)
+			s.step_ticks(1)
+		var tb := s.telemetry()
+		log.append("direct roll +1 for 0.3 s: right wing up %.3f -> %.3f" % [Frame.vec_arr(ta.side).dot(Frame.vec_arr(ta.up)), Frame.vec_arr(tb.side).dot(Frame.vec_arr(tb.up))])
+		s.set_input(0, 0, 0)
+	for key in ([KEY_E, KEY_Q, KEY_D] if OS.get_environment("ORDER") == "" else [KEY_E]):
+		var t0 := s.telemetry()
+		var ev := InputEventKey.new()
+		ev.keycode = key
+		ev.physical_keycode = key
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		Input.flush_buffered_events()
+		for k in 15:
+			scene._controls(0.02)
+			s.step_ticks(1)
+		ev = ev.duplicate()
+		ev.pressed = false
+		Input.parse_input_event(ev)
+		Input.flush_buffered_events()
+		scene._controls(0.02)
+		var t1 := s.telemetry()
+		if not t1.get("alive", false):
+			log.append("key %s: the Gull is gone" % OS.get_keycode_string(key))
+			break
+		var bank_now: float = Frame.vec_arr(t1.side).dot(Frame.vec_arr(t1.up))
+		var bank_was: float = Frame.vec_arr(t0.side).dot(Frame.vec_arr(t0.up))
+		log.append("    right after: right wing up %.3f -> %.3f" % [bank_was, bank_now])
+		s.step_ticks(100)
+		var n0 := Frame.vec_arr(t0.nose)
+		var n1 := Frame.vec_arr(t1.nose)
+		var up := Frame.vec_arr(t1.up)
+		var east := Frame.vec_arr(t1.east)
+		var north := Frame.vec_arr(t1.north)
+		var hdg0 := rad_to_deg(atan2(n0.dot(east), n0.dot(north)))
+		var hdg1 := rad_to_deg(atan2(n1.dot(east), n1.dot(north)))
+		var side := Frame.vec_arr(t1.side)
+		log.append("key %s for 0.3 s (then 2 s): heading %.1f -> %.1f, pitch %.1f -> %.1f, bank (side.up) %.2f" % [OS.get_keycode_string(key), hdg0, hdg1,
+			rad_to_deg(asin(n0.dot(up))), rad_to_deg(asin(n1.dot(up))), side.dot(up)])
 	if gpu:
 		await _frames(tree, 20)
 		await _shot(scene, "climb")

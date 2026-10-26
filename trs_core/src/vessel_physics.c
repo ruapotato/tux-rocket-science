@@ -351,7 +351,11 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 		const trs_part *pt = &c->parts[i];
 		const trs_part_def *d = trs_craft_def(c, i);
 		trs_v3 arm = v3_sub(pt->pos, vs->cm);
-		trs_v3 vp = v3_add(vl, v3_cross(wl, arm));
+		/* a fin or wing meets the air at the middle of its span, not at its
+		 * root on the hull: there a roll (or yaw) moves it through the air,
+		 * and the lift that answers is what damps the turn */
+		trs_v3 arm_p = d->plate ? v3_add(arm, quat_rotate(pt->rot, v3(0, 0, d->fin_span * 0.5))) : arm;
+		trs_v3 vp = v3_add(vl, v3_cross(wl, arm_p));
 		double sp = v3_len(vp);
 		if (sp < 1e-9)
 			continue;
@@ -396,7 +400,7 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 		trs_v3 f = v3_add(v3_add(v3_add(f_axial, f_cross), f_chute), f_nose);
 		f_local_total = v3_add(f_local_total, f);
 		if (torque_local) {
-			trs_v3 cop = v3_add(arm, v3_scale(ax, d->cop * d->height));
+			trs_v3 cop = v3_add(arm_p, v3_scale(ax, d->cop * d->height));
 			*torque_local = v3_add(*torque_local, v3_add(v3_cross(arm, v3_add(f_axial, f_chute)), v3_cross(cop, f_cross)));
 			*torque_local = v3_add(*torque_local, v3_cross(nose_at, f_nose));
 			/* the part's own extent resists turning end over end: linearised

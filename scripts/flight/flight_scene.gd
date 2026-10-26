@@ -78,6 +78,7 @@ func _ready() -> void:
 			_launched = true
 		else:
 			session.launch_site = Sim.pending_site
+			steer_craft = session.launch_site == "runway"  # planes fly by their own axes
 			Sim.pending_site = "pad"  # the next launch from elsewhere starts on the pad
 			cleared = _clear_pad()
 			_seats_snapshot = Sim.seats.duplicate(true)
@@ -497,6 +498,9 @@ func _key(k: InputEventKey) -> void:
 			_toggle_science()
 		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
 			_action_group(k.keycode - KEY_0)
+		KEY_QUOTELEFT:
+			steer_craft = not steer_craft
+			hud.toast("Steering %s" % ("by the craft: W/S nose down / up, A/D yaw, Q/E roll" if steer_craft else "by the view: W tips the nose away from the camera"), 2.5)
 		KEY_F5:
 			quicksave()
 		KEY_F9:
@@ -974,7 +978,10 @@ func _controls(delta: float) -> void:
 	var away := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
 	var right := float(Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT))
 	var roll := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
-	var pr := _view_steer(away, right)
+	# craft-relative (planes): W/S pitch the nose down / up about the craft's
+	# own wing axis (local X), A/D yaw it left / right (local Z), whatever
+	# the camera does; view-relative (rockets) turns the keys by the view
+	var pr := Vector2(-away, -right) if steer_craft else _view_steer(away, right)
 	session.set_input(pr.x, pr.y, roll)
 	# RCS translation, like steering, as you see it: J/L slide left/right
 	# on screen, I/K up/down, H/N along the nose
@@ -1665,6 +1672,8 @@ var _seats_snapshot: Dictionary = {}
 var _career_snapshot: Dictionary = {}  # the program before this launch (reverts put it back)
 var _launch_cost := 0.0
 var _was_powered := true
+## Steering relative to the craft (planes) instead of to the view (`).
+var steer_craft := false
 var _mission_tick := 0.0
 var _docked_seen := false
 var _science: PanelContainer

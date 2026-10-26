@@ -625,7 +625,7 @@
       "description": "A proper wing: lifts once you're moving, and its aileron flap rolls you. Put one on each side, a little behind the centre of mass.",
       "mass": 220,
       "cost": 700,
-      "aero": { "cd_top": 0.1, "cd_bottom": 0.1, "cd_side": 1.2, "area_side": 6.0, "area_axial": 0.15, "lift_slope": 4.0, "control_deflection_deg": 12 },
+      "aero": { "cd_top": 0.1, "cd_bottom": 0.1, "cd_side": 1.2, "area_side": 6.0, "area_axial": 0.15, "lift_slope": 4.0, "control_deflection_deg": 8 },
       "crash_tolerance": 12,
       "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
       "shape": { "type": "fin", "span": 3.4, "root": 2.4, "tip": 1.1, "thickness": 0.09 },

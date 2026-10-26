@@ -256,6 +256,25 @@ trs_gate_status trs_gate_planes(trs_log *out, const char *data_dir) {
 		trs_log_printf(out, "%s takeoff: wheels up after %.0f m at %.1f m/s, then %.0f m up (the shelf is flat for %.0f m past the runway start)\n",
 				ok ? "ok  " : "FAIL", lift_m, lift_v, climbed, F->terrain.site_radius - 400.0);
 	}
+	/* a full roll at 600 m: the right wing goes down, and the rate levels
+	 * off (the wings' own lift damps the roll) instead of running away */
+	{
+		trs_v3 rel = v3_sub(vs->v, v3_cross(trs_body_omega(F), vs->r));
+		(void)rel;
+		vs->input = v3(0, 0, 1);
+		double b0 = v3_dot(quat_rotate(vs->q, v3(1, 0, 0)), v3_norm(vs->r)), rate[2];
+		run(w, 0.2);
+		double b1 = v3_dot(quat_rotate(vs->q, v3(1, 0, 0)), v3_norm(vs->r));
+		for (int k = 0; k < 2; k++) {
+			run(w, 0.5);
+			rate[k] = quat_rotate(quat_conj(vs->q), v3_sub(vs->w, trs_body_omega(F))).y;
+		}
+		vs->input = v3(0, 0, 0);
+		int ok = vs->alive && b1 < b0 - 0.05 && rate[0] > 0.5 && rate[1] < 6 && fabs(rate[1] / rate[0] - 1) < 0.15;
+		failed += !ok;
+		trs_log_printf(out, "%s full right roll in the climb: right wing %+.2f -> %+.2f in 0.2 s; roll rate %.2f, then %.2f rad/s (levelled off)\n",
+				ok ? "ok  " : "FAIL", b0, b1, rate[0], rate[1]);
+	}
 	trs_world_free(w);
 	free(w);
 	trs_craft_free(&gull);
