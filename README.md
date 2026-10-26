@@ -70,6 +70,14 @@ more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono.
 helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
 holds that attitude (it doesn't swing back to where you started).
 
+**EVA**: **F** sends a penguin out of the pod you're flying. Out there, **WASD** walks (relative
+to the view, up to 1.6 m/s, as far as friction lets the feet push), **Space** jumps (2.2 m/s off
+the ground: knee height on Floe, a couple of metres on Krill), and **R** arms the jetpack: then
+WASD and **Shift / Ctrl** push it about on a few kilograms of mono. Walk up to any part of a
+craft with a free seat and **F** climbs back in (the penguin climbs the hull to the hatch).
+A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
+recovered at home, or lost.
+
 **Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak
 Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
 of it, and keeps the tank behind it cool. It also cuts the drag.

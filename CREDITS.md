@@ -5,6 +5,10 @@ Tux, the Linux penguin, was created by **Larry Ewing** (lewing@isc.tamu.edu) usi
 The GIMP. Our penguins come from that lineage, but every penguin in this game is
 our own original artwork.
 
+The 3D Tux you walk around as on EVA (`scenes/tux_rig.tscn`) and its procedural
+animator (`scripts/crew/tux_animator.gd`) come from the same author's own games,
+SuperTux3D and The Legend of Tux (GPLv3), relicensed here under the AGPL.
+
 ## Third-party code
 - `trs_core/third_party/godot/gdextension_interface.h` is from the Godot Engine,
   © the Godot Engine contributors (Juan Linietsky, Ariel Manzur), under the MIT license.

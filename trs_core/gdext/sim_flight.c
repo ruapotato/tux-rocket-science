@@ -233,7 +233,7 @@ static void m_vessel_set_translate(void *self, const trs_val *a, trs_val *r) {
 }
 
 static const char *SAS_NAMES[TRS_SAS_COUNT] = { "off", "stability", "target", "prograde", "retrograde", "normal",
-	"antinormal", "radial_out", "radial_in", "surface_prograde", "surface_retrograde" };
+	"antinormal", "radial_out", "radial_in", "surface_prograde", "surface_retrograde", "upright" };
 
 /* vessel_set_sas(id, mode, target[3]) */
 static void m_vessel_set_sas(void *self, const trs_val *a, trs_val *r) {
@@ -310,15 +310,7 @@ static void m_vessel_serial(void *self, const trs_val *a, trs_val *r) {
 	r->i = ok_vessel(H(self), a[0].i) ? H(self)->world->vessels[a[0].i].serial : -1;
 }
 
-/* Local frame at a position: up, north, east (SOI frame). */
-static void local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east) {
-	*up = v3_norm(r);
-	trs_v3 e = v3_cross(v3(0, 0, 1), *up);
-	if (v3_len2(e) < 1e-20)
-		e = v3(0, 1, 0);
-	*east = v3_norm(e);
-	*north = v3_cross(*up, *east);
-}
+static void local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east) { trs_local_frame(r, up, north, east); }
 
 static trs_quat vessel_quat(const trs_world *w, const trs_vessel *vs) {
 	if (vs->mode == TRS_MODE_LANDED)
@@ -416,6 +408,8 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "atmosphere_height", trs_json_new_num(b->atm.height));
 	trs_json_set(j, "in_atmosphere", trs_json_new_bool(b->atm.height > 0 && rl - b->radius < b->atm.height));
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
+	trs_json_set(j, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
+	trs_json_set(j, "contacts", trs_json_new_num(vs->mode == TRS_MODE_LANDED ? 1 : vs->contacts));
 	trs_json_set(j, "clamped", trs_json_new_bool(vs->clamped));
 	trs_json_set(j, "liftoff_t", vs->lifted ? trs_json_new_num(vs->liftoff_t) : trs_json_new(TRS_JSON_NULL));
 	trs_json_set(j, "contacts", trs_json_new_num(vs->contacts));
@@ -771,6 +765,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 				if (trs_craft_def(vs->craft, k)->crew > 0)
 					trs_json_push(pods, trs_json_new_num(vs->craft->parts[k].uid));
 			trs_json_set(vj, "pods", pods);
+			trs_json_set(vj, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
 			/* something aboard can steer it (a pod, a probe core, a
 			 * wheel): a craft, not debris */
 			int control = 0;
@@ -906,6 +901,46 @@ static void m_terrain_patch(void *self, const trs_val *a, trs_val *r) {
 }
 
 /* sas_direction(id, mode) -> [x,y,z] for HUD markers */
+/* vessel_eva_exit(id, part) -> the new penguin vessel climbing out of
+ * crewed part `part` (index), or -1 */
+static void m_vessel_eva_exit(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = -1;
+	if (ok_vessel(h, a[0].i))
+		r->i = trs_world_eva_exit(h->world, (int)a[0].i, (int)a[1].i, trs_catalog_find(&h->catalog, "eva_penguin"));
+}
+
+/* eva_hatch(eva, target) -> [part index (-1: none in reach), gap m, part uid] */
+static void m_eva_hatch(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double gap = INFINITY;
+	int part = -1, uid = -1;
+	if (ok_vessel(h, a[0].i) && ok_vessel(h, a[1].i)) {
+		part = trs_eva_hatch(h->world, (int)a[0].i, (int)a[1].i, &gap);
+		if (part >= 0)
+			uid = h->world->vessels[a[1].i].craft->parts[part].uid;
+	}
+	double out[3] = { part, isfinite(gap) ? gap : -1, uid };
+	ret_doubles(r, out, 3);
+}
+
+/* vessel_rename(id, name) */
+static void m_vessel_rename(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (ok_vessel(h, a[0].i) && h->world->vessels[a[0].i].craft)
+		snprintf(h->world->vessels[a[0].i].craft->name, sizeof h->world->vessels[a[0].i].craft->name, "%s", a[1].s);
+}
+
+/* vessel_set_walk(id, east, north, jump): a penguin's wanted ground speed */
+static void m_vessel_set_walk(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (ok_vessel(h, a[0].i)) {
+		trs_vessel *vs = &h->world->vessels[a[0].i];
+		vs->walk = v3(a[1].f, a[2].f, 0);
+		vs->jump |= a[3].b;
+	}
+}
+
 static void m_sas_direction(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	double out[3] = { 0, 0, 0 };
@@ -1216,6 +1251,10 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_set_sas", m_vessel_set_sas, B, 3, { I, S, A }, { "id", "mode", "target" } },
 	{ "vessel_set_rcs", m_vessel_set_rcs, V, 2, { I, B }, { "id", "on" } },
 	{ "vessel_undock", m_vessel_undock, I, 1, { I }, { "id" } },
+	{ "vessel_eva_exit", m_vessel_eva_exit, I, 2, { I, I }, { "id", "part" } },
+	{ "vessel_rename", m_vessel_rename, V, 2, { I, S }, { "id", "name" } },
+	{ "eva_hatch", m_eva_hatch, A, 2, { I, I }, { "eva", "target" } },
+	{ "vessel_set_walk", m_vessel_set_walk, V, 4, { I, F, F, B }, { "id", "east", "north", "jump" } },
 	{ "target_info", m_target_info, S, 2, { I, I }, { "id", "target" } },
 	{ "vessel_set_translate", m_vessel_set_translate, V, 4, { I, F, F, F }, { "id", "x", "y", "z" } },
 	{ "vessel_stage", m_vessel_stage, S, 1, { I }, { "id" } },

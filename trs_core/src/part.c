@@ -108,6 +108,13 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	const trs_json *fl = trs_json_get(j, "feed_line");
 	if (fl)
 		d->feed_reach = trs_json_num(fl, "reach", 0.6);
+	const trs_json *ev = trs_json_get(j, "eva");
+	if (ev) {
+		d->is_eva = 1;
+		d->eva_walk = trs_json_num(ev, "walk_speed", 1.5);
+		d->eva_jump = trs_json_num(ev, "jump_speed", 2.0);
+		d->eva_reach = trs_json_num(ev, "reach", 1.5);
+	}
 	const trs_json *lg = trs_json_get(j, "leg");
 	if (lg) {
 		d->is_leg = 1;

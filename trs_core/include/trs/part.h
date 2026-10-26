@@ -84,6 +84,13 @@ typedef struct {
 	/* feed line: pipes propellant from its group to what its outlet reaches */
 	double feed_reach; /* m along local +Z from the attach point (0 = not a feed line) */
 
+	/* a penguin out on a walk (EVA): its feet carry it at up to eva_walk m/s
+	 * over the ground (as far as friction lets them), it jumps off at
+	 * eva_jump m/s, and it can climb back aboard a crewed part within
+	 * eva_reach m of its hull */
+	int is_eva;
+	double eva_walk, eva_jump, eva_reach;
+
 	/* landing leg */
 	int is_leg;
 	double leg_length, leg_spring, leg_damper, leg_max_speed;

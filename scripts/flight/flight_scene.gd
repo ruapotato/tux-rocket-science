@@ -86,15 +86,14 @@ func _ready() -> void:
 		# each craft keeps its own throttle and steering mode
 		_throttle = float(session.telemetry().get("throttle", 0.0))
 		_sas_follow = ""
+		_cam_dist = _framing_dist()
 		_refresh_crew())
 	var cs := get_node_or_null("/root/ControlSocket")
 	if cs:
 		cs.attach(session)
 	_build()
 	_assign_crew()
-	# far enough that the whole craft fits between the top and bottom HUD
-	var ch := _craft_height()
-	_cam_dist = minf(CAM_MAX_DIST, maxf(18.0 + ch * 1.2, 2.0 * (ch + 3.0)))
+	_cam_dist = _framing_dist()
 	if persistent:
 		Sim.save_game()
 	if Sim.tutorial:
@@ -305,6 +304,15 @@ func _windward_fronts(flow: Vector3) -> Dictionary:
 	return {"fronts": out, "exposure": exposure}
 
 
+## Far enough that the whole craft fits between the top and bottom HUD;
+## close in on a penguin.
+func _framing_dist() -> float:
+	if session.telemetry().get("eva", false):
+		return 3.5
+	var ch := _craft_height()
+	return minf(CAM_MAX_DIST, maxf(18.0 + ch * 1.2, 2.0 * (ch + 3.0)))
+
+
 ## The craft's size: the widest span between two of its parts' centres
 ## (the feed is in the world frame, which is not lined up with the craft).
 func _craft_height() -> float:
@@ -435,7 +443,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
 			_orbiting = mb.pressed
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_cam_dist = maxf(4.0, _cam_dist * 0.9)
+			_cam_dist = maxf(1.5 if session.telemetry().get("eva", false) else 4.0, _cam_dist * 0.9)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			_cam_dist = minf(CAM_MAX_DIST, _cam_dist * 1.1)
 	elif event is InputEventMouseMotion and _orbiting:
@@ -457,7 +465,12 @@ func _key(k: InputEventKey) -> void:
 		KEY_ESCAPE:
 			hud.show_menu(not hud.menu_visible())
 		KEY_SPACE:
-			_stage()
+			if session.telemetry().get("eva", false):
+				session.set_walk(0.0, 0.0, true)  # jump (the walk is set again next frame)
+			else:
+				_stage()
+		KEY_F:
+			_eva_key()
 		KEY_Z:
 			_throttle = 1.0
 		KEY_X:
@@ -728,7 +741,13 @@ func _on_sim_event(e: Dictionary) -> void:
 		"part_destroyed":
 			_react("boom", 3.5)
 			var how: String = "by overheating" if float(e.speed) <= -2.0 else "in the blast" if float(e.speed) < 0.0 else "at %.0f m/s" % float(e.speed)
-			if Sim.part(e.part).get("crew", 0) > 0:
+			if Sim.part(e.part).has("eva"):
+				# a penguin out walking: just that one is lost
+				var lost: Array = Sim.sync_crew(_mission) if persistent else []
+				hud.toast("%s was lost %s" % [", ".join(lost) if not lost.is_empty() else "A penguin on EVA", how], 4.0)
+				if persistent:
+					Sim.save_game()
+			elif Sim.part(e.part).get("crew", 0) > 0:
 				_crew_lost(Sim.part(e.part).name, how)
 			elif not _mission.pod_lost:
 				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
@@ -782,6 +801,9 @@ func _exit_tree() -> void:
 
 
 func _controls(delta: float) -> void:
+	if session.telemetry().get("eva", false):
+		_eva_controls()
+		return
 	if Input.is_key_pressed(KEY_SHIFT):
 		_throttle = minf(1.0, _throttle + THROTTLE_RATE * delta)
 	if Input.is_key_pressed(KEY_CTRL):
@@ -809,6 +831,142 @@ func _controls(delta: float) -> void:
 			_sas_follow = ""
 		else:
 			session.set_sas("target", PackedFloat64Array([fd.x, fd.y, fd.z]))
+
+
+## A penguin out walking: WASD walks it (relative to the view, over the
+## ground), and with the jetpack on (R) WASD and Shift / Ctrl fly it.
+## SAS keeps it standing near the ground and steady further out.
+func _eva_controls() -> void:
+	var t := session.telemetry()
+	session.set_input(0.0, 0.0, 0.0)
+	_throttle = 0.0  # penguins have no throttle
+	session.set_throttle(0.0)
+	var fwd := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
+	var right := float(Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT))
+	var lift := float(Input.is_key_pressed(KEY_SHIFT)) - float(Input.is_key_pressed(KEY_CTRL))
+	var up := Frame.vec_arr(t.up).normalized()
+	var cf := -_cam.global_basis.z
+	cf = (cf - up * cf.dot(up)).normalized() if absf(cf.dot(up)) < 0.99 else (_cam.global_basis.y - up * _cam.global_basis.y.dot(up)).normalized()
+	var cr := cf.cross(up)
+	var want := cf * fwd + cr * right
+	if want.length() > 1.0:
+		want = want.normalized()
+	var top: float = Sim.part("eva_penguin").get("eva", {}).get("walk_speed", 1.5)
+	var w := want * top
+	session.set_walk(w.dot(Frame.vec_arr(t.east)), w.dot(Frame.vec_arr(t.north)))
+	# the jetpack: the same keys as a push in the world, turned into the
+	# penguin's own frame for its thrusters
+	if t.get("rcs", false) and t.has("side"):
+		var push := want + up * lift
+		var n := Frame.vec_arr(t.nose).normalized()
+		var x := Frame.vec_arr(t.side).normalized()
+		var z := x.cross(n)
+		session.set_translate(clampf(push.dot(x), -1, 1), clampf(push.dot(n), -1, 1), clampf(push.dot(z), -1, 1))
+	else:
+		session.set_translate(0.0, 0.0, 0.0)
+	if t.altitude_terrain < 30.0 and t.sas != "upright":
+		session.set_sas("upright")
+	elif t.altitude_terrain > 40.0 and t.sas == "upright":
+		session.set_sas("stability")
+
+
+## F: a penguin climbs out of the pod we fly, or (on EVA) back into the
+## nearest crewed part within reach that has a free seat.
+func _eva_key() -> void:
+	var t := session.telemetry()
+	if t.get("eva", false):
+		_board()
+		return
+	if not persistent:
+		hud.toast("No going outside on this flight", 2.0)
+		return
+	if not t.get("alive", false):
+		return
+	if float(t.get("dynamic_pressure", 0.0)) > 2000.0:
+		hud.toast("Too fast to open the hatch: slow down first", 2.5)
+		return
+	var parts: Array = JSON.parse_string(session.core.vessel_parts(session.active))
+	for k in parts.size():
+		var uid := str(int(parts[k].uid))
+		var aboard: Array = Sim.seats.get(uid, [])
+		if int(Sim.part(parts[k].part).get("crew", 0)) <= 0 or aboard.is_empty():
+			continue
+		var nid: int = session.core.vessel_eva_exit(session.active, k)
+		if nid < 0:
+			break
+		var who: String = aboard[0]
+		aboard.remove_at(0)
+		if aboard.is_empty():
+			Sim.seats.erase(uid)
+		var pen: Array = JSON.parse_string(session.core.vessel_parts(nid))
+		Sim.seats[str(int(pen[0].uid))] = [who]
+		session.core.vessel_rename(nid, who)
+		var from := session.active
+		session.switch_to(nid)
+		# the camera beyond the penguin, looking back at the craft past it
+		var out := -Frame.vec(session.core.vessel_render(from, nid), 1)
+		var tp := session.telemetry()
+		var u := Frame.vec_arr(tp.up)
+		out -= u * out.dot(u)
+		if out.length() > 0.1:
+			_cam_yaw = atan2(-out.dot(Frame.vec_arr(tp.east)), -out.dot(Frame.vec_arr(tp.north)))
+			_cam_pitch = 0.25
+		Sim.save_game()
+		Sfx.play("click")
+		hud.toast("%s steps outside. WASD walk, Space jump, R jetpack, F climbs back in" % who, 4.0)
+		return
+	hud.toast("Nobody aboard to go outside", 2.0)
+
+
+## The name of the craft whose hatch the penguin can reach now ("" if none).
+func _hatch_near() -> String:
+	for v in JSON.parse_string(session.core.vessel_list()):
+		if int(v.id) != session.active and not v.get("eva", false):
+			var h: PackedFloat64Array = session.core.eva_hatch(session.active, int(v.id))
+			if h[0] >= 0:
+				return v.name
+	return ""
+
+
+func _board() -> void:
+	var me := session.active
+	var pen: Array = JSON.parse_string(session.core.vessel_parts(me))
+	var my_uid := str(int(pen[0].uid))
+	var who: Array = Sim.seats.get(my_uid, [])
+	var full := ""
+	var best := -1
+	var best_gap := INF
+	var best_uid := ""
+	for v in JSON.parse_string(session.core.vessel_list()):
+		var id := int(v.id)
+		if id == me or v.get("eva", false):
+			continue
+		var h: PackedFloat64Array = session.core.eva_hatch(me, id)
+		if h[0] < 0:
+			continue
+		var parts: Array = JSON.parse_string(session.core.vessel_parts(id))
+		var cap := int(Sim.part(parts[int(h[0])].part).get("crew", 0))
+		var uid := str(int(h[2]))
+		if Sim.seats.get(uid, []).size() >= cap:
+			full = v.name
+			continue
+		if h[1] < best_gap:
+			best_gap = h[1]
+			best = id
+			best_uid = uid
+	if best < 0:
+		hud.toast("%s is full" % full if full != "" else "Nothing to climb into within reach (walk up to a pod)", 2.5)
+		return
+	var seated: Array = Sim.seats.get(best_uid, [])
+	seated.append_array(who)
+	Sim.seats[best_uid] = seated
+	Sim.seats.erase(my_uid)
+	session.switch_to(best)
+	session.core.vessel_remove(me)
+	session.switch_to(best)  # the telemetry cache forgets the penguin
+	Sim.save_game()
+	Sfx.play("click")
+	hud.toast("%s is back aboard" % ", ".join(who), 2.5)
 
 
 ## Turns screen-relative steering into the vessel's pitch (local X torque)
@@ -901,6 +1059,10 @@ func _render(delta: float) -> void:
 			add_child(vv)
 			_views[id] = vv
 		_views[id].air_vel = Frame.vec_arr(t.surface_velocity) if id == session.active else Vector3.ZERO
+		if v.get("eva", false):
+			var te: Dictionary = t if id == session.active else JSON.parse_string(core.telemetry(id))
+			_views[id].eva = {"ground": int(te.get("contacts", 0)) > 0, "vel": Frame.vec_arr(te.surface_velocity),
+				"space": not te.in_atmosphere and te.altitude_terrain > 20.0}
 		_views[id].refresh(origin, t.pressure, _flicker, delta)
 	for id in _views.keys():
 		if not alive.has(id):
@@ -1067,6 +1229,10 @@ func _render(delta: float) -> void:
 		if hf > 0.9 and session.time() - _heat_alarm_t > 1.2:
 			_heat_alarm_t = session.time()
 			Sfx.play("alarm", 0.6)
+	if t.get("eva", false):
+		var near := _hatch_near()
+		hint = "On EVA · WASD walk · Space jump · R jetpack (%.1f kg mono)%s" % [t.get("mono", 0.0),
+			" · F climbs into %s" % near if near != "" else ""]
 	hud.set_hint(hint)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and (_mission.max_altitude > 500.0 or _resumed)
 	if _map.visible:

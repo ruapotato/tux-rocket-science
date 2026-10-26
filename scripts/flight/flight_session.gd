@@ -152,6 +152,11 @@ func set_rcs(on: bool) -> void:
 
 
 ## RCS translation, vessel-local (Y = towards the nose), each in [-1, 1].
+## A penguin on EVA: wanted ground speed east / north (m/s), and a jump.
+func set_walk(east: float, north: float, jump := false) -> void:
+	core.vessel_set_walk(active, east, north, jump)
+
+
 func set_translate(x: float, y: float, z: float) -> void:
 	core.vessel_set_translate(active, x, y, z)
 

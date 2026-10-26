@@ -503,6 +503,34 @@
         { "name": "bottom", "pos": [0, -0.15, 0], "dir": [0, -1, 0], "radius": 0.625 }
       ],
       "surface_attach": false
+    },
+    {
+      "id": "eva_penguin",
+      "name": "Penguin on EVA",
+      "category": "eva",
+      "description": "A penguin out of the pod: walks (WASD), jumps (Space), climbs back in from anywhere on the hull (F), and on a jetpack's few kilograms of mono flies about (R, then WASD and Shift / Ctrl).",
+      "mass": 95,
+      "crew": 1,
+      "torque": 500,
+      "fuel_mono": 5,
+      "eva": { "walk_speed": 1.6, "jump_speed": 2.2, "reach": 1.5 },
+      "rcs": {
+        "thrust": 25, "isp_vac": 80, "isp_sl": 40,
+        "nozzles": [
+          { "pos": [0, 0.0, -0.2], "dir": [0, 0, -1] },
+          { "pos": [0, 0.0, 0.2], "dir": [0, 0, 1] },
+          { "pos": [0.2, 0.0, 0], "dir": [1, 0, 0] },
+          { "pos": [-0.2, 0.0, 0], "dir": [-1, 0, 0] },
+          { "pos": [0, -0.45, 0], "dir": [0, -1, 0] },
+          { "pos": [0, 0.45, 0], "dir": [0, 1, 0] }
+        ]
+      },
+      "crash_tolerance": 9,
+      "thermal": { "max_temp": 600, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.9, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "shape": { "type": "penguin", "radius": 0.22, "height": 0.9 },
+      "nodes": [],
+      "surface_attach": false
     }
   ]
 }

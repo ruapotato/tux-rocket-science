@@ -24,7 +24,7 @@
 extends RefCounted
 
 const KEYS := [KEY_SPACE, KEY_Z, KEY_X, KEY_T, KEY_P, KEY_G, KEY_R, KEY_Y, KEY_U, KEY_V, KEY_M, KEY_TAB,
-	KEY_PERIOD, KEY_PERIOD, KEY_COMMA, KEY_SLASH, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_ESCAPE, KEY_F1]
+	KEY_PERIOD, KEY_PERIOD, KEY_COMMA, KEY_SLASH, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_ESCAPE, KEY_F1, KEY_F]
 const HELD := [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_I, KEY_J, KEY_K, KEY_L, KEY_H, KEY_N, KEY_SHIFT, KEY_CTRL]
 const SAS := ["off", "stability", "prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in", "maneuver", "target", "antirel", "dock"]
 

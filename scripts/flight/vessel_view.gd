@@ -30,6 +30,10 @@ var _shrouds := {}
 var _last_count := -1
 var _dt := 1.0 / 60.0
 var anchor := Vector3.ZERO  # render position of the first part, to track origin jumps
+## A penguin on EVA: set each frame by the flight scene from its telemetry:
+## {"ground": feet down, "vel": render-space velocity over the ground,
+## "space": out of the air and off the ground (floats)}
+var eva := {}
 
 
 func setup(c: TrsSim, id: int) -> void:
@@ -56,6 +60,12 @@ func _make_part(uid: int, part_id: String, opts: Dictionary) -> Dictionary:
 			jets.append(v.get_node("Jet%d" % k))
 	entry["jets"] = jets
 	entry["flap"] = v.get_node_or_null("Flap")
+	entry["tux"] = null
+	var facing := v.get_node_or_null("Facing")
+	if facing:
+		var anim := TuxAnimator.new()
+		anim.setup(facing)
+		entry.tux = {"anim": anim, "facing": facing, "air": false}
 	# reentry sheath: a copy of each hull mesh drawn in plasma (ReentryFX),
 	# a child of the mesh so it follows legs and flaps as they move
 	var sheath := []
@@ -323,6 +333,8 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 			# a real flap can't jump: it slews at 60 degrees a second
 			var fl: Node3D = e.flap
 			fl.rotation.z = move_toward(fl.rotation.z, feed[o + 20], _dt * deg_to_rad(60.0))
+		if e.tux:
+			_animate_tux(e.tux, node)
 		if Sim.part(e.part).has("leg"):
 			var target := feed[o + 10]
 			var kk: float = move_toward(e.legs, target, _dt / 1.4)
@@ -334,6 +346,31 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 			vanished[uid] = {"pos": _parts[uid].node.global_position, "part": _parts[uid].part}
 			_parts[uid].node.queue_free()
 			_parts.erase(uid)
+
+
+## Picks the penguin's pose from how it moves, and turns it to face the
+## way it walks (the physics keeps it upright; which way it looks is free).
+func _animate_tux(tx: Dictionary, node: Node3D) -> void:
+	var anim: TuxAnimator = tx.anim
+	var vel: Vector3 = eva.get("vel", Vector3.ZERO)
+	var local := node.global_transform.basis.inverse() * vel
+	var flat := Vector2(local.x, local.z)
+	var ground: bool = eva.get("ground", false)
+	if ground and flat.length() > 0.25:
+		var want := atan2(-local.x, -local.z)
+		tx.facing.rotation.y = lerp_angle(tx.facing.rotation.y, want, clampf(_dt * 8.0, 0.0, 1.0))
+	if ground:
+		if tx.air:
+			anim.play("land")
+		elif not anim.busy():
+			var sp := flat.length()
+			anim.play("run" if sp > 1.2 else ("walk" if sp > 0.15 else "idle"), clampf(sp / 1.2, 0.6, 1.4) if sp > 0.15 else 1.0)
+	elif eva.get("space", false):
+		anim.play("float")
+	else:
+		anim.play("jump" if local.y > 0.3 else "fall")
+	tx.air = not ground
+	anim.tick(_dt)
 
 
 ## Lit nozzles for the exhaust smoke: [{key, pos, dir, thr, r, solid}].

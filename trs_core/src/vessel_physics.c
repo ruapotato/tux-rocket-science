@@ -475,6 +475,19 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 	 * than GROUND_SKIP plus its sideways distance from the vessel, i.e. any
 	 * slope steeper than 45 degrees off that plane) cannot be touching. */
 	double *depths = malloc(sizeof(double) * (size_t)(vs->ncontact > 0 ? vs->ncontact : 1));
+	/* a walking penguin's feet move under it at the speed it wants (up to
+	 * its walking speed), so friction pushes it toward that speed over the
+	 * ground, no harder than friction can */
+	trs_v3 feet = v3(0, 0, 0);
+	if (trs_vessel_is_eva(vs)) {
+		trs_v3 up, north, east;
+		trs_local_frame(r, &up, &north, &east);
+		feet = v3_add(v3_scale(east, vs->walk.x), v3_scale(north, vs->walk.y));
+		feet = v3_sub(feet, v3_scale(nrm, v3_dot(feet, nrm)));
+		double fl = v3_len(feet), top = trs_craft_def(c, 0)->eva_walk;
+		if (fl > top)
+			feet = v3_scale(feet, top / fl);
+	}
 	trs_v3 g0 = v3_scale(r, (b->radius + h_here) / rl);
 	for (int k = 0; k < vs->ncontact; k++) {
 		trs_v3 arm = quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm));
@@ -510,7 +523,7 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 		double fn = kk * depth - cc * vn;
 		if (fn < 0)
 			fn = 0;
-		trs_v3 vt = v3_sub(vp, v3_scale(nrm, vn));
+		trs_v3 vt = v3_sub(v3_sub(vp, v3_scale(nrm, vn)), feet);
 		double vtl = v3_len(vt);
 		trs_v3 ft = v3_scale(vt, -FRICTION_MU * fn / fmax(vtl, SLIP_REG));
 		trs_v3 f = v3_add(v3_scale(nrm, fn), ft);
@@ -554,11 +567,14 @@ trs_v3 trs_sas_direction(const trs_world *w, int id, trs_sas_mode m) {
 	case TRS_SAS_RETROGRADE: return v3_neg(v3_norm(v));
 	case TRS_SAS_NORMAL: return v3_norm(h);
 	case TRS_SAS_ANTINORMAL: return v3_neg(v3_norm(h));
-	case TRS_SAS_RADIAL_OUT: return v3_norm(v3_cross(v3_norm(h), v3_norm(v)));
-	case TRS_SAS_RADIAL_IN: return v3_neg(v3_norm(v3_cross(v3_norm(h), v3_norm(v))));
+	/* in the orbit plane, square to the velocity, away from the body (as
+	 * the maneuver nodes' radial axis) */
+	case TRS_SAS_RADIAL_OUT: return v3_norm(v3_cross(v3_norm(v), v3_norm(h)));
+	case TRS_SAS_RADIAL_IN: return v3_neg(v3_norm(v3_cross(v3_norm(v), v3_norm(h))));
 	case TRS_SAS_SURF_PROGRADE: return v3_norm(vs_rel);
 	case TRS_SAS_SURF_RETROGRADE: return v3_neg(v3_norm(vs_rel));
 	case TRS_SAS_TARGET: return vs->sas_target;
+	case TRS_SAS_UPRIGHT: return v3_norm(r);
 	default: return quat_rotate(vs->q, v3(0, 1, 0));
 	}
 }
@@ -1020,11 +1036,15 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	vs->sensed_accel = sensed;
 	integrate_attitude(vs, torque, h);
 
+	/* a penguin jumps off the ground (the planet takes the other end) */
+	if (vs->jump && rep.touching && trs_vessel_is_eva(vs))
+		vs->v = v3_madd(vs->v, v3_norm(vs->r), trs_craft_def(vs->craft, 0)->eva_jump);
+	vs->jump = 0;
 	/* landed: touching and moving with the surface */
 	if (rep.touching) {
 		trs_v3 vs_rel = v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r));
 		int was = vs->landed;
-		vs->landed = v3_len(vs_rel) < 0.3;
+		vs->landed = v3_len(vs_rel) < 0.3 || trs_vessel_is_eva(vs); /* a penguin on its feet, walking or not */
 		if (vs->landed && !was)
 			trs_world_push_event(w, (trs_world_event){ TRS_WEV_LANDED, t + h, (int)(vs - w->vessels), vs->body, -1, "", 0 });
 	} else {

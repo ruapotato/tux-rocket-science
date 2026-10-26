@@ -77,6 +77,7 @@ typedef enum {
 	TRS_SAS_RADIAL_IN,
 	TRS_SAS_SURF_PROGRADE, /* surface-relative velocity */
 	TRS_SAS_SURF_RETROGRADE,
+	TRS_SAS_UPRIGHT, /* local vertical, away from the body (penguins standing) */
 	TRS_SAS_COUNT
 } trs_sas_mode;
 
@@ -104,6 +105,8 @@ typedef struct {
 	int next_stage;   /* stage fired by the next trs_world_stage() */
 	int rcs;          /* RCS thrusters armed */
 	trs_v3 translate; /* RCS translation command, vessel-local, each in [-1, 1] */
+	trs_v3 walk;      /* EVA: wanted ground speed, m/s: x east, y north (z unused) */
+	int jump;         /* EVA: jump on the next tick that has a foot on the ground */
 	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
 	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
@@ -225,6 +228,18 @@ void trs_world_dock(trs_world *w, int a, int pa, int b, int pb);
 /* Lets go at docking port `port` of vessel id (either side of a docked
  * pair). Returns the new vessel, or -1 if that port holds nothing. */
 int trs_world_undock(trs_world *w, int id, int port);
+/* EVA: a penguin (catalog part `penguin_def`) climbs out of crewed part
+ * `part` of vessel `id` and stands beside its hull as a vessel of its own.
+ * Returns the new vessel id or -1. */
+int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def);
+/* The crewed part of vessel `target` nearest penguin vessel `eva`, if any
+ * part of its hull is within the penguin's reach (it climbs the rest);
+ * -1 otherwise. *dist gets the gap to the hull. */
+int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist);
+/* Is vessel id a penguin on EVA? */
+int trs_vessel_is_eva(const trs_vessel *vs);
+/* Local horizon frame at r (SOI frame): up, north, east. */
+void trs_local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east);
 /* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);
  * a part with propellant in it blasts its neighbours. */
 void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed);

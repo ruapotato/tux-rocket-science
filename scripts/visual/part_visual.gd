@@ -193,6 +193,91 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A penguin on EVA: the Tux rig (feet at the part's bottom) in a bubble
+## helmet with a jetpack, under a "Facing" pivot the flight view turns
+## toward where it walks. The rig's joints are animated by TuxAnimator.
+static func _penguin(root: Node3D, sh: Dictionary) -> void:
+	var h: float = sh.get("height", 0.9)
+	var facing := Node3D.new()
+	facing.name = "Facing"
+	facing.position.y = -h * 0.5
+	root.add_child(facing)
+	var rig: Node3D = load("res://scenes/tux_rig.tscn").instantiate()
+	rig.name = "Tux"
+	rig.scale = Vector3.ONE * (h / 1.05)  # the rig stands 1.05 m to the top of its head
+	facing.add_child(rig)
+	var head := rig.find_child("head", true, false) as Node3D
+	if head:
+		var bubble := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.24
+		sm.height = 0.48
+		bubble.mesh = sm
+		var glass := StandardMaterial3D.new()
+		glass.albedo_color = Color(0.75, 0.9, 1.0, 0.18)
+		glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		glass.metallic_specular = 1.0
+		glass.roughness = 0.05
+		glass.rim_enabled = true
+		glass.rim = 0.6
+		bubble.material_override = glass
+		bubble.position.y = 0.0
+		head.add_child(bubble)
+	var torso := rig.find_child("torso", true, false) as Node3D
+	if torso:
+		var pack := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.3, 0.34, 0.14)
+		pack.mesh = bm
+		pack.material_override = mat("eva_pack", ORANGE, 0.1, 0.5)
+		pack.position = Vector3(0, 0.02, -0.2)  # the rig faces +Z inside its flip: its back is -Z
+		torso.add_child(pack)
+
+
+## Puffs of gas for each RCS nozzle of part `d` ("Jet0", "Jet1", ...),
+## hidden until they fire; `size` scales the plume, `bells` adds nozzles.
+static func _jets(root: Node3D, d: Dictionary, size: float, bells: bool) -> void:
+	var rcs: Dictionary = d.get("rcs", {})
+	var noz := mat("nozzle", Color(0.32, 0.33, 0.36), 0.8, 0.35)
+	var puff := StandardMaterial3D.new()
+	puff.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	puff.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	puff.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	puff.albedo_color = Color(0.75, 0.85, 1.0, 0.55)
+	puff.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var k := 0
+	for n in rcs.get("nozzles", []):
+		var dir := Vector3(n.dir[0], n.dir[1], n.dir[2]).normalized()
+		var at := Vector3(n.pos[0], n.pos[1], n.pos[2])
+		var b := Basis(Quaternion(Vector3.UP, dir))
+		var bell := CylinderMesh.new()
+		bell.top_radius = 0.028
+		bell.bottom_radius = 0.016
+		bell.height = 0.06
+		bell.radial_segments = 12
+		if bells:
+			_mesh(root, bell, noz, Transform3D(b, at - dir * 0.03))
+		var jet := Node3D.new()
+		jet.name = "Jet%d" % k
+		jet.transform = Transform3D(b, at)
+		jet.visible = false
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.16 * size
+		cone.bottom_radius = 0.02 * size
+		cone.height = 0.7 * size
+		cone.radial_segments = 12
+		cone.cap_top = false
+		cone.cap_bottom = false
+		var ci := MeshInstance3D.new()
+		ci.mesh = cone
+		ci.material_override = puff
+		ci.position = Vector3(0, 0.35 * size, 0)
+		ci.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		jet.add_child(ci)
+		root.add_child(jet)
+		k += 1
+
+
 static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 	var d: Dictionary = Sim.part(part_id)
 	var sh: Dictionary = d.get("shape", {})
@@ -209,6 +294,9 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_booster(root, sh)
 		"cone":
 			_cone(root, d, sh)
+		"penguin":
+			_penguin(root, sh)
+			_jets(root, d, 0.45, false)
 		"pylon":
 			_pylon(root, sh)
 		"hose":
@@ -546,44 +634,7 @@ static func _rcs(root: Node3D, d: Dictionary) -> void:
 	var band := BoxMesh.new()
 	band.size = Vector3(0.165, 0.035, 0.105)
 	_mesh(root, band, mat("mono", MONO, 0.0, 0.4))
-	var rcs: Dictionary = d.get("rcs", {})
-	var noz := mat("nozzle", Color(0.32, 0.33, 0.36), 0.8, 0.35)
-	var puff := StandardMaterial3D.new()
-	puff.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	puff.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	puff.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	puff.albedo_color = Color(0.75, 0.85, 1.0, 0.55)
-	puff.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var k := 0
-	for n in rcs.get("nozzles", []):
-		var dir := Vector3(n.dir[0], n.dir[1], n.dir[2]).normalized()
-		var at := Vector3(n.pos[0], n.pos[1], n.pos[2])
-		var b := Basis(Quaternion(Vector3.UP, dir))
-		var bell := CylinderMesh.new()
-		bell.top_radius = 0.028
-		bell.bottom_radius = 0.016
-		bell.height = 0.06
-		bell.radial_segments = 12
-		_mesh(root, bell, noz, Transform3D(b, at - dir * 0.03))
-		var jet := Node3D.new()
-		jet.name = "Jet%d" % k
-		jet.transform = Transform3D(b, at)
-		jet.visible = false
-		var cone := CylinderMesh.new()
-		cone.top_radius = 0.16
-		cone.bottom_radius = 0.02
-		cone.height = 0.7
-		cone.radial_segments = 12
-		cone.cap_top = false
-		cone.cap_bottom = false
-		var ci := MeshInstance3D.new()
-		ci.mesh = cone
-		ci.material_override = puff
-		ci.position = Vector3(0, 0.35, 0)
-		ci.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		jet.add_child(ci)
-		root.add_child(jet)
-		k += 1
+	_jets(root, d, 1.0, true)
 
 
 ## Docking port: a short graphite collar under a raised steel ring, with a
