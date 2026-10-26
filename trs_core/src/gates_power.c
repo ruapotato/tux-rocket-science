@@ -160,6 +160,46 @@ trs_gate_status trs_gate_power(trs_log *out, const char *data_dir) {
 		trs_world_free(w);
 		free(w);
 	}
+	/* 4. a whole orbit (day and night) on rails charges what flying it in
+	 * normal time does, to within the warp's 20 s sampling of the shadow */
+	{
+		trs_craft big;
+		trs_craft_copy(&big, &c);
+		int bat = trs_catalog_find(&cat, "battery");
+		for (int k = 0; k < 5; k++)
+			trs_craft_add(&big, bat, 0, "", "", v3(0.2 * k, 0, -pc->radius), quat_identity(), -1, 0);
+		double ec[2], period = 0, lit_frac = 0;
+		for (int rails = 0; rails < 2; rails++) {
+			trs_world *w = malloc(sizeof(trs_world));
+			trs_world_init(w, &sys, 0);
+			int id = place(w, &big, floe, 150000, 0, 0);
+			trs_vessel *vs = &w->vessels[id];
+			trs_craft_ec_add(vs->craft, -1e12);
+			const trs_body *F = &sys.bodies[floe];
+			double r = v3_len(vs->r);
+			period = 2 * TRS_PI * sqrt(r * r * r / F->mu);
+			if (rails) {
+				trs_vessel_set_mode(w, id, TRS_MODE_RAILS);
+				for (int k = 0; k < 100; k++)
+					trs_world_warp(w, period / 100, -1, NULL);
+			} else {
+				int n = (int)lround(period / TRS_PHYSICS_DT), lit = 0;
+				for (int k = 0; k < n; k++) {
+					trs_world_step_physics(w);
+					lit += vs->sunlit;
+				}
+				lit_frac = (double)lit / n;
+			}
+			ec[rails] = trs_craft_ec(vs->craft, NULL);
+			trs_world_free(w);
+			free(w);
+		}
+		int ok = ec[0] > 100 && fabs(ec[1] / ec[0] - 1) < 0.02;
+		failed += !ok;
+		trs_log_printf(out, "%s one %.0f s orbit from flat (%.0f%% of it sunlit): %.1f kJ flown in normal time, %.1f kJ on rails (%+.2f%%)\n",
+				ok ? "ok  " : "FAIL", period, 100 * lit_frac, ec[0], ec[1], 100 * (ec[1] / ec[0] - 1));
+		trs_craft_free(&big);
+	}
 	trs_craft_free(&c);
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;

@@ -904,7 +904,10 @@ double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit) {
 			return 0; /* in its shadow */
 	}
 	*sunlit = 1;
-	trs_v3 sl = quat_rotate(quat_conj(vs->q), to_sun);
+	trs_quat q = vs->q;
+	if (vs->mode == TRS_MODE_LANDED)
+		q = quat_normalize(quat_mul(trs_body_quat(&w->sys.bodies[vs->body], w->t), vs->fixed_q));
+	trs_v3 sl = quat_rotate(quat_conj(q), to_sun);
 	double kw = 0;
 	for (int i = 0; i < vs->craft->count; i++) {
 		const trs_part_def *df = trs_craft_def(vs->craft, i);

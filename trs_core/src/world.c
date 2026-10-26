@@ -431,6 +431,39 @@ static trs_event advance_rails(trs_world *w, trs_vessel *vs, double t_start, dou
 	return none;
 }
 
+/* Electricity keeps flowing through warp: craft on rails or landed charge
+ * from the sun (their attitude held) and their probe cores and pods keep
+ * drawing, integrated in steps of at most WARP_POWER_STEP so eclipses
+ * are caught. No wheels turn on rails. */
+#define WARP_POWER_STEP 20.0
+static void warp_power(trs_world *w, double t0, double t1) {
+	if (t1 <= t0)
+		return;
+	int n = (int)ceil((t1 - t0) / WARP_POWER_STEP);
+	double step = (t1 - t0) / n, keep = w->t;
+	for (int i = 0; i < w->nvessels; i++) {
+		trs_vessel *vs = &w->vessels[i];
+		if (!vs->alive || !vs->craft || vs->mode == TRS_MODE_PHYSICS)
+			continue;
+		double cap, draw = 0;
+		trs_craft_ec(vs->craft, &cap);
+		for (int k = 0; k < vs->craft->count; k++)
+			draw += trs_craft_def(vs->craft, k)->ec_draw;
+		double solar_max = 0;
+		for (int k = 0; k < vs->craft->count; k++)
+			solar_max += trs_craft_def(vs->craft, k)->solar_kw;
+		if (cap <= 0 || (draw <= 0 && solar_max <= 0))
+			continue;
+		for (int k = 0; k < n; k++) {
+			w->t = t0 + (k + 0.5) * step;
+			int lit;
+			double gen = solar_max > 0 ? trs_vessel_solar(w, vs, &lit) : 0;
+			trs_craft_ec_add(vs->craft, (gen - draw) * step);
+		}
+	}
+	w->t = keep;
+}
+
 void trs_world_warp(trs_world *w, double dt, int stop_on, trs_event *stop) {
 	double t0 = w->t, t1 = w->t + dt;
 	trs_event result = { TRS_EV_NONE, t1, -1 };
@@ -447,6 +480,7 @@ void trs_world_warp(trs_world *w, double dt, int stop_on, trs_event *stop) {
 			continue; /* LANDED vessels ride the body rotation analytically */
 		advance_rails(w, vs, t0, t1, 0);
 	}
+	warp_power(w, t0, t1);
 	time_set(w, t1);
 	if (stop)
 		*stop = result;

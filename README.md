@@ -78,7 +78,8 @@ stop and an uncrewed probe can't be steered at all. **Sunfin Solar Panels** give
 the sun at Floe's distance (more nearer Austra, none in a planet's shadow; their face looks out
 from the hull), **Krill-Cell Batteries** store more, and a **Squawk Antenna** sends experiment
 results home from wherever you are for half their worth (O, then Send) at 20 kJ per research
-point. Electricity flows in normal time; on-rails warp is frozen time for it as for fuel.
+point. Electricity keeps flowing through time warp too: panels charge and probe cores draw on
+rails and while landed (no wheels turn there), and eclipses count.
 
 **Planes**: Gannet Wings lift (their flaps are ailerons), the Skua jet engine breathes air (lots of
 push for little fuel, more in thick air, nothing in space or past about 520 m/s), and Waddle-Wheel
