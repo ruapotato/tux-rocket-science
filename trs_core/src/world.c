@@ -354,6 +354,9 @@ static void physics_soi_check(trs_world *w, trs_vessel *vs) {
 	}
 }
 
+static int mining_aboard(const trs_vessel *vs);
+static void idle_mining(trs_world *w, trs_vessel *vs, double dt);
+
 void trs_world_step_physics(trs_world *w) {
 	const double h = TRS_PHYSICS_DT;
 	double t = w->t;
@@ -366,6 +369,12 @@ void trs_world_step_physics(trs_world *w) {
 			trs_vessel_physics_tick(w, vs, t, h);
 		else
 			rk4(w, vs, t, h);
+	}
+	/* a craft left mining (landed, or refining on rails) keeps at it */
+	for (int i = 0; i < w->nvessels; i++) {
+		trs_vessel *vs = &w->vessels[i];
+		if (vs->alive && vs->craft && vs->mode != TRS_MODE_PHYSICS && mining_aboard(vs))
+			idle_mining(w, vs, h);
 	}
 	time_add(w, h);
 	trs_world_dock_check(w);
@@ -436,6 +445,30 @@ static trs_event advance_rails(trs_world *w, trs_vessel *vs, double t_start, dou
  * drawing, integrated in steps of at most WARP_POWER_STEP so eclipses
  * are caught. No wheels turn on rails. */
 #define WARP_POWER_STEP 20.0
+static double draw_of(const trs_vessel *vs) {
+	double d = 0;
+	for (int k = 0; k < vs->craft->count; k++)
+		d += trs_craft_def(vs->craft, k)->ec_draw;
+	return d;
+}
+
+static int mining_aboard(const trs_vessel *vs) {
+	for (int k = 0; k < vs->craft->count; k++)
+		if (vs->craft->parts[k].running)
+			return 1;
+	return 0;
+}
+
+/* dt of power and mining on a vessel outside physics (LANDED or on rails) */
+static void idle_mining(trs_world *w, trs_vessel *vs, double dt) {
+	int lit;
+	double gen = trs_vessel_solar(w, vs, &lit);
+	trs_craft_ec_add(vs->craft, (gen - draw_of(vs)) * dt);
+	trs_vessel_isru(w, vs, dt);
+	vs->ec_gen = gen, vs->sunlit = lit;
+	vs->ec_use = draw_of(vs) + vs->isru_kw;
+}
+
 static void warp_power(trs_world *w, double t0, double t1) {
 	if (t1 <= t0)
 		return;
@@ -447,6 +480,14 @@ static void warp_power(trs_world *w, double t0, double t1) {
 			continue;
 		double cap, draw = 0;
 		trs_craft_ec(vs->craft, &cap);
+		if (mining_aboard(vs) && cap > 0) {
+			/* drills (on a landed craft) and refineries keep going */
+			for (int k = 0; k < n; k++) {
+				w->t = t0 + (k + 0.5) * step;
+				idle_mining(w, vs, step);
+			}
+			continue;
+		}
 		for (int k = 0; k < vs->craft->count; k++)
 			draw += trs_craft_def(vs->craft, k)->ec_draw;
 		double solar_max = 0;

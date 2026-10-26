@@ -122,6 +122,8 @@ static trs_json *craft_json(const trs_craft *c) {
 		PUT_D(pj, p, fuel);
 		PUT_D(pj, p, mono);
 		PUT_D(pj, p, ec);
+		PUT_D(pj, p, ore);
+		PUT_I(pj, p, running);
 		PUT_D(pj, p, limit);
 		PUT_I(pj, p, engine_on);
 		PUT_I(pj, p, chute);
@@ -163,6 +165,8 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 		GET_D(pj, p, mono);
 		if (trs_json_get(pj, "ec"))
 			GET_D(pj, p, ec); /* saves from before electricity keep their batteries full */
+		GET_D(pj, p, ore);
+		GET_I(pj, p, running);
 		GET_D(pj, p, limit);
 		GET_I(pj, p, engine_on);
 		GET_I(pj, p, chute);
@@ -224,6 +228,7 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_V(o, vs, walk);
 		PUT_I(o, vs, jump);
 		PUT_I(o, vs, anchored);
+		PUT_I(o, vs, drill_ground);
 		PUT_I(o, vs, brakes);
 		PUT_D(o, vs, air_speed);
 		PUT_V(o, vs, rcs_rot);
@@ -335,6 +340,7 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_V(o, vs, walk);
 		GET_I(o, vs, jump);
 		GET_I(o, vs, anchored);
+		GET_I(o, vs, drill_ground);
 		GET_I(o, vs, brakes);
 		GET_D(o, vs, air_speed);
 		GET_V(o, vs, rcs_rot);

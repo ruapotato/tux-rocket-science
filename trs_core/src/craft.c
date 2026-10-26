@@ -183,7 +183,7 @@ double trs_part_mdot(const trs_craft *c, int i) {
 /* ---- mass properties ------------------------------------------------------ */
 
 double trs_craft_part_mass(const trs_craft *c, int i) {
-	return trs_craft_def(c, i)->mass + c->parts[i].fuel + c->parts[i].mono;
+	return trs_craft_def(c, i)->mass + c->parts[i].fuel + c->parts[i].mono + c->parts[i].ore;
 }
 
 double trs_craft_mono(const trs_craft *c, double *capacity) {
@@ -216,6 +216,27 @@ double trs_craft_ec_add(trs_craft *c, double kj) {
 		c->parts[i].ec = cap > 0 ? want * ci / cap : 0; /* every battery at the same charge */
 	}
 	return want - e;
+}
+
+double trs_craft_ore(const trs_craft *c, double *capacity) {
+	double m = 0, cap = 0;
+	for (int i = 0; i < c->count; i++) {
+		m += c->parts[i].ore;
+		cap += trs_craft_def(c, i)->ore_capacity;
+	}
+	if (capacity)
+		*capacity = cap;
+	return m;
+}
+
+double trs_craft_ore_add(trs_craft *c, double kg) {
+	double cap, m = trs_craft_ore(c, &cap);
+	double want = fmin(cap, fmax(0, m + kg));
+	for (int i = 0; i < c->count; i++) {
+		double ci = trs_craft_def(c, i)->ore_capacity;
+		c->parts[i].ore = cap > 0 ? want * ci / cap : 0; /* every bin as full as the rest */
+	}
+	return want - m;
 }
 
 void trs_craft_mono_draw(trs_craft *c, double amount) {

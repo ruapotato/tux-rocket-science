@@ -122,6 +122,16 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->antenna_fraction = trs_json_num(pw, "antenna_fraction", 0);
 	}
 	d->is_ladder = trs_json_get(j, "ladder") != NULL;
+	const trs_json *mn = trs_json_get(j, "mining");
+	if (mn) {
+		d->ore_capacity = trs_json_num(mn, "ore_kg", 0);
+		d->drill_kg_s = trs_json_num(mn, "drill_kg_s", 0);
+		d->drill_kw = trs_json_num(mn, "drill_kw", 0);
+		d->drill_reach = trs_json_num(mn, "drill_reach", 1.0);
+		d->refine_kg_s = trs_json_num(mn, "refine_kg_s", 0);
+		d->refine_yield = trs_json_num(mn, "refine_yield", 0.8);
+		d->refine_kw = trs_json_num(mn, "refine_kw", 0);
+	}
 	const trs_json *ev = trs_json_get(j, "eva");
 	if (ev) {
 		d->is_eva = 1;

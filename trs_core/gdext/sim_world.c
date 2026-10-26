@@ -140,11 +140,34 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(site, "altitude", trs_json_new_num(b->site_alt));
 		trs_json_set(j, "site", site);
 	}
+	if (b->nbiomes > 0) {
+		trs_json *bl = trs_json_new(TRS_JSON_ARRAY);
+		for (int k = 0; k < b->nbiomes; k++) {
+			trs_json *e = trs_json_new(TRS_JSON_OBJECT);
+			trs_json_set(e, "id", trs_json_new_str(b->biomes[k].id));
+			trs_json_set(e, "name", trs_json_new_str(b->biomes[k].name));
+			trs_json_push(bl, e);
+		}
+		trs_json_set(j, "biomes", bl);
+	}
 	if (b->parent >= 0) {
 		trs_json_set(j, "sma", trs_json_new_num(b->orbit.a));
 		trs_json_set(j, "period", trs_json_new_num(b->orbit.period));
 	}
 	ret_json(r, j);
+}
+
+/* biome_at(body, lat_deg, lon_deg) -> biome id ("" if the body has none) */
+static void m_biome_at(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	int k = -1;
+	const trs_body *b = NULL;
+	if (h->world && a[0].i >= 0 && a[0].i < h->world->sys.count) {
+		b = &h->world->sys.bodies[a[0].i];
+		double la = a[1].f / DEG, lo = a[2].f / DEG;
+		k = trs_body_biome(b, v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la)));
+	}
+	r->s = trs_strdup_printf("%s", k >= 0 ? b->biomes[k].id : "");
 }
 
 /* body_state(i) -> [rx,ry,rz, vx,vy,vz, rotation] relative to the root star */
@@ -326,6 +349,7 @@ const trs_method_def TRS_SIM_WORLD_METHODS[] = {
 	{ "body_find", m_body_find, I, 1, { S }, { "id" } },
 	{ "body_info", m_body_info, S, 1, { I }, { "index" } },
 	{ "body_state", m_body_state, A, 1, { I }, { "index" } },
+	{ "biome_at", m_biome_at, S, 3, { I, F, F }, { "body", "lat_deg", "lon_deg" } },
 	{ "vessel_add", m_vessel_add, I, 2, { I, A }, { "body", "state" } },
 	{ "vessel_remove", m_vessel_remove, V, 1, { I }, { "id" } },
 	{ "vessel_state", m_vessel_state, A, 1, { I }, { "id" } },

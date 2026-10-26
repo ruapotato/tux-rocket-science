@@ -1,9 +1,9 @@
 {
-  "_doc": "Research: each experiment run in a situation at a body is a 'subject'. A result is worth base x body value x situation value, halved for every earlier result of that subject already brought home. Results count once they are recovered at Floe.",
+  "_doc": "Research: each experiment run in a situation at a body is a 'subject'. A result is worth base x body value x situation value, halved for every earlier result of that subject already brought home. Situations marked biome are counted separately in each biome of a body (see \"biomes\" in data/bodies). Results count once they are recovered at Floe.",
   "repeat_factor": 0.5,
   "situations": {
-    "landed": { "phrase": "Landed on", "name": "Landed", "value": 1.5 },
-    "flying_low": { "phrase": "Flying low over", "name": "Flying low", "value": 1.0 },
+    "landed": { "phrase": "Landed on", "name": "Landed", "value": 1.5, "biome": true },
+    "flying_low": { "phrase": "Flying low over", "name": "Flying low", "value": 1.0, "biome": true },
     "flying_high": { "phrase": "Flying high over", "name": "Flying high", "value": 1.2 },
     "space_low": { "phrase": "In space near", "name": "In space near", "value": 1.5 },
     "space_high": { "phrase": "High over", "name": "High over", "value": 1.3 }
@@ -13,6 +13,8 @@
     "krill": { "value": 4.0, "space_high_alt": 60000 },
     "kelp": { "value": 7.0, "flying_high_alt": 30000, "space_high_alt": 400000 },
     "pebble": { "value": 9.0, "space_high_alt": 40000 },
+    "narwhal": { "value": 10.0, "flying_high_alt": 15000, "space_high_alt": 300000 },
+    "tusk": { "value": 12.0, "space_high_alt": 60000 },
     "austra": { "value": 6.0, "space_high_alt": 1.0e9 }
   },
   "experiments": {

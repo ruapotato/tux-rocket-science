@@ -753,6 +753,51 @@
       "shape": { "type": "flag", "radius": 0.03, "height": 2.0 },
       "nodes": [],
       "surface_attach": false
+    },
+    {
+      "id": "ore_bin",
+      "name": "Gizzard Ore Bin",
+      "category": "utility",
+      "description": "Holds 1500 kg of ore dug by a drill until a refinery turns it into propellant. Starts empty.",
+      "mass": 300,
+      "cost": 900,
+      "mining": { "ore_kg": 1500 },
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 900, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 1.5 },
+      "nodes": [{"name": "top", "pos": [0, 0.75, 0], "dir": [0, 1, 0], "radius": 0.625}, {"name": "bottom", "pos": [0, -0.75, 0], "dir": [0, -1, 0], "radius": 0.625}],
+      "surface_attach": true
+    },
+    {
+      "id": "drill",
+      "name": "Pecker Ore Drill",
+      "category": "utility",
+      "description": "Digs ore (0.25 kg/s where it's richest, for 0.75 kW) while the craft rests on the ground with the drill within 2 m of it: fit it low on a lander. C switches mining on and off (or put it in an action group).",
+      "mass": 120,
+      "cost": 1800,
+      "mining": { "drill_kg_s": 0.25, "drill_kw": 0.75, "drill_reach": 2.0 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1200, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.04, "area_side": 0.15 },
+      "shape": { "type": "drill", "radius": 0.16, "height": 0.5, "auger": 1.4 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "refinery",
+      "name": "Sifter Refinery",
+      "category": "utility",
+      "description": "Turns 0.5 kg/s of ore into 0.4 kg/s of liquid propellant for 2 kW, filling every propellant tank aboard. Works landed or in orbit.",
+      "mass": 800,
+      "cost": 4000,
+      "mining": { "refine_kg_s": 0.5, "refine_yield": 0.8, "refine_kw": 2.0 },
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 1000, "skin_heat": 9000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "cylinder", "radius": 0.625, "height": 1.0 },
+      "nodes": [{"name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.625}, {"name": "bottom", "pos": [0, -0.5, 0], "dir": [0, -1, 0], "radius": 0.625}],
+      "surface_attach": true
     }
   ]
 }

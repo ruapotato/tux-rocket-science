@@ -49,6 +49,7 @@ var path := ""
 
 
 var _body_names := {}
+var _biome_names := {}  # body id -> {biome id: name}
 
 
 ## A flag went up on `body`: missions that want one there are done.
@@ -61,6 +62,10 @@ func flag_planted(body: String) -> void:
 func _init() -> void:
 	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/bodies/austra_system.json")).bodies:
 		_body_names[b.id] = b.name
+		var bn := {}
+		for e in b.get("biomes", []):
+			bn[e.id] = e.name
+		_biome_names[b.id] = bn
 	science = JSON.parse_string(FileAccess.get_file_as_string(SCIENCE_PATH))
 	tech = JSON.parse_string(FileAccess.get_file_as_string(TECH_PATH)).nodes
 	missions_def = JSON.parse_string(FileAccess.get_file_as_string(MISSIONS_PATH))
@@ -257,24 +262,50 @@ func situation(t: Dictionary) -> String:
 	return "space_low" if float(t.altitude) < float(b.get("space_high_alt", 1.0e30)) else "space_high"
 
 
-static func subject(exp: String, body: String, sit: String) -> String:
-	return "%s@%s:%s" % [exp, body, sit]
+## The biome a result in situation `sit` belongs to ("" if that
+## situation is counted over the whole body).
+func biome(t: Dictionary, sit: String) -> String:
+	if sit == "" or not science.situations[sit].get("biome", false):
+		return ""
+	return str(t.get("biome", ""))
+
+
+static func subject(exp: String, body: String, sit: String, bio := "") -> String:
+	return "%s@%s:%s%s" % [exp, body, sit, ("/" + bio) if bio != "" else ""]
 
 
 ## A result's worth if brought home now: base x body x situation, halved
 ## for each earlier result of the same subject already home.
-func value(exp: String, body: String, sit: String) -> float:
+func value(exp: String, body: String, sit: String, bio := "") -> float:
 	var e: Dictionary = science.experiments.get(exp, {})
 	var b: Dictionary = science.bodies.get(body, {})
 	var s: Dictionary = science.situations.get(sit, {})
 	if e.is_empty() or b.is_empty() or s.is_empty() or not sit in e.situations:
 		return 0.0
-	var n := int(credited.get(subject(exp, body, sit), 0))
+	var n := int(credited.get(subject(exp, body, sit, bio), 0))
 	return float(e.base) * float(b.value) * float(s.value) * pow(float(science.repeat_factor), n)
 
 
-func describe(sit: String, body: String) -> String:
-	return "%s %s" % [science.situations[sit].phrase, body_name(body)] if sit != "" else "nowhere to study"
+## Worth of a result record ({exp, body, situation, biome}) brought home now.
+func value_of(r: Dictionary) -> float:
+	return value(r.exp, r.body, r.situation, r.get("biome", ""))
+
+
+func describe(sit: String, body: String, bio := "") -> String:
+	if sit == "":
+		return "nowhere to study"
+	var out := "%s %s" % [science.situations[sit].phrase, body_name(body)]
+	if bio != "":
+		out += " (%s)" % biome_name(body, bio)
+	return out
+
+
+func biome_name(body: String, bio: String) -> String:
+	return _biome_names.get(body, {}).get(bio, bio.capitalize())
+
+
+func body_biomes(body: String) -> Array:
+	return _biome_names.get(body, {}).keys()
 
 
 func body_name(id: String) -> String:
@@ -286,6 +317,7 @@ func body_name(id: String) -> String:
 func experiments_on(id: int, t: Dictionary) -> Array:
 	var out := []
 	var sit := situation(t)
+	var bio := biome(t, sit)
 	var have := results_subjects(id)
 	for p in JSON.parse_string(Sim.game.core.vessel_parts(id)) if Sim.game else []:
 		for exp in Sim.part(p.part).get("science", []):
@@ -297,8 +329,8 @@ func experiments_on(id: int, t: Dictionary) -> Array:
 			elif not sit in e.situations:
 				why = "not while %s" % science.situations[sit].name.to_lower()
 			else:
-				v = value(exp, t.body, sit)
-				if subject(exp, t.body, sit) in have:
+				v = value(exp, t.body, sit, bio)
+				if subject(exp, t.body, sit, bio) in have:
 					why = "already have this one aboard"
 			out.append({"uid": str(int(p.uid)), "part": p.part, "exp": exp, "name": e.get("name", exp), "value": v, "why": why})
 	return out
@@ -311,7 +343,9 @@ func run(id: int, uid: String, exp: String, t: Dictionary) -> String:
 			if x.why != "":
 				return x.why
 			var list: Array = aboard.get(uid, [])
-			list.append({"subject": subject(exp, t.body, situation(t)), "exp": exp, "body": t.body, "situation": situation(t)})
+			var sit := situation(t)
+			var bio := biome(t, sit)
+			list.append({"subject": subject(exp, t.body, sit, bio), "exp": exp, "body": t.body, "situation": sit, "biome": bio})
 			aboard[uid] = list
 			save()
 			return ""
@@ -346,7 +380,7 @@ func transmit(id: int, subject_id: String, t: Dictionary) -> Dictionary:
 			var r: Dictionary = list[k]
 			if r.subject != subject_id:
 				continue
-			var pts := value(r.exp, r.body, r.situation) * frac
+			var pts := value_of(r) * frac
 			var kj: float = pts * float(t.get("antenna_kj_per_point", 0.0))
 			if not Sim.game.core.vessel_use_ec(id, kj):
 				return {"ok": false, "why": "needs %.0f kJ, the batteries hold %.0f" % [kj, t.get("ec", 0.0)]}
@@ -394,7 +428,7 @@ func recover(id: int, serial: int) -> Dictionary:
 	for p in parts:
 		var uid := str(int(p.uid))
 		for r in aboard.get(uid, []):
-			got += value(r.exp, r.body, r.situation)
+			got += value_of(r)
 			credited[r.subject] = int(credited.get(r.subject, 0)) + 1
 			n += 1
 			_survey_check(r.subject)
@@ -420,7 +454,7 @@ const SURVEYS := 3
 const SURVEY_FUNDS_PER_POINT := 1500.0
 const SURVEY_RESEARCH_SHARE := 0.5
 ## a world joins the survey pool once its mission is done
-const SURVEY_BODIES := {"floe": "", "krill": "orbit", "kelp": "krill_soi", "pebble": "kelp_soi"}
+const SURVEY_BODIES := {"floe": "", "krill": "orbit", "kelp": "krill_soi", "pebble": "kelp_soi", "narwhal": "narwhal_soi", "tusk": "narwhal_soi"}
 
 
 ## Experiments the program can fly now (every part of it researched).
@@ -447,22 +481,24 @@ func refresh_surveys() -> void:
 			continue
 		for exp in _flyable_experiments():
 			for sit in science.experiments[exp].situations:
-				if body in ["krill", "pebble"] and sit.begins_with("flying"):
+				if body in ["krill", "pebble", "tusk"] and sit.begins_with("flying"):
 					continue  # no air
-				var subj := subject(exp, body, sit)
-				if int(credited.get(subj, 0)) == 0 and not subj in have:
-					pool.append([exp, body, sit])
+				var bios := body_biomes(body) if science.situations[sit].get("biome", false) else []
+				for bio in bios if not bios.is_empty() else [""]:
+					var subj := subject(exp, body, sit, bio)
+					if int(credited.get(subj, 0)) == 0 and not subj in have:
+						pool.append([exp, body, sit, bio])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7919 * (surveys_done + 1) + surveys.size()
 	while surveys.size() < SURVEYS and not pool.is_empty():
 		var pick: Array = pool.pop_at(rng.randi() % pool.size())
-		var v := value(pick[0], pick[1], pick[2])
-		surveys.append({"subject": subject(pick[0], pick[1], pick[2]), "exp": pick[0], "body": pick[1], "situation": pick[2],
+		var v := value(pick[0], pick[1], pick[2], pick[3])
+		surveys.append({"subject": subject(pick[0], pick[1], pick[2], pick[3]), "exp": pick[0], "body": pick[1], "situation": pick[2], "biome": pick[3],
 			"funds": roundf(v * SURVEY_FUNDS_PER_POINT / 100.0) * 100.0, "research": snappedf(v * SURVEY_RESEARCH_SHARE, 0.1)})
 
 
 func describe_survey(s: Dictionary) -> String:
-	var where := describe(s.situation, s.body)
+	var where := describe(s.situation, s.body, s.get("biome", ""))
 	return "%s %s" % [science.experiments[s.exp].name, where.left(1).to_lower() + where.substr(1)]
 
 
@@ -553,6 +589,8 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 				hit = float(extra.get("target_distance", INF)) <= float(g.value) and situation(t).begins_with("space")
 			"docked":
 				hit = extra.get("docked", false)
+			"refine":
+				hit = t.body != "floe" and float(t.get("refine_rate", 0.0)) > 0.0
 		if hit:
 			complete(m)
 

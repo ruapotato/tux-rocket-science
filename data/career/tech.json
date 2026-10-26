@@ -20,6 +20,8 @@
     { "id": "flight", "name": "Wings and Wheels", "cost": 25, "requires": ["rocketry"],
       "parts": ["wing", "jet_engine", "wheel_gear", "wheel_nose"] },
     { "id": "docking", "name": "Docking", "cost": 60, "requires": ["control"],
-      "parts": ["dock_port"] }
+      "parts": ["dock_port"] },
+    { "id": "mining", "name": "Living off the Land", "cost": 80, "requires": ["power", "landing"],
+      "parts": ["ore_bin", "drill", "refinery"] }
   ]
 }

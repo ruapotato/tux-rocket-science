@@ -105,6 +105,15 @@ typedef struct {
 	double eva_walk, eva_jump, eva_reach;
 	int is_ladder; /* a penguin within reach of it can climb it to the hatch */
 
+	/* mining: an ore bin holds ore_capacity kg; a drill, running, its tip
+	 * within drill_reach m of the ground of a resting craft, digs
+	 * drill_kg_s x the body's ore abundance for drill_kw; a refinery,
+	 * running, turns refine_kg_s of ore into refine_yield x as much
+	 * liquid propellant (into every tank aboard) for refine_kw */
+	double ore_capacity;
+	double drill_kg_s, drill_kw, drill_reach;
+	double refine_kg_s, refine_yield, refine_kw;
+
 	/* wheel: a sprung foot wheel_length out along the
 	 * part's +Z (off the hull), rolling along the craft's nose with
 	 * mu_roll (mu_brake braked), gripping sideways with mu_side; wheels

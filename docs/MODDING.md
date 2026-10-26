@@ -76,6 +76,7 @@ tapering leading end takes less heating than a flat one (see
 | `leg` | `length`, `spring` N/m, `damper` N s/m, `max_load_speed`, `hinge`, `deploy_angle_deg`, `stowed_fraction` |
 | `wheel` | `length` (out along +Z), `spring`, `damper`, `max_load_speed`, `mu_roll`, `mu_brake`, `mu_side`, `steer_deg` |
 | `power` | `battery_kj`, `draw_kw`, `torque_kw_per_knm`, `solar_kw` (face-on at `solar_ref_m` from the star; face is +Z), `antenna_kj_per_point`, `antenna_fraction` |
+| `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
 
 After changing parts, run `./build/linux/trs_tests --data data --all`: the
@@ -96,14 +97,16 @@ gates check the stock parts still behave.
 | `atmosphere` | `height` m, `sea_level_pressure` Pa, `sea_level_density` kg/m^3, `scale_height` m |
 | `terrain` | `seed`, `amplitude`, `base_freq`, `octaves`, `persistence`, `offset`, `ridge`, `crater_freq`, `crater_depth`, `mountain_amplitude`, `mountain_freq`, `mountain_coverage`, `ranges: [{name, lat_deg, lon_deg, radius_km, height}]` |
 | `launch_site` | `name`, `lat_deg`, `lon_deg`, `altitude`, `flat_radius` (the runway runs east from the pad) |
-| `look` | `style` (`ice`, `rock`, `moss`), `sky` [r,g,b], `tau` (haze per colour), `clouds`, and colours `low`, `high`, `slope`, `rock`, `basin`, `range` |
+| `look` | `style` (`ice`, `rock`, `moss`), `sky` [r,g,b], `tau` (haze per colour), `clouds`, and colours `low`, `high`, `slope`, `rock`, `basin`, `range`; `tint` multiplies the far-view colours of the `ice` and `rock` styles |
+| `ore` | ore abundance 0..1: drills dig `drill_kg_s` x this |
+| `biomes` | `[{id, name, abs_lat_min_deg, abs_lat_max_deg, height_min, height_max, near: {lat_deg, lon_deg, radius_km}}]`: a point is in the first biome whose every condition holds; the last one, with none, catches the rest. Landed and low-flying science counts separately per biome |
 
 Spheres of influence come from the masses. Adding a body after the existing
 ones keeps old saves loadable.
 
 ## The career: `data/career/`
 
-- `science.json`: `situations` (`value`, `phrase`), `bodies` (`value`, the
+- `science.json`: `situations` (`value`, `phrase`, `biome`: counted per biome), `bodies` (`value`, the
   heights that split low from high), `experiments` (`base`, `situations`,
   `eva`), and `repeat_factor`.
 - `tech.json`: R&D `nodes`: `{id, name, cost, requires, parts}`. Parts in no

@@ -82,9 +82,10 @@ func run(runner: Node) -> Dictionary:
 	var cr: Dictionary = ex.filter(func(x): return x.exp == "crew_report")[0]
 	var r1 := Career.run(s.active, pod_uid, "crew_report", t)
 	var r2 := Career.run(s.active, pod_uid, "crew_report", t)
-	_check(Career.situation(t) == "landed" and _near(cr.value, want_pad) and r1 == "" and r2.contains("already"),
-		"crew report on the pad: %s, worth %.2f (%.0f x %.1f x %.1f), a second refused ('%s')" % [Career.situation(t), cr.value,
-			sci.experiments.crew_report.base, sci.bodies.floe.value, sci.situations.landed.value, r2])
+	_check(Career.situation(t) == "landed" and t.get("biome", "") == "shelf" and _near(cr.value, want_pad) and r1 == "" and r2.contains("already")
+		and Career.results_subjects(s.active) == [Career.subject("crew_report", "floe", "landed", "shelf")],
+		"crew report on the pad: %s in %s, worth %.2f (%.0f x %.1f x %.1f), a second refused ('%s'); aboard %s" % [Career.situation(t), t.get("biome_name", "?"), cr.value,
+			sci.experiments.crew_report.base, sci.bodies.floe.value, sci.situations.landed.value, r2, Career.results_subjects(s.active)])
 
 	# 4. up past 1 km: First hop; a report flying low
 	scene._throttle = 1.0
@@ -144,8 +145,11 @@ func run(runner: Node) -> Dictionary:
 		"recovered: 2 results +%.2f research (%.2f + %.2f), parts refunded %s (%.0f%% of %s on the craft)%s" % [got.research, want_pad, want_low,
 			Career.money(refund), 100.0 * Career.missions_def.recovery_refund, Career.money(parts_cost),
 			"; surveys paid +%.1f research, +%s" % [bonus_r, Career.money(bonus_f)] if bonus_r > 0 else ""])
-	var again := Career.value("crew_report", "floe", "landed")
-	_check(_near(again, want_pad * sci.repeat_factor), "the same report again would be worth %.3f (half of %.2f)" % [again, want_pad])
+	var again := Career.value("crew_report", "floe", "landed", "shelf")
+	var elsewhere := Career.value("crew_report", "floe", "landed", "highlands")
+	var high := Career.value("crew_report", "floe", "flying_high")
+	_check(_near(again, want_pad * sci.repeat_factor) and _near(elsewhere, want_pad) and Career.describe("landed", "floe", "highlands") == "Landed on Floe (Highlands)",
+		"the same report again would be worth %.3f (half of %.2f); landed in Floe's Highlands still %.2f; flying high is one subject over all Floe (%.2f)" % [again, want_pad, elsewhere, high])
 
 	# 7. R&D
 	var before := Career.research
@@ -186,10 +190,10 @@ func run(runner: Node) -> Dictionary:
 	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
 		if p.part == "pod_1":
 			pod_uid = str(int(p.uid))
-	Career.aboard[pod_uid] = [{"subject": want_s0.subject, "exp": want_s0.exp, "body": want_s0.body, "situation": want_s0.situation}]
+	Career.aboard[pod_uid] = [{"subject": want_s0.subject, "exp": want_s0.exp, "body": want_s0.body, "situation": want_s0.situation, "biome": want_s0.get("biome", "")}]
 	var f0 := Career.funds
 	var r0s := Career.research
-	var worth_s := Career.value(want_s0.exp, want_s0.body, want_s0.situation)
+	var worth_s := Career.value_of(want_s0)
 	var refund_s := 0.0
 	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
 		refund_s += float(Sim.part(p.part).cost) * float(Career.missions_def.recovery_refund)
@@ -217,8 +221,8 @@ func run(runner: Node) -> Dictionary:
 			pod_uid = str(int(p.uid))
 	t = s.telemetry()
 	Career.run(s.active, pod_uid, "crew_report", t)
-	var subj := Career.subject("crew_report", "floe", "landed")
-	var worth_now := Career.value("crew_report", "floe", "landed")
+	var subj := Career.subject("crew_report", "floe", "landed", "shelf")
+	var worth_now := Career.value("crew_report", "floe", "landed", "shelf")
 	var r0 := Career.research
 	var e0: float = t.ec
 	var sent := Career.transmit(s.active, subj, s.telemetry())

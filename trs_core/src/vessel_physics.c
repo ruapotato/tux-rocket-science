@@ -1058,6 +1058,127 @@ static void heat(const trs_world *w, trs_vessel *vs, double h) {
 	}
 }
 
+/* ---- mining -------------------------------------------------------------------- */
+
+/* Running drills whose part sits within drill_reach of the ground, on a
+ * craft resting there (in PHYSICS mode) or sitting LANDED. */
+static void find_drill_ground(const trs_world *w, trs_vessel *vs) {
+	const trs_body *b = &w->sys.bodies[vs->body];
+	vs->drill_ground = 0;
+	vs->drill_gap = -1;
+	if (vs->mode == TRS_MODE_RAILS || (vs->mode == TRS_MODE_PHYSICS && !vs->landed))
+		return;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->drill_kg_s <= 0 || !vs->craft->parts[i].running)
+			continue;
+		trs_v3 arm = v3_sub(vs->craft->parts[i].pos, vs->cm), p;
+		if (vs->mode == TRS_MODE_LANDED) /* body-fixed, where the terrain is too */
+			p = v3_add(vs->fixed_r, quat_rotate(vs->fixed_q, arm));
+		else
+			p = trs_body_to_fixed(b, w->t, v3_add(vs->r, quat_rotate(vs->q, arm)));
+		double ground = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, v3_norm(p)) : 0;
+		double gap = v3_len(p) - b->radius - ground;
+		if (vs->drill_gap < 0 || gap < vs->drill_gap)
+			vs->drill_gap = fmax(0, gap);
+		if (gap <= d->drill_reach)
+			vs->drill_ground++;
+	}
+}
+
+void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt) {
+	vs->ore_rate = vs->refine_rate = vs->isru_kw = 0;
+	if (!vs->craft || dt <= 0)
+		return;
+	trs_craft *c = vs->craft;
+	const trs_body *b = &w->sys.bodies[vs->body];
+	find_drill_ground(w, vs);
+	int resting = vs->landed || vs->mode == TRS_MODE_LANDED;
+	double dig = 0, dig_kw = 0, ref = 0, ref_fuel = 0, ref_kw = 0;
+	int any = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (!c->parts[i].running)
+			continue;
+		if (d->drill_kg_s > 0) {
+			any = 1;
+			if (resting && vs->drill_ground > 0) {
+				dig += d->drill_kg_s * b->ore;
+				dig_kw += d->drill_kw;
+			}
+		}
+		if (d->refine_kg_s > 0) {
+			any = 1;
+			ref += d->refine_kg_s;
+			ref_fuel += d->refine_kg_s * d->refine_yield;
+			ref_kw += d->refine_kw;
+		}
+	}
+	if (!any)
+		return;
+	/* drills that can't all reach: only the ones touching dig */
+	if (dig > 0) {
+		int running_drills = 0;
+		for (int i = 0; i < c->count; i++)
+			running_drills += trs_craft_def(c, i)->drill_kg_s > 0 && c->parts[i].running;
+		double k = (double)vs->drill_ground / running_drills;
+		dig *= k, dig_kw *= k;
+	}
+	double ore_cap, ore = trs_craft_ore(c, &ore_cap);
+	double liq = 0, liq_cap = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (d->fuel_liquid > 0)
+			liq += c->parts[i].fuel, liq_cap += d->fuel_liquid;
+	}
+	/* how far each runs this step: the room it has, then what power allows */
+	double f_dig = dig > 0 ? fmin(1, (ore_cap - ore) / (dig * dt)) : 0;
+	double f_ref = ref > 0 ? fmin(1, fmin(ore / (ref * dt), (liq_cap - liq) / (ref_fuel * dt))) : 0;
+	f_dig = fmax(0, f_dig), f_ref = fmax(0, f_ref);
+	double need = (dig_kw * f_dig + ref_kw * f_ref) * dt;
+	double ec = trs_craft_ec(c, NULL);
+	double pk = need > 0 ? fmin(1, ec / need) : 1;
+	f_dig *= pk, f_ref *= pk;
+	double dug = trs_craft_ore_add(c, dig * dt * f_dig);
+	double used = -trs_craft_ore_add(c, -ref * dt * f_ref);
+	double made = ref > 0 ? used * ref_fuel / ref : 0;
+	double room = liq_cap - liq;
+	if (made > 0 && room > 0)
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (d->fuel_liquid > 0)
+				c->parts[i].fuel = fmin(d->fuel_liquid, c->parts[i].fuel + made * (d->fuel_liquid - c->parts[i].fuel) / room);
+		}
+	double kj = dig_kw * dt * f_dig + ref_kw * dt * f_ref;
+	trs_craft_ec_add(c, -kj);
+	vs->ore_rate = dug / dt;
+	vs->refine_rate = used / dt;
+	vs->isru_kw = kj / dt;
+	if (dug > 0 || used > 0) {
+		if (vs->mode == TRS_MODE_PHYSICS)
+			recentre(vs);
+		else
+			vs->dirty = 1;
+	}
+}
+
+int trs_world_set_isru(trs_world *w, int id, int on) {
+	if (id < 0 || id >= w->nvessels || !w->vessels[id].alive || !w->vessels[id].craft)
+		return 0;
+	trs_craft *c = w->vessels[id].craft;
+	int n = 0;
+	if (!on)
+		w->vessels[id].ore_rate = w->vessels[id].refine_rate = w->vessels[id].isru_kw = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (d->drill_kg_s > 0 || d->refine_kg_s > 0) {
+			c->parts[i].running = on;
+			n++;
+		}
+	}
+	return n;
+}
+
 /* ---- the tick ------------------------------------------------------------------- */
 
 void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
@@ -1112,6 +1233,8 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 		}
 	vs->ec_use = (vs->powered ? base_draw : 0) + wheel_kw * vs->wheel_load;
 	trs_craft_ec_add(vs->craft, (vs->ec_gen - vs->ec_use) * h);
+	trs_vessel_isru(w, vs, h);
+	vs->ec_use += vs->isru_kw;
 	torque = v3_add(v3_add(torque, ground_torque), vs->ext_torque);
 	/* RCS: rotation share from the controller plus the pilot's translation,
 	 * cut back evenly if the monopropellant would run out this tick */
@@ -1388,7 +1511,7 @@ int trs_world_action_group(trs_world *w, int id, int g) {
 	trs_vessel *vs = &w->vessels[id];
 	if (!vs->craft || g < 1 || g > 9)
 		return 0;
-	int bit = 1 << (g - 1), n = 0, brake = 0, port = -1;
+	int bit = 1 << (g - 1), n = 0, brake = 0, port = -1, mined = 0;
 	trs_craft *c = vs->craft;
 	for (int i = 0; i < c->count; i++) {
 		trs_part *p = &c->parts[i];
@@ -1413,6 +1536,10 @@ int trs_world_action_group(trs_world *w, int id, int g) {
 		}
 		if (d->is_wheel)
 			brake = 1;
+		if (d->drill_kg_s > 0 || d->refine_kg_s > 0) {
+			p->running = !p->running; /* a landed craft keeps mining where it sits */
+			mined++;
+		}
 		if (d->is_dock && port < 0 && trs_craft_def(c, i)->is_dock && (p->parent >= 0 && trs_craft_def(c, p->parent)->is_dock))
 			port = i; /* the joint between two ports: this one sits on the other */
 	}
@@ -1424,7 +1551,7 @@ int trs_world_action_group(trs_world *w, int id, int g) {
 		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
 	if (port >= 0 && trs_world_undock(w, id, port) >= 0)
 		n++;
-	return n;
+	return n + mined;
 }
 
 int trs_vessel_deploy_chutes(trs_world *w, int id) {

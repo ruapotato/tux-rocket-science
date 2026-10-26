@@ -25,7 +25,7 @@ extends RefCounted
 
 const KEYS := [KEY_SPACE, KEY_Z, KEY_X, KEY_T, KEY_P, KEY_G, KEY_R, KEY_Y, KEY_U, KEY_V, KEY_M, KEY_TAB,
 	KEY_PERIOD, KEY_PERIOD, KEY_COMMA, KEY_SLASH, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_ESCAPE, KEY_F1, KEY_F,
-	KEY_1, KEY_2, KEY_3, KEY_B, KEY_O, KEY_F5, KEY_F9]
+	KEY_1, KEY_2, KEY_3, KEY_B, KEY_O, KEY_F5, KEY_F9, KEY_C]
 const HELD := [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_I, KEY_J, KEY_K, KEY_L, KEY_H, KEY_N, KEY_SHIFT, KEY_CTRL]
 const SAS := ["off", "stability", "prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in", "maneuver", "target", "antirel", "dock"]
 
@@ -33,15 +33,18 @@ var _rng := RandomNumberGenerator.new()
 var _log := PackedStringArray()
 var _bad := 0
 var _seen := {}
+var _runner: Node
+var _errors_seen := 0
 var _trail: Array = []  # the last actions, shown with the first flaw of each kind
 
 
 func run(runner: Node) -> Dictionary:
+	_runner = runner
 	var tree := runner.get_tree()
 	tree.paused = false
 	_rng.seed = int(OS.get_environment("SEED")) if OS.get_environment("SEED") != "" else 1
 	var secs := float(OS.get_environment("SECONDS")) if OS.get_environment("SECONDS") != "" else 600.0
-	var crafts := (OS.get_environment("CRAFT") if OS.get_environment("CRAFT") != "" else "hopper,orbiter,sidecar,krill_lander,puffin_ferry,rookery_heavy").split(",")
+	var crafts := (OS.get_environment("CRAFT") if OS.get_environment("CRAFT") != "" else "hopper,orbiter,sidecar,krill_lander,puffin_ferry,rookery_heavy,gull").split(",")
 	for c in crafts:
 		await _fly(tree, c, secs)
 	return {"status": "PASS" if _bad == 0 else "FAIL", "log": "\n".join(_log)}
@@ -68,7 +71,9 @@ func _fly(tree: SceneTree, craft: String, secs: float) -> void:
 		tree.current_scene.queue_free()
 	await tree.process_frame
 	Sim.tutorial = false
+	DirAccess.remove_absolute(Sim.save_dir + "quicksave.json")  # F9 only loads what this flight saved
 	Sim.pending_craft_text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + craft + ".craft.json")
+	Sim.pending_site = "runway" if craft == "gull" else "pad"
 	var scene: Node3D = load("res://scenes/flight.tscn").instantiate()
 	tree.root.add_child(scene)
 	for i in 5:
@@ -141,9 +146,16 @@ func _check(scene: Node) -> void:
 	# any node placed at a non-finite spot (Godot refuses to draw it)
 	for n in scene.find_children("*", "Node3D", true, false):
 		var xf: Transform3D = (n as Node3D).transform
-		if not (xf.origin.is_finite() and xf.basis.x.is_finite() and xf.basis.y.is_finite() and xf.basis.z.is_finite()):
-			_flaw(scene, "nonfinite node: %s %s" % [scene.get_path_to(n), xf])
+		var gx: Transform3D = (n as Node3D).global_transform
+		if not (xf.origin.is_finite() and xf.basis.x.is_finite() and xf.basis.y.is_finite() and xf.basis.z.is_finite()
+				and gx.origin.is_finite() and gx.basis.x.is_finite() and gx.basis.y.is_finite() and gx.basis.z.is_finite()):
+			_flaw(scene, "nonfinite node: %s %s global %s" % [scene.get_path_to(n), xf, gx])
 			break
+	# any engine or script error the gate runner's logger saw
+	var ec: int = _runner._errors.count
+	if ec > _errors_seen:
+		_errors_seen = ec
+		_flaw(scene, "engine error: %d so far, first %s" % [ec, _runner._errors.first])
 	var t := s.telemetry()
 	if not t.get("alive", false):
 		return

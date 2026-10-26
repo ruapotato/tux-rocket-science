@@ -36,6 +36,21 @@ typedef struct {
 	double scale_height; /* m */
 } trs_atmosphere;
 
+#define TRS_MAX_BIOMES 12
+
+/* A named region of a body's surface. A point belongs to the first biome
+ * in the list whose every condition holds; a biome with none catches the
+ * rest. */
+typedef struct {
+	char id[32];
+	char name[48];
+	double abs_lat_min, abs_lat_max; /* rad, |latitude| */
+	double height_min, height_max;   /* m, terrain height */
+	int has_near;                    /* within near_radius of near_dir */
+	trs_v3 near_dir;
+	double near_radius; /* m, along the surface */
+} trs_biome;
+
 typedef struct {
 	char id[32];
 	char name[48];
@@ -49,6 +64,9 @@ typedef struct {
 	char site_name[48];
 	double site_lat, site_lon, site_alt; /* rad, rad, m */
 	trs_orbit orbit; /* relative to parent; unused for the root */
+	double ore; /* ore abundance, 0..1: scales what drills dig */
+	trs_biome biomes[TRS_MAX_BIOMES];
+	int nbiomes;
 	int children[TRS_MAX_BODIES];
 	int nchildren;
 } trs_body;
@@ -76,6 +94,8 @@ trs_v3 trs_body_to_fixed(const trs_body *b, double t, trs_v3 v);
 trs_v3 trs_body_from_fixed(const trs_body *b, double t, trs_v3 v);
 /* Terrain height (m above datum) under an SOI-frame position at time t. */
 double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r);
+/* Biome under body-fixed direction dir (unit), or -1 if the body has none. */
+int trs_body_biome(const trs_body *b, trs_v3 dir);
 /* Atmosphere at altitude (m above surface): pressure (Pa), density (kg/m^3). */
 void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, double *density);
 

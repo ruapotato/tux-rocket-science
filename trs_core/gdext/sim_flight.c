@@ -434,6 +434,38 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "altitude", trs_json_new_num(rl - b->radius));
 	trs_json_set(j, "altitude_terrain", trs_json_new_num(rl - b->radius - terrain));
 	trs_json_set(j, "terrain_height", trs_json_new_num(terrain));
+	{
+		double ore_cap, ore = trs_craft_ore(vs->craft, &ore_cap);
+		int drills = 0, drills_on = 0, refineries = 0, refineries_on = 0;
+		for (int i = 0; i < vs->craft->count; i++) {
+			const trs_part_def *d = trs_craft_def(vs->craft, i);
+			int on = vs->craft->parts[i].running;
+			if (d->drill_kg_s > 0)
+				drills++, drills_on += on;
+			if (d->refine_kg_s > 0)
+				refineries++, refineries_on += on;
+		}
+		if (ore_cap > 0 || drills || refineries) {
+			trs_json_set(j, "ore", trs_json_new_num(ore));
+			trs_json_set(j, "ore_capacity", trs_json_new_num(ore_cap));
+			trs_json_set(j, "ore_abundance", trs_json_new_num(b->ore));
+			trs_json_set(j, "drills", trs_json_new_num(drills));
+			trs_json_set(j, "drills_on", trs_json_new_num(drills_on));
+			trs_json_set(j, "drills_touching", trs_json_new_num(vs->drill_ground));
+			if (vs->drill_gap >= 0)
+				trs_json_set(j, "drill_gap", trs_json_new_num(vs->drill_gap));
+			trs_json_set(j, "refineries", trs_json_new_num(refineries));
+			trs_json_set(j, "refineries_on", trs_json_new_num(refineries_on));
+			trs_json_set(j, "ore_rate", trs_json_new_num(vs->ore_rate));
+			trs_json_set(j, "refine_rate", trs_json_new_num(vs->refine_rate));
+			trs_json_set(j, "mining_kw", trs_json_new_num(vs->isru_kw));
+		}
+	}
+	int biome = trs_body_biome(b, bdir);
+	if (biome >= 0) {
+		trs_json_set(j, "biome", trs_json_new_str(b->biomes[biome].id));
+		trs_json_set(j, "biome_name", trs_json_new_str(b->biomes[biome].name));
+	}
 	trs_json_set(j, "lat_deg", trs_json_new_num(asin(bdir.z) * DEG));
 	trs_json_set(j, "lon_deg", trs_json_new_num(atan2(bdir.y, bdir.x) * DEG));
 	trs_json_set(j, "orbital_speed", trs_json_new_num(v3_len(vel)));
@@ -463,7 +495,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "ec", trs_json_new_num(ec));
 		trs_json_set(j, "ec_capacity", trs_json_new_num(ec_cap));
 		trs_json_set(j, "ec_gen", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_gen : trs_vessel_solar(w, vs, &lit)));
-		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_use : 0));
+		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_use : vs->isru_kw)); /* idle: only mining runs */
 		trs_json_set(j, "sunlit", trs_json_new_bool(vs->mode == TRS_MODE_PHYSICS ? vs->sunlit : (trs_vessel_solar(w, vs, &lit), lit)));
 		trs_json_set(j, "powered", trs_json_new_bool(vs->mode != TRS_MODE_PHYSICS || vs->powered || ec > 1e-9));
 		trs_json_set(j, "antenna_fraction", trs_json_new_num(antf));
@@ -1084,6 +1116,12 @@ static void m_transfer_window(void *self, const trs_val *a, trs_val *r) {
 	ret_json(r, j);
 }
 
+/* vessel_set_mining(id, on) -> how many drills and refineries switched */
+static void m_vessel_set_mining(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = ok_vessel(h, a[0].i) ? trs_world_set_isru(h->world, (int)a[0].i, a[1].b) : 0;
+}
+
 /* A planner run on its own copy of the bodies, so it can run on a worker
  * thread while the world keeps ticking. */
 typedef struct {
@@ -1480,6 +1518,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "plan_transfer", m_plan_transfer, A, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
 	{ "plan_start", m_plan_start, B, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
 	{ "plan_run", m_plan_run, A, 0, { 0 }, { 0 } },
+	{ "vessel_set_mining", m_vessel_set_mining, I, 2, { I, B }, { "id", "on" } },
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },

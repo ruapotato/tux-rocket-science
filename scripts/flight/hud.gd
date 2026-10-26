@@ -397,7 +397,7 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
    against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
 [b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in)   [b]O[/b] science
-[b]B[/b] wheel brakes (planes start on the runway with them on)   [b]F5[/b] quicksave   [b]F9[/b] quickload   [b]1-9[/b] action groups   [b]`[/b] steer by the craft / by the view
+[b]B[/b] wheel brakes (planes start on the runway with them on)   [b]F5[/b] quicksave   [b]F9[/b] quickload   [b]1-9[/b] action groups   [b]`[/b] steer by the craft / by the view   [b]C[/b] mining on / off
 [b]V[/b] surface / orbital speed
 
 [b]. ,[/b] or the [b]▶▶ ◀◀[/b] buttons: faster / slower time   [b]/[/b] or [b]■[/b] normal time
@@ -580,6 +580,8 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 		return
 	_clock.text = "T+ " + fmt_time(mission_t)
 	var body: String = t.body.capitalize()
+	if t.has("biome_name") and (t.get("landed", false) or float(t.get("altitude_terrain", 1.0e9)) < 25000.0):
+		body += " · " + str(t.biome_name)  # the region below, for science
 	_status.text = "%s · %s%s" % [t.situation.replace("_", " ").to_upper(), body, ("   " + _warp_text) if _warp_text != "" else ""]
 	var spd: float = t.surface_speed if speed_mode == "surface" else t.orbital_speed
 	_left.text = "[color=#9fb4cc]ALTITUDE[/color]  [b]%s[/b]\n[color=#9fb4cc]Above terrain[/color]  %s\n[color=#9fb4cc]Vertical[/color]  %s m/s\n[color=#9fb4cc]%s speed[/color]  [b]%.1f m/s[/b]  [color=#6f86a6](V to toggle)[/color]\n[color=#9fb4cc]Mass[/color] %.2f t   [color=#9fb4cc]TWR[/color] %.2f\n[color=#9fb4cc]Dyn. pressure[/color] %.1f kPa" % [
@@ -635,6 +637,38 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	rb.set_pressed_no_signal(t.get("rcs", false))
 	rb.text = "RCS  (R)" + (" ·" if t.get("rcs", false) and t.get("rcs_force", 0.0) > 0.0 else "")
 	_update_fuel(t)
+
+
+## One line on the drills and refineries: what they do now and why not.
+static func mining_text(t: Dictionary) -> String:
+	var dr := int(t.get("drills", 0))
+	var rf := int(t.get("refineries", 0))
+	if int(t.get("drills_on", 0)) == 0 and int(t.get("refineries_on", 0)) == 0:
+		return "(C: mine)" if dr + rf > 0 else ""
+	var bits := []
+	if dr > 0:
+		if float(t.get("ore_rate", 0.0)) > 0.0:
+			bits.append("digging %.2f kg/s" % float(t.ore_rate))
+		elif not t.get("landed", false):
+			bits.append("drill: land first")
+		elif int(t.get("drills_touching", 0)) == 0:
+			bits.append("drill %.1f m off the ground, can't reach" % float(t.drill_gap) if t.has("drill_gap") else "drill can't reach the ground")
+		elif float(t.get("ore_abundance", 0.0)) <= 0.0:
+			bits.append("no ore here")
+		elif float(t.get("ore", 0.0)) >= float(t.get("ore_capacity", 0.0)) - 1e-6:
+			bits.append("bin full")
+		else:
+			bits.append("drill: no power")
+	if rf > 0:
+		if float(t.get("refine_rate", 0.0)) > 0.0:
+			bits.append("refining %.2f kg/s" % float(t.refine_rate))
+		elif float(t.get("ore", 0.0)) <= 1e-6:
+			bits.append("refinery: no ore")
+		elif float(t.get("liquid", 0.0)) >= float(t.get("liquid_capacity", 0.0)) - 1e-6:
+			bits.append("tanks full")
+		else:
+			bits.append("refinery: no power")
+	return "· " + ", ".join(bits) + " (%.2f kW)" % float(t.get("mining_kw", 0.0))
 
 
 func _update_fuel(t: Dictionary) -> void:
@@ -697,6 +731,20 @@ func _update_fuel(t: Dictionary) -> void:
 		el.add_theme_font_size_override("font_size", 12)
 		v.add_child(el)
 		v.add_child(ebar)
+	if t.has("ore_capacity"):
+		var obar := ProgressBar.new()
+		obar.max_value = maxf(float(t.ore_capacity), 1e-9)
+		obar.value = t.ore
+		obar.show_percentage = false
+		obar.custom_minimum_size = Vector2(250, 10)
+		var of := StyleBoxFlat.new()
+		of.bg_color = Color(0.78, 0.55, 0.32)
+		obar.add_theme_stylebox_override("fill", of)
+		var ol := Label.new()
+		ol.text = "Ore  %.0f / %.0f kg  %s" % [t.ore, t.ore_capacity, mining_text(t)]
+		ol.add_theme_font_size_override("font_size", 12)
+		v.add_child(ol)
+		v.add_child(obar)
 	if t.get("stage_liquid_capacity", 0.0) <= 0.0 and t.get("stage_solid_capacity", 0.0) <= 0.0:
 		var none := Label.new()
 		none.text = "No engine in this stage"

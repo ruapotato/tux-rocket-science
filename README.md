@@ -106,6 +106,26 @@ gravity and air three and a half times as thick reaching 110 km up. Parachutes b
 coming in is hot, and climbing back out takes a real rocket. Its research is worth 7x Floe's. Kelp has a little moon, **Pebble** (60 km across, a twentieth of Floe's gravity).
 Planet looks live in `data/bodies/` ("look": colours, sky, haze, clouds), so new worlds need no code.
 
+**Narwhal**: the cold blue world out past Floe (twice as far from Austra, about three months'
+coast on a Hohmann transfer), 0.6x Floe's gravity under thin air that tops out at 45 km: a
+parachute slows you but won't land you, so bring an engine for the last of it. Its moon **Tusk**
+is small and bright. Research there is worth 10-12x Floe's.
+
+**Biomes**: every world with ground is split into named regions (Floe's Glacier Shelf, the Puffin
+Spires, Frozen Seas, Highlands, Tundra and Polar Caps; Krill's Crater Floors and Rims; Kelp's
+Basins and Meadows...). The status line names the one below you when you're low. Landed and
+low-flying results count separately in each biome, so a crew report from Krill's Crater Floors
+is worth as much as the first one from its Highlands. Biomes are data (`"biomes"` in
+`data/bodies/`), checked by `test-biomes`.
+
+**Mining**: a **Pecker Ore Drill** fitted low on a lander digs ore into a **Gizzard Ore Bin** while
+the craft rests on the ground (its part within 2 m of it), at a rate set by the world's ore
+(Floe is poor, Krill and Tusk rich). A **Sifter Refinery** turns ore into liquid propellant
+(0.8 kg for every kg) and fills every propellant tank aboard, landed or in orbit. Press **C** to
+switch them on; they draw real power (0.75 kW a drill, 2 kW a refinery), stop when the bin or
+tanks are full or the batteries are flat, and keep going through time warp on a landed craft.
+The PROPELLANT panel says what they are doing, or why not.
+
 **Career**: the main menu's first button switches between the **Sandbox** (every part, free; your
 original save) and a **Career** (its own world, crew and program). A career starts with ƒ25,000
 and Basic Rocketry. Every part has a cost; launching pays for the craft and recovering it at

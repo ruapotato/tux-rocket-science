@@ -434,6 +434,29 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 		trs_json_set(out, "ec_draw", trs_json_new_num(draw));
 		trs_json_set(out, "wheel_kw", trs_json_new_num(wheels));
 	}
+	/* mining: bins, drills (at the richest ground), refineries */
+	{
+		double ore_cap = 0, dig = 0, dig_kw = 0, ref = 0, ref_out = 0, ref_kw = 0;
+		int drills = 0, refineries = 0;
+		for (int i = 0; i < c.count; i++) {
+			const trs_part_def *d = trs_craft_def(&c, i);
+			ore_cap += d->ore_capacity;
+			if (d->drill_kg_s > 0)
+				drills++, dig += d->drill_kg_s, dig_kw += d->drill_kw;
+			if (d->refine_kg_s > 0)
+				refineries++, ref += d->refine_kg_s, ref_out += d->refine_kg_s * d->refine_yield, ref_kw += d->refine_kw;
+		}
+		if (ore_cap > 0 || drills || refineries) {
+			trs_json_set(out, "ore_capacity", trs_json_new_num(ore_cap));
+			trs_json_set(out, "drills", trs_json_new_num(drills));
+			trs_json_set(out, "drill_kg_s", trs_json_new_num(dig));
+			trs_json_set(out, "drill_kw", trs_json_new_num(dig_kw));
+			trs_json_set(out, "refineries", trs_json_new_num(refineries));
+			trs_json_set(out, "refine_kg_s", trs_json_new_num(ref));
+			trs_json_set(out, "refine_out_kg_s", trs_json_new_num(ref_out));
+			trs_json_set(out, "refine_kw", trs_json_new_num(ref_kw));
+		}
+	}
 	trs_json_set(out, "crew", trs_json_new_num(crew));
 	trs_json *com = trs_json_new(TRS_JSON_ARRAY);
 	trs_json_push(com, trs_json_new_num(cm.x));

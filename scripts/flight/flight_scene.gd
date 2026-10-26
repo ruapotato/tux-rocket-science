@@ -496,6 +496,8 @@ func _key(k: InputEventKey) -> void:
 			_toggle_brakes()
 		KEY_O:
 			_toggle_science()
+		KEY_C:
+			_toggle_mining()
 		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
 			_action_group(k.keycode - KEY_0)
 		KEY_QUOTELEFT:
@@ -820,7 +822,9 @@ func _on_sim_event(e: Dictionary) -> void:
 				var t := session.telemetry()
 				if t.get("body", "") == "krill":
 					_mission.krill_landings += 1
-					hud.toast("The penguins have landed on Krill! One small waddle for a penguin..." if not crew_names.is_empty() else "Touchdown on Krill!", 5.0)
+				if t.get("body", "floe") != "floe":
+					var where := str(t.body).capitalize()
+					hud.toast(("The penguins have landed on %s! One small waddle for a penguin..." % where) if not crew_names.is_empty() else "Touchdown on %s!" % where, 5.0)
 				else:
 					hud.toast("Touchdown! The crew is doing a little waddle.", 3.5)
 		"warp_stopped":
@@ -888,7 +892,7 @@ func _toggle_science() -> void:
 func _fill_science() -> void:
 	var box: VBoxContainer = _science.get_child(0)
 	var t := session.telemetry()
-	var sig := JSON.stringify([Career.situation(t), t.get("body", ""), Career.results_on(session.active).size(), session.active, int(float(t.get("ec", 0.0)) / 10.0)])
+	var sig := JSON.stringify([Career.situation(t), t.get("body", ""), t.get("biome", ""), Career.results_on(session.active).size(), session.active, int(float(t.get("ec", 0.0)) / 10.0)])
 	if box.get_meta("sig", "") == sig:
 		return
 	box.set_meta("sig", sig)
@@ -896,7 +900,7 @@ func _fill_science() -> void:
 		c.queue_free()
 	var head := Label.new()
 	var sit := Career.situation(t)
-	head.text = "SCIENCE · %s" % Career.describe(sit, t.get("body", ""))
+	head.text = "SCIENCE · %s" % Career.describe(sit, t.get("body", ""), Career.biome(t, sit))
 	head.add_theme_color_override("font_color", Color(0.45, 0.85, 1.0))
 	box.add_child(head)
 	var exps := Career.experiments_on(session.active, t) if persistent else []
@@ -928,7 +932,7 @@ func _fill_science() -> void:
 	var res := Career.results_on(session.active)
 	var worth := 0.0
 	for r in res:
-		worth += Career.value(r.exp, r.body, r.situation)
+		worth += Career.value_of(r)
 	var frac: float = t.get("antenna_fraction", 0.0)
 	if frac > 0.0 and persistent:
 		for r in res:
@@ -936,7 +940,7 @@ func _fill_science() -> void:
 			var b := Button.new()
 			b.text = "Send"
 			b.focus_mode = Control.FOCUS_NONE
-			var pts := Career.value(r.exp, r.body, r.situation) * frac
+			var pts := Career.value_of(r) * frac
 			var kj: float = pts * float(t.get("antenna_kj_per_point", 0.0))
 			b.disabled = kj > float(t.get("ec", 0.0))
 			var subj: String = r.subject
@@ -948,7 +952,7 @@ func _fill_science() -> void:
 				_fill_science())
 			row.add_child(b)
 			var l := Label.new()
-			l.text = "%s, %s · %.1f research by antenna (%.0f kJ)" % [Career.science.experiments[r.exp].name, Career.describe(r.situation, r.body).to_lower(), pts, kj]
+			l.text = "%s, %s · %.1f research by antenna (%.0f kJ)" % [Career.science.experiments[r.exp].name, Career.describe(r.situation, r.body, r.get("biome", "")).to_lower(), pts, kj]
 			l.add_theme_font_size_override("font_size", 12)
 			row.add_child(l)
 			box.add_child(row)
@@ -1135,6 +1139,19 @@ func _toggle_brakes() -> void:
 	session._telemetry_tick = -1
 	Sfx.play("click")
 	hud.toast("Brakes on" if on else "Brakes off: free to roll", 1.5)
+
+
+## C: every drill and refinery aboard on (or all off).
+func _toggle_mining() -> void:
+	var t := session.telemetry()
+	if int(t.get("drills", 0)) + int(t.get("refineries", 0)) == 0:
+		hud.toast("No drill or refinery aboard", 1.5)
+		return
+	var on: bool = int(t.get("drills_on", 0)) + int(t.get("refineries_on", 0)) == 0
+	session.core.vessel_set_mining(session.active, on)
+	session._telemetry_tick = -1
+	Sfx.play("click")
+	hud.toast("Mining on: drills dig while landed, refineries fill the tanks" if on else "Mining off", 2.0)
 
 
 ## F: a penguin climbs out of the pod we fly, or (on EVA) back into the

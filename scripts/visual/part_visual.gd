@@ -261,6 +261,36 @@ static func _panel(root: Node3D, sh: Dictionary) -> void:
 		_mesh(root, line, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 + h * k / 4.0, 0.157)))
 
 
+## An ore drill: a graphite gearbox on the hull (+Z out) with a steel
+## auger hanging below it (-Y, toward the ground on a standing craft).
+static func _drill(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.get("radius", 0.16)
+	var h: float = sh.get("height", 0.5)
+	var L: float = sh.get("auger", 1.4)
+	var box := BoxMesh.new()
+	box.size = Vector3(r * 2.2, h, r * 2.0)
+	_mesh(root, box, hull(GRAPHITE, {"panels": 2.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}), Transform3D(Basis.IDENTITY, Vector3(0, 0, r)))
+	var band := BoxMesh.new()
+	band.size = Vector3(r * 2.25, h * 0.16, r * 2.05)
+	_mesh(root, band, mat("yellow", YELLOW, 0.2, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, h * 0.25, r)))
+	var shaft := CylinderMesh.new()
+	shaft.top_radius = r * 0.32
+	shaft.bottom_radius = r * 0.32
+	shaft.height = L
+	_mesh(root, shaft, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 - L * 0.5, r)))
+	for k in 7:  # auger flights
+		var fl := CylinderMesh.new()
+		fl.top_radius = r * 0.6
+		fl.bottom_radius = r * 0.6
+		fl.height = 0.03
+		_mesh(root, fl, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.RIGHT, 0.25), Vector3(0, -h * 0.5 - L * (k + 0.5) / 7.5, r)))
+	var tip := CylinderMesh.new()
+	tip.top_radius = r * 0.32
+	tip.bottom_radius = 0.0
+	tip.height = 0.14
+	_mesh(root, tip, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 - L - 0.07, r)))
+
+
 ## An antenna: a thin mast out from the hull with a small dish at its tip.
 static func _antenna(root: Node3D, sh: Dictionary) -> void:
 	var h: float = sh.get("height", 0.9)
@@ -476,6 +506,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_jet(root, sh)
 		"panel":
 			_panel(root, sh)
+		"drill":
+			_drill(root, sh)
 		"ladder":
 			_ladder(root, sh)
 		"flag":
@@ -695,6 +727,26 @@ static func _cylinder_part(root: Node3D, d: Dictionary, sh: Dictionary, opts: Di
 		_ring(root, r * 1.005, -h * 0.5 + 0.01, 0.03, mat("steel", STEEL, 0.75, 0.3))
 		if opts.get("decals", true) and h >= 3.0:
 			_decal(root, Vector3(0, -h * 0.08, r), Vector3(0, 0, 1), minf(0.9, h * 0.35))
+	elif d.has("mining") and d.mining.has("ore_kg"):
+		# ore bin: rust-ochre drum with hazard bands and a hatch
+		var ochre := Color(0.62, 0.42, 0.24)
+		_cyl(root, r, r, h, 0.0, hull(ochre, {"panels": 6.0, "ring_spacing": 0.0, "grime": 0.55}), 64)
+		for y in [h * 0.5 - 0.08, -h * 0.5 + 0.08]:
+			_cyl(root, r * 1.006, r * 1.006, 0.1, y, hull(YELLOW, {"hazard": 1.0, "stripe_color": Color(0.08, 0.08, 0.1), "ring_spacing": 0.0, "panels": 1.0}))
+		var hatch := BoxMesh.new()
+		hatch.size = Vector3(0.42, 0.42, 0.04)
+		_mesh(root, hatch, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, r)))
+	elif d.has("mining"):
+		# refinery: graphite drum, a glowing band of vents, steel pipes
+		_cyl(root, r, r, h, 0.0, hull(GRAPHITE, {"panels": 8.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}), 64)
+		_cyl(root, r * 1.004, r * 1.004, h * 0.2, h * 0.15, mat("glow", Color(1.0, 0.45, 0.12), 0.0, 0.5, Color(0.9, 0.35, 0.05)), 64)
+		for k in 4:
+			var a := TAU * (k + 0.5) / 4.0
+			var pipe := CylinderMesh.new()
+			pipe.top_radius = 0.045
+			pipe.bottom_radius = 0.045
+			pipe.height = h * 0.9
+			_mesh(root, pipe, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(sin(a), 0, cos(a)) * (r + 0.04)))
 	else:  # reaction wheel and other short cylinders
 		_cyl(root, r, r, h, 0.0, hull(GRAPHITE, {"panels": 16.0, "ring_spacing": 0.0, "metal": 0.4, "roughness_base": 0.45}))
 		_cyl(root, r * 1.01, r * 1.01, h * 0.22, 0.0, mat("orange", ORANGE, 0.0, 0.45))

@@ -31,6 +31,18 @@
                      { "name": "Brinewall Ridge", "lat_deg": -1.4, "lon_deg": -73.0, "radius_km": 8, "height": 3400 }
                    ] },
       "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68, "flat_radius": 1500 },
+      "ore": 0.3,
+      "biomes": [
+        {"id": "shelf", "name": "Glacier Shelf", "near": {"lat_deg": -0.097, "lon_deg": -74.6, "radius_km": 5}},
+        {"id": "spires", "name": "Puffin Spires", "near": {"lat_deg": 1.6, "lon_deg": -76.4, "radius_km": 11}},
+        {"id": "brinewall", "name": "Brinewall Ridge", "near": {"lat_deg": -1.4, "lon_deg": -73.0, "radius_km": 8}},
+        {"id": "poles", "name": "Polar Caps", "abs_lat_min_deg": 72},
+        {"id": "peaks", "name": "Ice Peaks", "height_min": 3000},
+        {"id": "highlands", "name": "Highlands", "height_min": 1200},
+        {"id": "tundra", "name": "Tundra", "abs_lat_min_deg": 50},
+        {"id": "seas", "name": "Frozen Seas", "height_max": 150},
+        {"id": "snowfields", "name": "Snowfields"}
+      ],
       "look": { "style": "ice", "sky": [0.62, 0.76, 0.93], "tau": [0.035, 0.10, 0.34], "clouds": true,
                 "low": [0.70, 0.76, 0.85], "high": [0.86, 0.88, 0.92], "slope": [0.55, 0.72, 0.88], "rock": [0.24, 0.24, 0.27], "range": 1600 }
     },
@@ -44,6 +56,14 @@
       "tidally_locked": true,
       "terrain": { "seed": 41, "amplitude": 1800, "base_freq": 2.2, "octaves": 15, "persistence": 0.52, "offset": 0, "ridge": 0.15, "crater_freq": 9, "crater_depth": 2600, "mountain_amplitude": 2400, "mountain_freq": 30, "mountain_coverage": 0.22 },
       "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 },
+      "ore": 0.8,
+      "biomes": [
+        {"id": "poles", "name": "Poles", "abs_lat_min_deg": 75},
+        {"id": "peaks", "name": "Crater Rims", "height_min": 420},
+        {"id": "highlands", "name": "Highlands", "height_min": 250},
+        {"id": "deeps", "name": "Crater Floors", "height_max": -300},
+        {"id": "lowlands", "name": "Lowlands"}
+      ],
       "look": { "style": "rock", "low": [0.30, 0.295, 0.30], "high": [0.55, 0.53, 0.5], "slope": [0.22, 0.21, 0.22], "rock": [0.17, 0.165, 0.17], "range": 1800 }
     },
     {
@@ -63,6 +83,14 @@
         "scale_height": 9000
       },
       "terrain": { "seed": 23, "amplitude": 2200, "base_freq": 2.6, "octaves": 15, "persistence": 0.5, "offset": 300, "ridge": 0.3, "mountain_amplitude": 4200, "mountain_freq": 38, "mountain_coverage": 0.3 },
+      "ore": 0.4,
+      "biomes": [
+        {"id": "poles", "name": "Polar Moss", "abs_lat_min_deg": 70},
+        {"id": "mountains", "name": "Mountains", "height_min": 1300},
+        {"id": "highlands", "name": "Highlands", "height_min": 700},
+        {"id": "basins", "name": "Basins", "height_max": 0},
+        {"id": "meadows", "name": "Meadows"}
+      ],
       "look": { "style": "moss", "sky": [0.56, 0.78, 0.62], "tau": [0.16, 0.24, 0.30], "clouds": true,
                 "low": [0.20, 0.36, 0.20], "high": [0.56, 0.52, 0.34], "slope": [0.26, 0.30, 0.18], "rock": [0.21, 0.19, 0.15],
                 "basin": [0.08, 0.26, 0.22], "range": 2000 }
@@ -77,7 +105,61 @@
       "tidally_locked": true,
       "terrain": { "seed": 59, "amplitude": 1400, "base_freq": 2.0, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.25, "crater_freq": 7, "crater_depth": 1600, "mountain_amplitude": 1800, "mountain_freq": 22, "mountain_coverage": 0.2 },
       "orbit": { "a": 5000000, "e": 0.01, "inc_deg": 4, "lan_deg": 30, "argp_deg": 0, "mean_anomaly_deg": 40 },
-      "look": { "style": "rock", "low": [0.36, 0.32, 0.28], "high": [0.62, 0.56, 0.48], "slope": [0.26, 0.23, 0.2], "rock": [0.18, 0.16, 0.14], "range": 1500 }
+      "ore": 0.9,
+      "biomes": [
+        {"id": "poles", "name": "Poles", "abs_lat_min_deg": 72},
+        {"id": "highlands", "name": "Highlands", "height_min": 200},
+        {"id": "craters", "name": "Craters", "height_max": -200},
+        {"id": "plains", "name": "Plains"}
+      ],
+      "look": { "style": "rock", "tint": [1.12, 1.0, 0.86], "low": [0.36, 0.32, 0.28], "high": [0.62, 0.56, 0.48], "slope": [0.26, 0.23, 0.2], "rock": [0.18, 0.16, 0.14], "range": 1500 }
+    },
+    {
+      "id": "narwhal",
+      "name": "Narwhal",
+      "kind": "planet",
+      "parent": "austra",
+      "mu": 1.06e12,
+      "radius": 420000,
+      "rotation_period": 31000,
+      "rotation_at_epoch_deg": 110,
+      "orbit": { "a": 26000000000, "e": 0.05, "inc_deg": 2.5, "lan_deg": 200, "argp_deg": 60, "mean_anomaly_deg": 300 },
+      "atmosphere": {
+        "height": 45000,
+        "sea_level_pressure": 18000,
+        "sea_level_density": 0.28,
+        "scale_height": 6000
+      },
+      "terrain": { "seed": 83, "amplitude": 2400, "base_freq": 2.8, "octaves": 15, "persistence": 0.52, "offset": 200, "ridge": 0.55, "mountain_amplitude": 4800, "mountain_freq": 34, "mountain_coverage": 0.34 },
+      "ore": 0.5,
+      "biomes": [
+        {"id": "poles", "name": "Polar Glaciers", "abs_lat_min_deg": 65},
+        {"id": "spikes", "name": "Spikes", "height_min": 1500},
+        {"id": "highlands", "name": "Highlands", "height_min": 650},
+        {"id": "brine", "name": "Brine Flats", "height_max": 0},
+        {"id": "plains", "name": "Plains"}
+      ],
+      "look": { "style": "ice", "tint": [0.78, 0.90, 0.97], "sky": [0.48, 0.62, 0.80], "tau": [0.02, 0.05, 0.14], "clouds": false,
+                "low": [0.58, 0.72, 0.80], "high": [0.90, 0.93, 0.96], "slope": [0.40, 0.55, 0.66], "rock": [0.20, 0.22, 0.28], "range": 2200 }
+    },
+    {
+      "id": "tusk",
+      "name": "Tusk",
+      "kind": "moon",
+      "parent": "narwhal",
+      "mu": 3.2e9,
+      "radius": 90000,
+      "tidally_locked": true,
+      "terrain": { "seed": 97, "amplitude": 1600, "base_freq": 2.4, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.35, "crater_freq": 8, "crater_depth": 1800, "mountain_amplitude": 2200, "mountain_freq": 20, "mountain_coverage": 0.25 },
+      "ore": 1.0,
+      "biomes": [
+        {"id": "poles", "name": "Poles", "abs_lat_min_deg": 72},
+        {"id": "highlands", "name": "Highlands", "height_min": 250},
+        {"id": "craters", "name": "Craters", "height_max": -150},
+        {"id": "plains", "name": "Plains"}
+      ],
+      "orbit": { "a": 3200000, "e": 0.02, "inc_deg": 6, "lan_deg": 120, "argp_deg": 0, "mean_anomaly_deg": 200 },
+      "look": { "style": "rock", "tint": [1.25, 1.25, 1.3], "low": [0.62, 0.62, 0.64], "high": [0.86, 0.86, 0.88], "slope": [0.45, 0.45, 0.48], "rock": [0.26, 0.26, 0.28], "range": 1600 }
     }
   ]
 }

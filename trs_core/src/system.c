@@ -103,6 +103,25 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 				t->nranges++;
 			}
 		}
+		b->ore = trs_json_num(j, "ore", 0);
+		const trs_json *bj = trs_json_get(j, "biomes");
+		for (size_t k = 0; bj && k < bj->count && b->nbiomes < TRS_MAX_BIOMES; k++) {
+			const trs_json *e = trs_json_at(bj, k);
+			trs_biome *bi = &b->biomes[b->nbiomes++];
+			snprintf(bi->id, sizeof bi->id, "%s", trs_json_str(e, "id", "?"));
+			snprintf(bi->name, sizeof bi->name, "%s", trs_json_str(e, "name", bi->id));
+			bi->abs_lat_min = trs_json_num(e, "abs_lat_min_deg", 0) * DEG;
+			bi->abs_lat_max = trs_json_num(e, "abs_lat_max_deg", 90) * DEG;
+			bi->height_min = trs_json_num(e, "height_min", -INFINITY);
+			bi->height_max = trs_json_num(e, "height_max", INFINITY);
+			const trs_json *n = trs_json_get(e, "near");
+			if (n) {
+				double la = trs_json_num(n, "lat_deg", 0) * DEG, lo = trs_json_num(n, "lon_deg", 0) * DEG;
+				bi->has_near = 1;
+				bi->near_dir = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+				bi->near_radius = trs_json_num(n, "radius_km", 10) * 1000.0;
+			}
+		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {
 			b->has_site = 1;
@@ -218,4 +237,20 @@ double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r) {
 	if (!b->terrain.enabled)
 		return 0;
 	return trs_terrain_height(&b->terrain, b->radius, v3_norm(trs_body_to_fixed(b, t, r)));
+}
+
+int trs_body_biome(const trs_body *b, trs_v3 dir) {
+	if (b->nbiomes == 0)
+		return -1;
+	double lat = fabs(asin(fmax(-1.0, fmin(1.0, dir.z))));
+	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, dir) : 0.0;
+	for (int i = 0; i < b->nbiomes; i++) {
+		const trs_biome *bi = &b->biomes[i];
+		if (lat < bi->abs_lat_min || lat > bi->abs_lat_max || h < bi->height_min || h > bi->height_max)
+			continue;
+		if (bi->has_near && acos(fmax(-1.0, fmin(1.0, v3_dot(dir, bi->near_dir)))) * b->radius > bi->near_radius)
+			continue;
+		return i;
+	}
+	return b->nbiomes - 1;
 }

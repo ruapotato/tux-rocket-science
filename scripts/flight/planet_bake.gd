@@ -197,6 +197,7 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 	var c_high := Sim.col(lk.get("high"))
 	var c_basin := Sim.col(lk.get("basin"), c_low)
 	var c_rock := Sim.col(lk.get("rock"), Color(0.2, 0.2, 0.2))
+	var tint := Sim.col(lk.get("tint"), Color(1, 1, 1))  # over the ice and rock styles' own colours
 	var noise := FastNoiseLite.new()
 	noise.seed = hash(info.id)
 	noise.frequency = 0.02
@@ -242,6 +243,8 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 				col = col * (0.95 + 0.1 * nz)
 				col = col.lerp(Color(0.13, 0.125, 0.13), clampf((slope - 0.08) * 4.0, 0.0, 0.75))
 				col.a = 1.0
+			if style != "moss":
+				col = Color(minf(col.r * tint.r, 1.0), minf(col.g * tint.g, 1.0), minf(col.b * tint.b, 1.0))
 			a_img.set_pixel(x, y, col)
 			# normal in sim body-fixed axes, relief exaggerated for distance
 			var k := 3.0 if ice_world else 7.0

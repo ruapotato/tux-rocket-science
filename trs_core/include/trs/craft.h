@@ -53,6 +53,8 @@ typedef struct {
 	double fuel;          /* remaining propellant, kg (liquid or solid) */
 	double mono;          /* remaining monopropellant, kg */
 	double ec;            /* stored electricity, kJ */
+	double ore;           /* ore in the bin, kg */
+	int running;          /* drills and refineries: switched on */
 	double limit;         /* engines: thrust limit, fraction of full (set in the hangar) */
 	int engine_on;
 	int chute;
@@ -98,6 +100,10 @@ double trs_craft_mono(const trs_craft *c, double *capacity);
  * over the batteries, clamped to empty and full: returns what moved */
 double trs_craft_ec(const trs_craft *c, double *capacity);
 double trs_craft_ec_add(trs_craft *c, double kj);
+/* ore aboard (kg) and the bins' capacity; adding (or taking, < 0)
+ * spreads over the bins, clamped: returns what moved */
+double trs_craft_ore(const trs_craft *c, double *capacity);
+double trs_craft_ore_add(trs_craft *c, double kg);
 /* Removes `amount` kg of monopropellant evenly (proportionally) from every part holding some. */
 void trs_craft_mono_draw(trs_craft *c, double amount);
 double trs_craft_part_mass(const trs_craft *c, int i);

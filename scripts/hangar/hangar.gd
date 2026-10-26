@@ -478,6 +478,13 @@ func _refresh_readouts() -> void:
 			idle + float(_stats.get("wheel_kw", 0.0)), " · [color=#ffe07a]sun %.1f kW[/color] at Floe" % float(_stats.solar_kw) if float(_stats.get("solar_kw", 0.0)) > 0.0 else ""]
 		if idle > 0.0 and float(_stats.get("solar_kw", 0.0)) <= 0.0:
 			t += " · [color=#9fb4cc]%s on its batteries[/color]" % FlightHUD.fmt_time(float(_stats.ec_capacity) / idle)
+	if _stats.has("ore_capacity"):
+		var bits := ["bin %.0f kg" % float(_stats.ore_capacity)]
+		if int(_stats.drills) > 0:
+			bits.append("%d drill%s %.2f kg/s at best (%.2f kW)" % [int(_stats.drills), "" if int(_stats.drills) == 1 else "s", _stats.drill_kg_s, _stats.drill_kw])
+		if int(_stats.refineries) > 0:
+			bits.append("refin%s %.2f kg/s ore → %.2f kg/s propellant (%.1f kW)" % ["ery" if int(_stats.refineries) == 1 else "eries", _stats.refine_kg_s, _stats.refine_out_kg_s, _stats.refine_kw])
+		t += "\n[color=#9fb4cc]Mining[/color] " + " · ".join(bits)
 	if Career.is_career():
 		var ids := model.parts.map(func(p): return str(p.part))
 		var cost := Career.craft_cost(ids)
@@ -502,7 +509,7 @@ func action_group_summary() -> String:
 			if g in model.groups_of(i):
 				var d := Sim.part(model.parts[i].part)
 				var kind := "engine" if d.has("engine") else ("chute" if d.has("parachute") else ("leg" if d.has("leg") else
-					("brakes" if d.has("wheel") else ("dock" if d.has("docking") else "part"))))
+					("brakes" if d.has("wheel") else ("dock" if d.has("docking") else ("miner" if d.has("mining") and not d.mining.has("ore_kg") else "part")))))
 				kinds[kind] = int(kinds.get(kind, 0)) + 1
 		if not kinds.is_empty():
 			var bits := PackedStringArray()
@@ -569,6 +576,16 @@ func craft_warnings() -> Array:
 			out.append({"bad": false, "text": "SPACE #1 lights no engine, so it only drops parts while the launch clamps hold the rocket. Use ▲ to move the first engines' stage to the top."})
 		if fins == 0:
 			out.append({"bad": false, "text": "No fins: in the air the rocket will try to flip over. Fins near the bottom keep it pointed."})
+	if _stats.has("ore_capacity"):
+		var bin: float = _stats.ore_capacity
+		if bin <= 0.0 and int(_stats.drills) > 0:
+			out.append({"bad": true, "text": "The drill has nowhere to put its ore. Add a Gizzard Ore Bin."})
+		if bin <= 0.0 and int(_stats.refineries) > 0:
+			out.append({"bad": true, "text": "The refinery has no ore to work. Add a Gizzard Ore Bin (and a drill)."})
+		var kw: float = float(_stats.drill_kw) + float(_stats.refine_kw)
+		if kw > float(_stats.get("solar_kw", 0.0)) and float(_stats.get("ec_capacity", 0.0)) > 0.0:
+			out.append({"bad": false, "text": "Mining draws %.2f kW but the panels give %.1f kW at Floe: it will run only as long as the batteries last (%s). Add Sunfin Solar Panels." % [
+				kw, float(_stats.get("solar_kw", 0.0)), FlightHUD.fmt_time(float(_stats.ec_capacity) / maxf(kw - float(_stats.get("solar_kw", 0.0)), 1e-6))]})
 	if int(_stats.get("crew", 0)) > 0 and chutes == 0:
 		out.append({"bad": false, "text": "No parachute: the crew can't land softly. Put one on top of the pod (P opens it in flight)."})
 	return out

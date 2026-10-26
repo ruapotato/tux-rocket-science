@@ -114,6 +114,12 @@ typedef struct {
 	double ec_gen, ec_use;
 	int sunlit, powered;
 	double wheel_load; /* reaction wheels' effort last tick, 0..1 */
+	/* mining last step (telemetry): ore dug and ore refined, kg/s, and
+	 * their draw, kW; drill_ground: running drills that reach the ground
+	 * (found while the craft rests, kept while it sits LANDED) */
+	double ore_rate, refine_rate, isru_kw;
+	int drill_ground;
+	double drill_gap; /* m from the nearest running drill to the ground (-1 = none to say) */
 	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
 	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
@@ -259,6 +265,12 @@ int trs_world_plant_flag(trs_world *w, int eva, int flag_def);
 int trs_vessel_is_eva(const trs_vessel *vs);
 /* Solar power (kW) reaching vessel vs's panels now; *sunlit: out of shadow. */
 double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit);
+/* One step of dt s of mining on a vessel: running drills dig while it
+ * rests on the ground, running refineries turn ore into liquid
+ * propellant; both stop where the batteries can't pay. */
+void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt);
+/* Switches every drill and refinery aboard on or off; returns how many. */
+int trs_world_set_isru(trs_world *w, int id, int on);
 /* Local horizon frame at r (SOI frame): up, north, east. */
 void trs_local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east);
 /* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);

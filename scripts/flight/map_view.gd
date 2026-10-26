@@ -535,9 +535,13 @@ func _update_panel(t: Dictionary) -> void:
 		for p in _patches:
 			if int(p.node) == selected_node:
 				txt += "After: Pe %s, Ap %s" % [FlightHUD.fmt_dist(p.pe_alt), "escape" if p.ap_alt == null else FlightHUD.fmt_dist(p.ap_alt)]
+		# the first world (not the one we're at, nor what it circles) the plan meets
+		var here := int(t.get("body_index", -1))
+		var skip := [here, int(_bodies[here].info.parent) if here >= 0 else -1]
 		for p in _patches:
-			if p.body == "krill" and t.body != "krill":
-				txt += "\n[color=#99ff77]Krill encounter: Pe %s[/color]" % FlightHUD.fmt_dist(p.pe_alt)
+			var bi := _body_index(str(p.body))
+			if bi > 0 and not bi in skip:
+				txt += "\n[color=#99ff77]%s encounter: Pe %s[/color]" % [_bodies[bi].info.name, FlightHUD.fmt_dist(p.pe_alt)]
 				break
 		_warp_btn.disabled = false
 		_del_btn.disabled = false
@@ -753,3 +757,10 @@ func _exit_tree() -> void:
 	if _plan_thread != null:
 		_plan_thread.wait_to_finish()
 		_plan_thread = null
+
+
+func _body_index(id: String) -> int:
+	for i in _bodies.size():
+		if _bodies[i].info.id == id:
+			return i
+	return -1
