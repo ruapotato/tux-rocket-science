@@ -140,4 +140,19 @@ func run(_runner: Node) -> Dictionary:
 		"engine idle, one more step up from 4x: %s %dx ('%s')" % [s.warp_kind, FlightSession.RAILS_WARP[s.warp_index], why])
 	s.step_warp(1)
 	_check(s.warp_kind == "rails" and s.warp_index == 2, "and on up: %dx" % FlightSession.RAILS_WARP[s.warp_index])
+	# 4. a planned burn moved by whole orbits: later by exactly the period
+	#    of the orbit it sits on, back again, and not into the past
+	s = FlightSession.new()
+	s.spawn_in_orbit(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json"), "floe", 120000.0)
+	var period: float = s.telemetry().orbit.period
+	var t_node := s.time() + 300.0
+	s.nodes = [[t_node, 40.0, 0.0, 0.0]]
+	var i1 := s.shift_node(0, 1)
+	var later: float = s.nodes[0][0]
+	var i2 := s.shift_node(0, -1)
+	var back: float = s.nodes[0][0]
+	var i3 := s.shift_node(0, -1)
+	_check(i1 == 0 and i2 == 0 and absf(later - t_node - period) < 1e-6 and absf(back - t_node) < 1e-6 and i3 == -1 and s.shift_why.contains("behind"),
+		"node 300 s ahead: an orbit later at +%.3f s (period %.3f), back again (%+.6f s), an orbit earlier refused ('%s')" % [
+			later - t_node, period, back - t_node, s.shift_why])
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}

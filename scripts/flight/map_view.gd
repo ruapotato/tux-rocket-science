@@ -54,6 +54,8 @@ var _orbiting := false
 var _panel: RichTextLabel
 var _warp_btn: Button
 var _del_btn: Button
+var _orbit_btns: Array[Button] = []
+var _shift_note := ""
 var selected_node := -1
 var _overlay: Control
 const GLIDE_SECONDS := 2.5
@@ -179,6 +181,22 @@ func setup(s: FlightSession) -> void:
 	_warp_btn.focus_mode = Control.FOCUS_NONE
 	_warp_btn.pressed.connect(_warp_to_node)
 	v.add_child(_warp_btn)
+	var orb := HBoxContainer.new()
+	for dir in [-1, 1]:
+		var ob := Button.new()
+		ob.text = "◀ orbit earlier" if dir < 0 else "orbit later ▶"
+		ob.tooltip_text = "Move this burn a whole orbit %s, to the same point on the path" % ("earlier" if dir < 0 else "later")
+		ob.focus_mode = Control.FOCUS_NONE
+		ob.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var d: int = dir
+		ob.pressed.connect(func():
+			var ni := session.shift_node(selected_node, d)
+			if ni >= 0:
+				selected_node = ni
+			_shift_note = session.shift_why)
+		orb.add_child(ob)
+		_orbit_btns.append(ob)
+	v.add_child(orb)
 	_del_btn = Button.new()
 	_del_btn.text = "Delete node"
 	_del_btn.focus_mode = Control.FOCUS_NONE
@@ -405,6 +423,8 @@ func _update_panel(t: Dictionary) -> void:
 		txt += "[color=#9fb4cc]No maneuver nodes. Click the orbit line to add one.[/color]"
 		_warp_btn.disabled = true
 		_del_btn.disabled = true
+		for b in _orbit_btns:
+			b.disabled = true
 	else:
 		if selected_node < 0 or selected_node >= session.nodes.size():
 			selected_node = 0
@@ -422,6 +442,10 @@ func _update_panel(t: Dictionary) -> void:
 				break
 		_warp_btn.disabled = false
 		_del_btn.disabled = false
+		for b in _orbit_btns:
+			b.disabled = false
+		if _shift_note != "":
+			txt += "\n[color=#ff9a7a]Can't move it: %s[/color]" % _shift_note
 	_panel.text = txt
 
 

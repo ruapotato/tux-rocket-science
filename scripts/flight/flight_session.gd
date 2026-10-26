@@ -519,6 +519,37 @@ func _end_rails_now() -> void:
 
 
 ## nodes: [[t, prograde, normal, radial], ...]
+## Moves node i by whole orbits (of the path it sits on, the burns before
+## it counted) later (+) or earlier (-). Returns its new index, or -1 with
+## why in `why` (an open path has no next orbit; the past is gone).
+var shift_why := ""
+func shift_node(i: int, orbits: int) -> int:
+	shift_why = ""
+	if i < 0 or i >= nodes.size():
+		shift_why = "no such node"
+		return -1
+	var t: float = nodes[i][0]
+	var before := nodes.slice(0, i)
+	var patches: Array = JSON.parse_string(core.trajectory(active, pack_nodes(before), 8, maxf(t - time(), 0.0) + 1.0))
+	var period := 0.0
+	for p in patches:
+		if float(p.t_start) <= t + 1e-6 and (float(p.t_end) >= t - 1e-6 or p.end == "horizon"):
+			period = float(p.period) if p.ap_alt != null else 0.0
+	if period <= 0.0:
+		shift_why = "the path there doesn't come round again"
+		return -1
+	var nt := t + orbits * period
+	if nt < time() + 1.0:
+		shift_why = "that orbit is already behind you"
+		return -1
+	var nd: Array = nodes[i].duplicate()
+	nd[0] = nt
+	nodes.remove_at(i)
+	nodes.append(nd)
+	nodes.sort_custom(func(a, b): return a[0] < b[0])
+	return nodes.find(nd)
+
+
 static func pack_nodes(nodes: Array) -> PackedFloat64Array:
 	var f := PackedFloat64Array()
 	for n in nodes:
