@@ -28,6 +28,10 @@ var engine_level := 0.0   # 0..1 thrust fraction
 var engine_solid := 0.0   # 0..1 share of thrust from solid motors
 var air := 1.0            # 0 vacuum .. 1 sea level
 var wind_level := 0.0     # 0..1 from dynamic pressure
+var jet_level := 0.0      # 0..1 jets' throttle (they whine, rockets roar)
+var _env_jet := 0.0
+var _jet_phase := 0.0
+var _jet_phase2 := 0.0
 var master_volume := 0.8
 var muted := false
 
@@ -96,6 +100,7 @@ func set_flight(thrust_frac: float, solid_frac: float, pressure_frac: float, q_k
 func silence_beds() -> void:
 	engine_level = 0.0
 	wind_level = 0.0
+	jet_level = 0.0
 
 
 func play(kind: String, strength := 1.0) -> void:
@@ -131,7 +136,16 @@ func _process(_dt: float) -> void:
 			_crackle = 1.0
 		_crackle *= 0.995
 		roar += _crackle * white * 0.6 * engine_solid * air
-		s += roar * _env_eng * 0.55
+		s += roar * _env_eng * 0.55 * (1.0 - 0.6 * _env_jet)
+		# --- jet whine: a turbine tone that climbs with the throttle, a
+		# fifth above it, and the hiss of the intake
+		_env_jet += (jet_level - _env_jet) * 0.0003
+		if _env_jet > 0.001:
+			var f := 380.0 + 900.0 * _env_jet
+			_jet_phase = fmod(_jet_phase + f * dt, 1.0)
+			_jet_phase2 = fmod(_jet_phase2 + f * 1.5 * dt, 1.0)
+			var tone := sin(TAU * _jet_phase) * 0.5 + sin(TAU * _jet_phase2) * 0.2
+			s += (tone * 0.10 + (_lp1 - _lp2) * 1.6) * _env_jet * air
 		# --- wind: band-passed noise, gusting
 		_wind_lp += (white - _wind_lp) * 0.08
 		_wind_lp2 += (_wind_lp - _wind_lp2) * 0.04

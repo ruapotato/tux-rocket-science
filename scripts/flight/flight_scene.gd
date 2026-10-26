@@ -1703,6 +1703,7 @@ func _update_audio(t: Dictionary) -> void:
 	# the rumble is about thrust, scaled by how big the engines are
 	var size := clampf(tmax / 400000.0, 0.35, 1.0)
 	Sfx.set_flight(frac * size, solid_frac, t.pressure / 101325.0, t.dynamic_pressure / 1000.0)
+	Sfx.jet_level = clampf(float(t.get("throttle", 0.0)), 0.0, 1.0) if float(t.get("jet_flow", 0.0)) > 0.0 else 0.0
 	# a canopy opening is the moment the drag-feed shows a new chute state
 	var open := 0
 	var feed: PackedFloat64Array = session.core.vessel_render(session.active, session.active)
