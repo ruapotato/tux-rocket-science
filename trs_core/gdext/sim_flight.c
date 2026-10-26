@@ -1084,28 +1084,72 @@ static void m_transfer_window(void *self, const trs_val *a, trs_val *r) {
 	ret_json(r, j);
 }
 
+/* A planner run on its own copy of the bodies, so it can run on a worker
+ * thread while the world keeps ticking. */
+typedef struct {
+	trs_system sys;
+	trs_orbit o;
+	double t, want;
+	int body, to, correction;
+} plan_job;
+
+static int plan_snapshot(trs_sim_handle *h, const trs_val *a, plan_job *j) {
+	if (!ok_vessel(h, a[0].i) || a[1].i <= 0 || a[1].i >= h->world->sys.count)
+		return 0;
+	j->sys = h->world->sys;
+	trs_vessel_orbit(h->world, (int)a[0].i, &j->o);
+	j->body = h->world->vessels[a[0].i].body;
+	j->t = h->world->t;
+	j->to = (int)a[1].i;
+	j->want = a[2].f;
+	j->correction = a[3].b;
+	return 1;
+}
+
+static void plan_solve(const plan_job *j, trs_val *r) {
+	trs_node nd;
+	double pe = NAN;
+	int ok = j->correction ? trs_plan_correction(&j->sys, j->body, &j->o, j->t, j->to, j->want, 2.0e7, &nd, &pe)
+			       : trs_plan_transfer(&j->sys, j->body, &j->o, j->t, j->to, j->want, &nd, &pe);
+	double outv[6] = { nd.t, nd.pro, nd.nrm, nd.rad, ok, pe };
+	ret_doubles(r, outv, 6);
+}
+
 /* plan_transfer(id, to_body, want_pe_alt, correction) -> [t, pro, nrm, rad,
  * reaches (0/1), pe_alt] (empty if no window from here). correction:
  * a small burn on the way instead of the departure. */
 static void m_plan_transfer(void *self, const trs_val *a, trs_val *r) {
+	plan_job j;
+	if (plan_snapshot(H(self), a, &j))
+		plan_solve(&j, r);
+	else
+		ret_doubles(r, NULL, 0);
+}
+
+/* plan_start(same args as plan_transfer) -> bool: snapshot the state now;
+ * plan_run() then solves it (safe on a worker thread, one at a time) and
+ * returns what plan_transfer would have. */
+static void m_plan_start(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
-	double outv[6] = { 0, 0, 0, 0, 0, NAN };
-	int n = 0;
-	if (ok_vessel(h, a[0].i) && a[1].i > 0 && a[1].i < h->world->sys.count) {
-		trs_orbit o;
-		trs_vessel_orbit(h->world, (int)a[0].i, &o);
-		int body = h->world->vessels[a[0].i].body;
-		trs_node nd;
-		double pe = NAN;
-		int ok;
-		if (a[3].b) {
-			ok = trs_plan_correction(&h->world->sys, body, &o, h->world->t, (int)a[1].i, a[2].f, 2.0e7, &nd, &pe);
-		} else
-			ok = trs_plan_transfer(&h->world->sys, body, &o, h->world->t, (int)a[1].i, a[2].f, &nd, &pe);
-		outv[0] = nd.t, outv[1] = nd.pro, outv[2] = nd.nrm, outv[3] = nd.rad, outv[4] = ok, outv[5] = pe;
-		n = 6;
-	}
-	ret_doubles(r, outv, n);
+	plan_job *j = malloc(sizeof *j);
+	int ok = j && plan_snapshot(h, a, j);
+	if (!ok)
+		free(j), j = NULL;
+	free(h->plan_job);
+	h->plan_job = j;
+	r->b = ok;
+}
+
+static void m_plan_run(void *self, const trs_val *a, trs_val *r) {
+	(void)a;
+	trs_sim_handle *h = H(self);
+	plan_job *j = h->plan_job;
+	h->plan_job = NULL;
+	if (j)
+		plan_solve(j, r);
+	else
+		ret_doubles(r, NULL, 0);
+	free(j);
 }
 
 /* closest_approach(id, target, nodes, horizon) -> JSON {t, dist, rel_speed,
@@ -1434,6 +1478,8 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "trajectory", m_trajectory, S, 4, { I, A, I, F }, { "id", "nodes", "max_patches", "horizon" } },
 	{ "transfer_window", m_transfer_window, S, 3, { I, I, F }, { "from", "to", "park_r" } },
 	{ "plan_transfer", m_plan_transfer, A, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
+	{ "plan_start", m_plan_start, B, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
+	{ "plan_run", m_plan_run, A, 0, { 0 }, { 0 } },
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },

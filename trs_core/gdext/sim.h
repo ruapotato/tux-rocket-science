@@ -33,6 +33,7 @@ typedef struct {
 	trs_part_catalog catalog;
 	int catalog_loaded;
 	char err[256];
+	void *plan_job; /* plan_start() snapshot for a background plan_run() */
 } trs_sim_handle;
 
 extern const trs_method_def TRS_SIM_WORLD_METHODS[];

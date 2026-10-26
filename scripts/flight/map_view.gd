@@ -57,6 +57,8 @@ var _del_btn: Button
 var _orbit_btns: Array[Button] = []
 var _plan_btn: Button
 var _plan_note := ""
+var _plan_thread: Thread  ## the planner runs here so the game keeps going
+var _plan_stale := false  ## the craft burned while it planned
 var _shift_note := ""
 var selected_node := -1
 var _overlay: Control
@@ -468,14 +470,34 @@ func _plan() -> void:
 	var kind := _plan_kind(t)
 	if kind == "":
 		return
+	if _plan_thread != null:
+		return
 	var info: Dictionary = _bodies[focus_body].info
 	var want: float = (float(info.atmosphere_height) + 40000.0) if float(info.get("atmosphere_height", 0.0)) > 0.0 else float(info.radius) * 0.15
-	_plan_note = "Planning..."
-	_panel.text += "\n[color=#ffcf6a]Planning...[/color]"
-	await get_tree().process_frame
-	var r: PackedFloat64Array = session.core.plan_transfer(session.active, focus_body, want, kind == "correction")
+	var core = session.core
+	if not core.plan_start(session.active, focus_body, want, kind == "correction"):
+		return
+	var id := session.active
+	var serial: int = core.vessel_serial(id)
+	_plan_note = "Planning... (the game keeps running)"
+	_plan_stale = false
+	_plan_btn.disabled = true
+	_plan_thread = Thread.new()
+	_plan_thread.start(core.plan_run)
+	while _plan_thread != null and _plan_thread.is_alive():
+		await get_tree().process_frame
+		if session.telemetry().get("thrust", 0.0) > 0.0:
+			_plan_stale = true
+	if _plan_thread == null:  # joined by _exit_tree
+		return
+	var r: PackedFloat64Array = _plan_thread.wait_to_finish()
+	_plan_thread = null
+	_plan_btn.disabled = false
 	if r.size() < 6:
 		_plan_note = "no window from here"
+		return
+	if _plan_stale or not session.still(id, serial) or session.active != id or r[0] < session.time() + 5.0:
+		_plan_note = "the craft moved on while planning: plan again"
 		return
 	session.nodes.append([r[0], r[1], r[2], r[3]])
 	session.nodes.sort_custom(func(a, b): return a[0] < b[0])
@@ -723,3 +745,11 @@ func _draw_overlay() -> void:
 			continue
 		var p := _cam.unproject_position(p3)
 		ov.draw_string(font, p + Vector2(10, 18), b.info.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0, 0.85))
+
+
+## A plan still running when the map goes away finishes first: it reads
+## only its own copy of the bodies, but the Thread must be joined.
+func _exit_tree() -> void:
+	if _plan_thread != null:
+		_plan_thread.wait_to_finish()
+		_plan_thread = null

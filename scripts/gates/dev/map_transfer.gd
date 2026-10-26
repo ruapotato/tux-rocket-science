@@ -54,13 +54,18 @@ func run(runner: Node) -> Dictionary:
 	scene._map.focus_body = 3
 	for i in 3:
 		await tree.process_frame
+	var kinfo: Dictionary = scene._map._bodies[3].info
+	var direct: PackedFloat64Array = scene.session.core.plan_transfer(scene.session.active, 3, float(kinfo.atmosphere_height) + 40000.0, false)
 	var t0 := Time.get_ticks_msec()
+	var f0 := Engine.get_process_frames()
 	await scene._map._plan()
-	log.append("plan button (%d ms): %s; nodes %s" % [Time.get_ticks_msec() - t0, scene._map._plan_note, scene.session.nodes])
+	var frames := Engine.get_process_frames() - f0
+	log.append("plan button (%d ms, %d frames meanwhile): %s; nodes %s; direct %s" % [Time.get_ticks_msec() - t0, frames, scene._map._plan_note, scene.session.nodes, direct])
+	var ok: bool = frames > 10 and scene.session.nodes.size() == 1 and absf(float(scene.session.nodes[0][1]) - direct[1]) < 1e-9
 	for i in 10:
 		await tree.process_frame
 	log.append(scene._map._panel.get_parsed_text())
 	if DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
 		scene.get_viewport().get_texture().get_image().save_png("user://dev_shots/map_transfer_planned.png")
-	return {"status": "PASS", "log": "\n".join(log)}
+	return {"status": "PASS" if ok else "FAIL", "log": "\n".join(log)}

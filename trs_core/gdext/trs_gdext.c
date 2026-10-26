@@ -45,6 +45,7 @@ static void sim_destroy(void *self) {
 	}
 	if (h->catalog_loaded)
 		trs_catalog_free(&h->catalog);
+	free(h->plan_job);
 	free(h);
 }
 
