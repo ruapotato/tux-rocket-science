@@ -844,6 +844,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 					trs_json_push(pods, trs_json_new_num(vs->craft->parts[k].uid));
 			trs_json_set(vj, "pods", pods);
 			trs_json_set(vj, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
+			trs_json_set(vj, "anchored", trs_json_new_bool(vs->anchored));
 			/* something aboard can steer it (a pod, a probe core, a
 			 * wheel): a craft, not debris */
 			int control = 0;
@@ -986,6 +987,12 @@ static void m_vessel_eva_exit(void *self, const trs_val *a, trs_val *r) {
 	r->i = -1;
 	if (ok_vessel(h, a[0].i))
 		r->i = trs_world_eva_exit(h->world, (int)a[0].i, (int)a[1].i, trs_catalog_find(&h->catalog, "eva_penguin"));
+}
+
+/* eva_plant_flag(eva) -> the flag's vessel id, or -1 */
+static void m_eva_plant_flag(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = ok_vessel(h, a[0].i) ? trs_world_plant_flag(h->world, (int)a[0].i, trs_catalog_find(&h->catalog, "flag")) : -1;
 }
 
 /* eva_hatch(eva, target) -> [part index (-1: none in reach), gap m, part uid] */
@@ -1359,6 +1366,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_undock", m_vessel_undock, I, 1, { I }, { "id" } },
 	{ "vessel_eva_exit", m_vessel_eva_exit, I, 2, { I, I }, { "id", "part" } },
 	{ "vessel_rename", m_vessel_rename, V, 2, { I, S }, { "id", "name" } },
+	{ "eva_plant_flag", m_eva_plant_flag, I, 1, { I }, { "eva" } },
 	{ "eva_hatch", m_eva_hatch, A, 2, { I, I }, { "eva", "target" } },
 	{ "vessel_set_walk", m_vessel_set_walk, V, 4, { I, F, F, B }, { "id", "east", "north", "jump" } },
 	{ "target_info", m_target_info, S, 2, { I, I }, { "id", "target" } },

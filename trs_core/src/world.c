@@ -166,7 +166,7 @@ void trs_vessel_orbit(const trs_world *w, int id, trs_orbit *o) {
 
 void trs_vessel_set_mode(trs_world *w, int id, trs_mode mode) {
 	trs_vessel *vs = &w->vessels[id];
-	if (vs->mode == mode)
+	if (vs->mode == mode || (vs->anchored && vs->mode == TRS_MODE_LANDED))
 		return;
 	const trs_body *b = &w->sys.bodies[vs->body];
 	/* leave the current mode: materialise r, v, q, w */

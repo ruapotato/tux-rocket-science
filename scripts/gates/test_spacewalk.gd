@@ -20,7 +20,7 @@
 ## empty, the penguin vessel holds them) and the camera looks back at the
 ## rocket past it; S walks it toward the camera at its walking speed; Space jumps; walking back to the rocket (it
 ## climbs the hull to the hatch), F climbs back in (the penguin vessel is gone and the pod has its
-## crew again); out of reach, F says so. With a screen, shots of each.
+## crew again); out of reach, F says so; G plants a flag. With a screen, shots of each.
 extends RefCounted
 
 const DIR := "user://dev_shots/"
@@ -100,6 +100,15 @@ func run(runner: Node) -> Dictionary:
 		await _frames(tree, 3)
 		await _shot(scene, "jump")
 	s.step_ticks(100)
+
+	# 3b. G plants a flag; it stays out of "debris"
+	scene._key(_ev(KEY_G))
+	var flags := (JSON.parse_string(s.core.vessel_list()) as Array).filter(func(v): return v.get("anchored", false))
+	_check(flags.size() == 1 and str(flags[0].name).contains(crew[0]) and s.active == pen,
+		"G: %s planted (%s)" % [flags[0].name if not flags.is_empty() else "no flag", scene.hud._toast.text])
+	if gpu:
+		await _frames(tree, 10)
+		await _shot(scene, "flag")
 
 	# 4. back to the pod and in
 	var steps := 0

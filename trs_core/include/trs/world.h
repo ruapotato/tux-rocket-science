@@ -129,6 +129,7 @@ typedef struct {
 	trs_quat fixed_q; /* body-fixed attitude in LANDED mode */
 	int serial;       /* unique for the world's lifetime: tells a reused slot from the vessel that died there */
 	int clamped;      /* held by launch clamps until the first stage */
+	int anchored;     /* fixed to the ground for good (a planted flag): stays LANDED */
 	int lifted;       /* left the pad (its pieces inherit it): liftoff_t is set */
 	double liftoff_t; /* when the clamps let go, s (mission clock zero) */
 	int contacts;     /* contact points touching the ground last tick */
@@ -250,6 +251,10 @@ int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def);
  * part or a ladder on the craft is within the penguin's reach (it climbs
  * the ladder); -1 otherwise. *dist gets the gap to the nearest of them. */
 int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist);
+/* A penguin on EVA (standing) plants a flag (catalog part `flag_def`) a
+ * little ahead of it: a one-part vessel anchored to the ground for good.
+ * Returns its id, or -1 (not standing on anything, or not a penguin). */
+int trs_world_plant_flag(trs_world *w, int eva, int flag_def);
 /* Is vessel id a penguin on EVA? */
 int trs_vessel_is_eva(const trs_vessel *vs);
 /* Solar power (kW) reaching vessel vs's panels now; *sunlit: out of shadow. */

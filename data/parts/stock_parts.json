@@ -739,6 +739,20 @@
       "shape": { "type": "ladder", "radius": 0.05, "height": 3.0, "width": 0.4 },
       "nodes": [],
       "surface_attach": true
+    },
+    {
+      "id": "flag",
+      "name": "PASA Flag",
+      "category": "eva",
+      "description": "Planted by a penguin on EVA (G): it stays where it stands, for good.",
+      "mass": 5,
+      "cost": 0,
+      "crash_tolerance": 50,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.3, "cd_bottom": 0.3, "cd_side": 0.6, "area_axial": 0.005, "area_side": 0.3 },
+      "shape": { "type": "flag", "radius": 0.03, "height": 2.0 },
+      "nodes": [],
+      "surface_attach": false
     }
   ]
 }

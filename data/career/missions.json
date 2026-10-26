@@ -1,5 +1,5 @@
 {
-  "_doc": "PASA missions, offered in order once their 'after' missions are done. goal kinds: altitude (above sea level, m, at body), space (above the air at body), orbit (periapsis above the air at body), soi (in body's sphere of influence), landed (at body, not at Floe's launch site), eva_space (a penguin out in space), eva_landed (a penguin standing on body), recover_from (a craft that landed at body comes home), rendezvous (within value m of another craft), docked.",
+  "_doc": "PASA missions, offered in order once their 'after' missions are done. goal kinds: altitude (above sea level, m, at body), space (above the air at body), orbit (periapsis above the air at body), soi (in body's sphere of influence), landed (at body, not at Floe's launch site), eva_space (a penguin out in space), eva_landed (a penguin standing on body), recover_from (a craft that landed at body comes home), flag (a flag planted on body), rendezvous (within value m of another craft), docked.",
   "start_funds": 25000,
   "recovery_refund": 0.9,
   "missions": [
@@ -17,6 +17,8 @@
       "funds": 50000, "research": 40, "after": ["krill_soi"] },
     { "id": "krill_walk", "title": "Footprints", "text": "A penguin standing on Krill.", "goal": { "kind": "eva_landed", "body": "krill" },
       "funds": 30000, "research": 30, "after": ["krill_land"] },
+    { "id": "krill_flag", "title": "Flag on Krill", "text": "Plant a PASA flag on Krill (a penguin on EVA presses G).", "goal": { "kind": "flag", "body": "krill" },
+      "funds": 20000, "research": 25, "after": ["krill_walk"] },
     { "id": "krill_home", "title": "Home from Krill", "text": "Bring a craft that landed on Krill back to Floe and recover it.", "goal": { "kind": "recover_from", "body": "krill" },
       "funds": 80000, "research": 60, "after": ["krill_land"] },
     { "id": "kelp_soi", "title": "To Kelp", "text": "Leave Floe behind and reach Kelp, the green world sunward of it.", "goal": { "kind": "soi", "body": "kelp" },

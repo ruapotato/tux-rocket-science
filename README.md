@@ -120,7 +120,7 @@ WASD and **Shift / Ctrl** push it about on a few kilograms of mono. Walk up to a
 seat (or a **Waddle Ladder** on its craft: the penguin climbs it to the hatch) and **F** climbs
 back in. The Hopper and the Krill Lander carry ladders; fit one to any rocket whose pod stands
 out of reach of the ground.
-A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
+**G** plants a PASA flag where the penguin stands (it stays there for good). A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
 recovered at home, or lost.
 
 **Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak

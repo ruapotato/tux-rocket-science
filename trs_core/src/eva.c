@@ -119,6 +119,43 @@ int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def) {
 	return nid;
 }
 
+#define FLAG_AHEAD 0.8 /* m from the penguin's centre to the pole */
+
+int trs_world_plant_flag(trs_world *w, int eva, int flag_def) {
+	if (eva < 0 || eva >= w->nvessels || !w->vessels[eva].alive || !trs_vessel_is_eva(&w->vessels[eva]))
+		return -1;
+	trs_vessel *ev = &w->vessels[eva];
+	const trs_part_catalog *cat = ev->craft->cat;
+	if (flag_def < 0 || flag_def >= cat->count || ev->contacts == 0 || ev->mode != TRS_MODE_PHYSICS)
+		return -1;
+	const trs_body *b = &w->sys.bodies[ev->body];
+	trs_v3 up, north, east;
+	trs_local_frame(ev->r, &up, &north, &east);
+	/* ahead of the penguin: the way its own +Z faces, flat on the ground */
+	trs_v3 fwd = quat_rotate(ev->q, v3(0, 0, 1));
+	fwd = v3_sub(fwd, v3_scale(up, v3_dot(fwd, up)));
+	fwd = v3_len(fwd) > 1e-6 ? v3_norm(fwd) : north;
+	trs_v3 at = v3_add(ev->r, v3_scale(fwd, FLAG_AHEAD));
+	const trs_part_def *fd = &cat->defs[flag_def];
+	double ground = trs_body_terrain_at(b, w->t, at);
+	at = v3_scale(v3_norm(at), b->radius + ground + fd->height * 0.5);
+	trs_craft c;
+	trs_craft_init(&c, cat);
+	trs_craft_add(&c, flag_def, -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	snprintf(c.name, sizeof c.name, "%s", "Flag");
+	int id = trs_world_add_craft(w, &c, ev->body, at, v3_cross(trs_body_omega(b), at), quat_from_to(v3(0, 1, 0), v3_norm(at)));
+	trs_craft_free(&c);
+	if (id < 0)
+		return -1;
+	trs_vessel *fv = &w->vessels[id];
+	fv->w = trs_body_omega(b);
+	trs_vessel_set_mode(w, id, TRS_MODE_LANDED);
+	fv->anchored = 1;
+	fv->landed = 1;
+	fv->sas = TRS_SAS_OFF;
+	return id;
+}
+
 int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist) {
 	*dist = INFINITY;
 	if (eva < 0 || target < 0 || eva >= w->nvessels || target >= w->nvessels || eva == target)

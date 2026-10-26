@@ -256,6 +256,45 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 		free(w);
 		trs_craft_free(&t);
 	}
+	/* 3c. a flag planted on Floe stays where it stands: anchored, it can't
+	 *     be put into physics (nothing knocks it over), it survives the
+	 *     world save, and a penguin in the air can't plant one */
+	{
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int id = stand(w, &pc, floe, pd->height * 0.5, 0.05);
+		w->vessels[id].sas = TRS_SAS_UPRIGHT;
+		run(w, 2);
+		int fdef = trs_catalog_find(&cat, "flag");
+		int fid = trs_world_plant_flag(w, id, fdef);
+		trs_vessel *fv = &w->vessels[fid];
+		const trs_body *F = &sys.bodies[floe];
+		trs_v3 fixed0 = fv->fixed_r;
+		trs_vessel_set_mode(w, fid, TRS_MODE_PHYSICS);
+		run(w, 5);
+		trs_v3 fr, fvv;
+		trs_vessel_state(w, fid, &fr, &fvv);
+		double above = v3_len(fr) - F->radius - trs_body_terrain_at(F, w->t, fr) - cat.defs[fdef].height * 0.5;
+		double dist = v3_len(v3_sub(fr, w->vessels[id].r));
+		trs_json *wj = trs_world_to_json(w);
+		trs_world *w2 = malloc(sizeof(trs_world));
+		trs_world_init(w2, &sys, 0);
+		char err[256];
+		int back = trs_world_from_json(w2, &cat, wj, err, sizeof err) && w2->vessels[fid].anchored && w2->vessels[fid].mode == TRS_MODE_LANDED;
+		trs_json_free(wj);
+		trs_world_free(w2);
+		free(w2);
+		w->vessels[id].jump = 1;
+		run(w, 0.2);
+		int midair = trs_world_plant_flag(w, id, fdef);
+		int ok = fid >= 0 && fv->mode == TRS_MODE_LANDED && fv->anchored && v3_len(v3_sub(fv->fixed_r, fixed0)) == 0 && fabs(above) < 0.01 &&
+				dist > 0.5 && dist < 1.2 && back && midair < 0;
+		failed += !ok;
+		trs_log_printf(out, "%s flag planted %.2f m from the penguin, its foot %.3f m off the ground; still LANDED and unmoved after a request for physics; kept through the save %s; none while jumping (%d)\n",
+				ok ? "ok  " : "FAIL", dist, above, back ? "yes" : "no", midair);
+		trs_world_free(w);
+		free(w);
+	}
 	/* 4. the jetpack in deep space: dv = F t / m, mono = F t / (Isp g0) */
 	{
 		trs_system vsys;

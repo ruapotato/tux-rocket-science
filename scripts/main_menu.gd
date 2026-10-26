@@ -253,7 +253,7 @@ func _toggle_flights() -> void:
 	title.add_theme_font_size_override("font_size", 18)
 	v.add_child(title)
 	var all := Sim.vessels()
-	var debris := all.filter(func(x): return not x.get("control", true) and (x.crew_names as Array).is_empty())
+	var debris := all.filter(func(x): return not x.get("control", true) and (x.crew_names as Array).is_empty() and not x.get("anchored", false))
 	if debris.size() >= 2:
 		var sweep := Button.new()
 		sweep.text = "Scrap all debris (%d)" % debris.size()

@@ -48,6 +48,13 @@ var path := ""
 var _body_names := {}
 
 
+## A flag went up on `body`: missions that want one there are done.
+func flag_planted(body: String) -> void:
+	for m in active_missions():
+		if m.goal.kind == "flag" and m.goal.body == body:
+			complete(m)
+
+
 func _init() -> void:
 	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/bodies/austra_system.json")).bodies:
 		_body_names[b.id] = b.name

@@ -508,7 +508,10 @@ func _key(k: InputEventKey) -> void:
 		KEY_P:
 			_deploy_chutes()
 		KEY_G:
-			_toggle_legs()
+			if session.telemetry().get("eva", false):
+				_plant_flag()
+			else:
+				_toggle_legs()
 		KEY_R:
 			_toggle_rcs()
 		KEY_Y:
@@ -1094,6 +1097,24 @@ func _action_group(g: int) -> void:
 	hud.toast("Action group %d: %s" % [g, "%d thing%s happened" % [n, "" if n == 1 else "s"] if n > 0 else "nothing in it (hover a part in the hangar and press %d)" % g], 2.0)
 
 
+## G on EVA: the penguin plants a PASA flag where it stands.
+func _plant_flag() -> void:
+	var t := session.telemetry()
+	var who: String = t.get("name", "A penguin")
+	var fid: int = session.core.eva_plant_flag(session.active)
+	if fid < 0:
+		hud.toast("Feet on the ground first: a flag needs something to stand in", 2.0)
+		return
+	var body := Career.body_name(str(t.body))
+	session.core.vessel_rename(fid, "%s's flag on %s" % [who, body])
+	Sfx.play("stage")
+	_react("orbit", 3.0)
+	hud.toast("%s plants a PASA flag on %s!" % [who, body], 3.5)
+	if persistent:
+		Career.flag_planted(str(t.body))
+		Sim.save_game()
+
+
 ## B: wheel brakes on / off.
 func _toggle_brakes() -> void:
 	var t := session.telemetry()
@@ -1477,7 +1498,7 @@ func _render(delta: float) -> void:
 		hint = "No power: point a solar panel at the sun (or wait for daylight) to charge the batteries"
 	if t.get("eva", false):
 		var near := _hatch_near()
-		hint = "On EVA · WASD walk · Space jump · R jetpack (%.1f kg mono)%s" % [t.get("mono", 0.0),
+		hint = "On EVA · WASD walk · Space jump · G plant a flag · R jetpack (%.1f kg mono)%s" % [t.get("mono", 0.0),
 			" · F climbs into %s" % near if near != "" else ""]
 	hud.set_hint(hint)
 	_recover_btn.visible = _launched and t.landed and t.body == "floe" and t.surface_speed < 0.5 and (_mission.max_altitude > 500.0 or _resumed)

@@ -193,6 +193,34 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A PASA flag: a pole (its foot at the part's bottom) and an orange cloth
+## with a white disc, held out stiff on a top bar (there's no wind on Krill).
+static func _flag(root: Node3D, sh: Dictionary) -> void:
+	var h: float = sh.get("height", 2.0)
+	var pole := CylinderMesh.new()
+	pole.top_radius = 0.02
+	pole.bottom_radius = 0.025
+	pole.height = h
+	_mesh(root, pole, mat("steel", STEEL, 0.75, 0.3))
+	var bar := CylinderMesh.new()
+	bar.top_radius = 0.012
+	bar.bottom_radius = 0.012
+	bar.height = 0.9
+	_mesh(root, bar, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.BACK, PI / 2), Vector3(0.45, h * 0.5 - 0.02, 0)))
+	var cloth := BoxMesh.new()
+	cloth.size = Vector3(0.9, 0.55, 0.01)
+	_mesh(root, cloth, mat("orange", ORANGE, 0.0, 0.45), Transform3D(Basis.IDENTITY, Vector3(0.47, h * 0.5 - 0.3, 0)))
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.16
+	disc.bottom_radius = 0.16
+	disc.height = 0.014
+	_mesh(root, disc, mat("dial", WHITE, 0.0, 0.3), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0.47, h * 0.5 - 0.3, 0)))
+	var tip := SphereMesh.new()
+	tip.radius = 0.035
+	tip.height = 0.07
+	_mesh(root, tip, mat("yellow", YELLOW, 0.2, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, h * 0.5 + 0.02, 0)))
+
+
 ## A ladder: two rails standing off the hull with rungs every 30 cm.
 static func _ladder(root: Node3D, sh: Dictionary) -> void:
 	var h: float = sh.get("height", 3.0)
@@ -450,6 +478,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_panel(root, sh)
 		"ladder":
 			_ladder(root, sh)
+		"flag":
+			_flag(root, sh)
 		"antenna":
 			_antenna(root, sh)
 		"wheel":
