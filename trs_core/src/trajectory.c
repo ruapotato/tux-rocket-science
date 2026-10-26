@@ -208,3 +208,111 @@ int trs_transfer_window(const trs_system *sys, int from, int to, double t, doubl
 	out->dv_eject = park_r > 0 ? sqrt(out->v_inf * out->v_inf + 2 * a->mu / park_r) - sqrt(a->mu / park_r) : 0;
 	return 1;
 }
+
+/* ---- planning a transfer -------------------------------------------------------- */
+
+/* How good a burn is: a path into `to`'s sphere scores its periapsis error
+ * (well below zero); otherwise how far outside the sphere it passes. */
+static double plan_score(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe,
+		const trs_node *n, double horizon, double *pe_alt) {
+	trs_patch p[8];
+	int np = trs_trajectory(sys, body, o, t_now, n, 1, horizon, p, 8);
+	const trs_body *tb = &sys->bodies[to];
+	double best = INFINITY;
+	*pe_alt = NAN;
+	for (int i = 0; i < np; i++) {
+		if (p[i].body == to) {
+			*pe_alt = p[i].orbit.rp - tb->radius;
+			return -1e12 + fabs(*pe_alt - want_pe);
+		}
+		if (p[i].body != tb->parent)
+			continue;
+		double t0 = p[i].t0, t1 = fmin(p[i].t1, t_now + horizon);
+		for (int k = 0; k <= 400; k++) {
+			double t = t0 + (t1 - t0) * k / 400.0;
+			trs_v3 r, v, rb, vb;
+			trs_orbit_state_at(&p[i].orbit, t, &r, &v);
+			trs_body_state(sys, to, t, &rb, &vb);
+			best = fmin(best, v3_len(v3_sub(r, rb)) - tb->soi);
+		}
+	}
+	return best;
+}
+
+int trs_plan_transfer(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe_alt,
+		trs_node *out, double *pe_alt) {
+	trs_transfer tr;
+	trs_v3 r0, v0;
+	trs_orbit_state_at(o, t_now, &r0, &v0);
+	if (!trs_transfer_window(sys, body, to, t_now, v3_len(r0), &tr) || o->period <= 0)
+		return 0;
+	double horizon = tr.wait + tr.flight_time * 1.6 + o->period;
+	double best = INFINITY, bt = 0, bdv = 0, pe;
+	/* a grid over one parking orbit around the window, and the burn size
+	 * around the Hohmann estimate */
+	for (int i = 0; i < 48; i++) {
+		double t = t_now + fmax(0, tr.wait - o->period * 0.5) + o->period * i / 48.0;
+		for (int j = 0; j < 13; j++) {
+			double dv = tr.dv_eject * (0.9 + 0.025 * j);
+			trs_node n = { t, dv, 0, 0 };
+			double s = plan_score(sys, body, o, t_now, to, want_pe_alt, &n, horizon, &pe);
+			if (s < best)
+				best = s, bt = t, bdv = dv;
+		}
+	}
+	/* then a pattern search on (time, size), also trying a little
+	 * normal burn to match the planes */
+	double st = o->period / 48.0, sdv = tr.dv_eject * 0.025, snrm = tr.dv_eject * 0.02, srad = tr.dv_eject * 0.02, bn = 0, br = 0;
+	for (int it = 0; it < 600 && (st > 1e-4 || sdv > 1e-5); it++) {
+		int moved = 0;
+		double cand[8][4] = { { st, 0, 0, 0 }, { -st, 0, 0, 0 }, { 0, sdv, 0, 0 }, { 0, -sdv, 0, 0 }, { 0, 0, snrm, 0 }, { 0, 0, -snrm, 0 },
+			{ 0, 0, 0, srad }, { 0, 0, 0, -srad } };
+		for (int c = 0; c < 8; c++) {
+			trs_node n = { bt + cand[c][0], bdv + cand[c][1], bn + cand[c][2], br + cand[c][3] };
+			if (n.t < t_now + 1)
+				continue;
+			double s = plan_score(sys, body, o, t_now, to, want_pe_alt, &n, horizon, &pe);
+			if (s < best) {
+				best = s, bt = n.t, bdv = n.pro, bn = n.nrm, br = n.rad;
+				moved = 1;
+			}
+		}
+		if (!moved)
+			st *= 0.5, sdv *= 0.5, snrm *= 0.5, srad *= 0.5;
+		else if (best < -1e11 && fabs(best + 1e12) < 0.25 * sys->bodies[to].soi)
+			break; /* well inside: a correction on the way does the fine aiming */
+	}
+	out->t = bt, out->pro = bdv, out->nrm = bn, out->rad = br;
+	trs_node fin = *out;
+	plan_score(sys, body, o, t_now, to, want_pe_alt, &fin, horizon, pe_alt);
+	return best < -1e11;
+}
+
+int trs_plan_correction(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe_alt,
+		double horizon, trs_node *out, double *pe_alt) {
+	/* a small burn a minute from now, searched by pattern steps in
+	 * (prograde, normal, radial) from nothing */
+	double t = t_now + 60, b[3] = { 0, 0, 0 }, step = 10, pe;
+	trs_node n0 = { t, 0, 0, 0 };
+	double best = plan_score(sys, body, o, t_now, to, want_pe_alt, &n0, horizon, &pe);
+	for (int it = 0; it < 2000 && step > 1e-6; it++) {
+		int moved = 0;
+		for (int k = 0; k < 6; k++) {
+			double c[3] = { b[0], b[1], b[2] };
+			c[k / 2] += (k % 2 ? -step : step);
+			trs_node n = { t, c[0], c[1], c[2] };
+			double s = plan_score(sys, body, o, t_now, to, want_pe_alt, &n, horizon, &pe);
+			if (s < best) {
+				best = s, b[0] = c[0], b[1] = c[1], b[2] = c[2];
+				moved = 1;
+			}
+		}
+		if (!moved)
+			step *= 0.5;
+		else if (best < -1e11 && fabs(best + 1e12) < 1000)
+			break;
+	}
+	out->t = t, out->pro = b[0], out->nrm = b[1], out->rad = b[2];
+	plan_score(sys, body, o, t_now, to, want_pe_alt, out, horizon, pe_alt);
+	return best < -1e11;
+}

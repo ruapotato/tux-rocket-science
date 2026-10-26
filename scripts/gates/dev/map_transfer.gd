@@ -51,4 +51,16 @@ func run(runner: Node) -> Dictionary:
 		if DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			scene.get_viewport().get_texture().get_image().save_png("user://dev_shots/map_transfer_%d.png" % b)
+	scene._map.focus_body = 3
+	for i in 3:
+		await tree.process_frame
+	var t0 := Time.get_ticks_msec()
+	await scene._map._plan()
+	log.append("plan button (%d ms): %s; nodes %s" % [Time.get_ticks_msec() - t0, scene._map._plan_note, scene.session.nodes])
+	for i in 10:
+		await tree.process_frame
+	log.append(scene._map._panel.get_parsed_text())
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		scene.get_viewport().get_texture().get_image().save_png("user://dev_shots/map_transfer_planned.png")
 	return {"status": "PASS", "log": "\n".join(log)}

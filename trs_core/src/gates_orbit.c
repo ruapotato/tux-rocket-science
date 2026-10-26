@@ -27,6 +27,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define DEG (TRS_PI / 180.0)
 
@@ -482,6 +483,41 @@ trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir) {
 		trs_log_printf(log, "%s Floe -> Kelp: lead %.2f deg (now %.2f), window in %.1f d (synodic %.1f d), then the lead is off by %.4f deg; %.1f d flight, eject %.1f m/s from 100 km\n",
 				ok ? "ok  " : "FAIL", tr.phase_best * 180 / TRS_PI, tr.phase_now * 180 / TRS_PI, tr.wait / 86400, tr.synodic / 86400,
 				lead_err * 180 / TRS_PI, tr.flight_time / 86400, tr.dv_eject);
+		/* the planner: a burn from a 100 km orbit near that window, into
+		 * Kelp's sphere, its periapsis above the air */
+		trs_orbit po;
+		trs_orbit_from_elements(&po, F->mu, park, 0, 0, 0, 0, 0, 1000);
+		trs_node nd;
+		double pe;
+		clock_t c0 = clock();
+		int planned = trs_plan_transfer(&sys, floe, &po, 1000, kelp, 150000, &nd, &pe);
+		double secs = (double)(clock() - c0) / CLOCKS_PER_SEC;
+		trs_patch pp[8];
+		int np = trs_trajectory(&sys, floe, &po, 1000, &nd, 1, tr.wait + tr.flight_time * 1.6 + po.period, pp, 8);
+		int reaches = 0;
+		for (int k = 0; k < np; k++)
+			reaches |= pp[k].body == kelp;
+		ok = planned && reaches && fabs(nd.t - 1000 - tr.wait) < po.period && fabs(nd.pro / tr.dv_eject - 1) < 0.15 && pe > K->atm.height;
+		failed += !ok;
+		trs_log_printf(log, "%s planned: burn %.1f m/s prograde %+.1f normal, %.2f h from the window; into Kelp's sphere %s, periapsis %.0f km (asked 150, air to %.0f) in %.1f s\n",
+				ok ? "ok  " : "FAIL", nd.pro, nd.nrm, (nd.t - 1000 - tr.wait) / 3600, reaches ? "yes" : "no", pe / 1000, K->atm.height / 1000, secs);
+		/* and on the way, a week out: a correction to a 150 km pass */
+		double tc = nd.t + 7 * 86400;
+		trs_orbit cruise = { 0 };
+		int cruise_body = -1;
+		for (int k = 0; k < np; k++)
+			if (pp[k].body == 0 && pp[k].t0 <= tc && pp[k].t1 >= tc)
+				cruise = pp[k].orbit, cruise_body = 0;
+		trs_node cn;
+		double pe2 = NAN;
+		c0 = clock();
+		int fixed = cruise_body == 0 && trs_plan_correction(&sys, 0, &cruise, tc, kelp, 150000, tr.flight_time, &cn, &pe2);
+		secs = (double)(clock() - c0) / CLOCKS_PER_SEC;
+		double cdv = sqrt(cn.pro * cn.pro + cn.nrm * cn.nrm + cn.rad * cn.rad);
+		ok = fixed && fabs(pe2 - 150000) < 5000 && cdv < 200;
+		failed += !ok;
+		trs_log_printf(log, "%s a week out, a correction of %.2f m/s brings the Kelp periapsis to %.1f km (asked 150) in %.1f s\n",
+				ok ? "ok  " : "FAIL", cdv, pe2 / 1000, secs);
 		trs_transfer none;
 		int bad = trs_transfer_window(&sys, floe, trs_system_find(&sys, "krill"), 0, 0, &none);
 		failed += bad;

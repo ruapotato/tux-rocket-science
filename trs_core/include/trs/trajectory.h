@@ -72,5 +72,16 @@ typedef struct {
 /* park_r: radius of a circular parking orbit around `from` for dv_eject
  * (0: skip). Returns 0 if the two don't share a parent. */
 int trs_transfer_window(const trs_system *sys, int from, int to, double t, double park_r, trs_transfer *out);
+/* A burn (maneuver node) from orbit o around `body` that carries the craft
+ * into planet `to`'s sphere of influence, aiming for a periapsis of
+ * want_pe_alt there: searched around the next transfer window. Returns 1
+ * if the path gets there (*pe_alt then its periapsis altitude). */
+int trs_plan_transfer(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe_alt,
+		trs_node *out, double *pe_alt);
+/* A small correction burn a minute after t_now (on the way, around the
+ * star) that brings the periapsis at `to` to want_pe_alt, looking ahead
+ * `horizon` s. Returns 1 if the path then enters `to`'s sphere. */
+int trs_plan_correction(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe_alt,
+		double horizon, trs_node *out, double *pe_alt);
 
 #endif

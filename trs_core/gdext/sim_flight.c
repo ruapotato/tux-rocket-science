@@ -1084,6 +1084,30 @@ static void m_transfer_window(void *self, const trs_val *a, trs_val *r) {
 	ret_json(r, j);
 }
 
+/* plan_transfer(id, to_body, want_pe_alt, correction) -> [t, pro, nrm, rad,
+ * reaches (0/1), pe_alt] (empty if no window from here). correction:
+ * a small burn on the way instead of the departure. */
+static void m_plan_transfer(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double outv[6] = { 0, 0, 0, 0, 0, NAN };
+	int n = 0;
+	if (ok_vessel(h, a[0].i) && a[1].i > 0 && a[1].i < h->world->sys.count) {
+		trs_orbit o;
+		trs_vessel_orbit(h->world, (int)a[0].i, &o);
+		int body = h->world->vessels[a[0].i].body;
+		trs_node nd;
+		double pe = NAN;
+		int ok;
+		if (a[3].b) {
+			ok = trs_plan_correction(&h->world->sys, body, &o, h->world->t, (int)a[1].i, a[2].f, 2.0e7, &nd, &pe);
+		} else
+			ok = trs_plan_transfer(&h->world->sys, body, &o, h->world->t, (int)a[1].i, a[2].f, &nd, &pe);
+		outv[0] = nd.t, outv[1] = nd.pro, outv[2] = nd.nrm, outv[3] = nd.rad, outv[4] = ok, outv[5] = pe;
+		n = 6;
+	}
+	ret_doubles(r, outv, n);
+}
+
 /* closest_approach(id, target, nodes, horizon) -> JSON {t, dist, rel_speed,
  * body_index, pos, target_pos} (positions relative to that body, sim axes)
  * or {} if the two paths never share a body in that time */
@@ -1409,6 +1433,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "sas_direction", m_sas_direction, A, 2, { I, S }, { "id", "mode" } },
 	{ "trajectory", m_trajectory, S, 4, { I, A, I, F }, { "id", "nodes", "max_patches", "horizon" } },
 	{ "transfer_window", m_transfer_window, S, 3, { I, I, F }, { "from", "to", "park_r" } },
+	{ "plan_transfer", m_plan_transfer, A, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },

@@ -96,7 +96,10 @@ nose east, brakes on. Try the stock **Gull**: SPACE starts the jet, Z, B, and pu
 
 **Transfer windows**: on the map, focus another planet (Tab) or Austra to see when the next
 Hohmann window opens (how far the target should lead your planet, and how far it does now), the
-burn to leave from your orbit, and the trip time.
+burn to leave from your orbit, and the trip time. **Plan transfer to ...** puts a maneuver node there for you: a burn near
+the window whose path enters the planet's sphere of influence. Once you're on the way round
+Austra, **Plan correction to ...** finds a small burn that brings your pass down to just above
+its air (or, airless, its surface).
 
 **Kelp**: the second planet, sunward of Floe: green, a little bigger, with 1.2x Floe's surface
 gravity and air three and a half times as thick reaching 110 km up. Parachutes bite hard there,

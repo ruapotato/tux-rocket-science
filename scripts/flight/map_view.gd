@@ -55,6 +55,8 @@ var _panel: RichTextLabel
 var _warp_btn: Button
 var _del_btn: Button
 var _orbit_btns: Array[Button] = []
+var _plan_btn: Button
+var _plan_note := ""
 var _shift_note := ""
 var selected_node := -1
 var _overlay: Control
@@ -197,6 +199,11 @@ func setup(s: FlightSession) -> void:
 		orb.add_child(ob)
 		_orbit_btns.append(ob)
 	v.add_child(orb)
+	_plan_btn = Button.new()
+	_plan_btn.focus_mode = Control.FOCUS_NONE
+	_plan_btn.visible = false
+	_plan_btn.pressed.connect(_plan)
+	v.add_child(_plan_btn)
 	_del_btn = Button.new()
 	_del_btn.text = "Delete node"
 	_del_btn.focus_mode = Control.FOCUS_NONE
@@ -442,8 +449,52 @@ func _transfer_text(t: Dictionary) -> String:
 	return out
 
 
+## What the plan button would do now: "transfer", "correction" or "".
+func _plan_kind(t: Dictionary) -> String:
+	var home := int(t.get("body_index", -1))
+	if focus_body <= 0 or home < 0 or focus_body == home or int(_bodies[focus_body].info.parent) != 0:
+		return ""
+	if home == 0:
+		return "correction"
+	if int(_bodies[home].info.parent) == 0 and t.get("orbit", {}).get("ap_alt") != null:
+		return "transfer"
+	return ""
+
+
+## The burn to the focused planet: from orbit at the next window, or (on
+## the way round the star) a small correction to a pass just above its air.
+func _plan() -> void:
+	var t := session.telemetry()
+	var kind := _plan_kind(t)
+	if kind == "":
+		return
+	var info: Dictionary = _bodies[focus_body].info
+	var want: float = (float(info.atmosphere_height) + 40000.0) if float(info.get("atmosphere_height", 0.0)) > 0.0 else float(info.radius) * 0.15
+	_plan_note = "Planning..."
+	_panel.text += "\n[color=#ffcf6a]Planning...[/color]"
+	await get_tree().process_frame
+	var r: PackedFloat64Array = session.core.plan_transfer(session.active, focus_body, want, kind == "correction")
+	if r.size() < 6:
+		_plan_note = "no window from here"
+		return
+	session.nodes.append([r[0], r[1], r[2], r[3]])
+	session.nodes.sort_custom(func(a, b): return a[0] < b[0])
+	selected_node = session.nodes.find(session.nodes.filter(func(n): return n[0] == r[0])[0])
+	if r[4] > 0.5:
+		_plan_note = "%s: into %s's sphere, passing %s up" % ["Transfer" if kind == "transfer" else "Correction", info.name, FlightHUD.fmt_dist(r[5])]
+	else:
+		_plan_note = "best found misses %s: try again nearer the window" % info.name
+	Sfx.play("click")
+
+
 func _update_panel(t: Dictionary) -> void:
 	var txt := "[b]%s[/b] · focus [color=#8fd0ff]%s[/color]\n" % [t.get("name", ""), _bodies[focus_body].info.name]
+	var pk := _plan_kind(t)
+	_plan_btn.visible = pk != ""
+	if pk != "":
+		_plan_btn.text = ("Plan transfer to %s" if pk == "transfer" else "Plan correction to %s") % _bodies[focus_body].info.name
+	if _plan_note != "":
+		txt += "[color=#9fe08a]%s[/color]\n" % _plan_note
 	if session.nodes.is_empty():
 		txt += "[color=#9fb4cc]No maneuver nodes. Click the orbit line to add one.[/color]"
 		_warp_btn.disabled = true
