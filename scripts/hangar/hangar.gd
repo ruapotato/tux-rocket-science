@@ -483,6 +483,9 @@ func _refresh_readouts() -> void:
 		var cost := Career.craft_cost(ids)
 		t += "\n[color=#9fb4cc]Cost[/color] [color=%s]%s[/color]   [color=#9fb4cc]PASA has[/color] %s" % [
 			"#7fe08a" if cost <= Career.funds else "#ff6a5a", Career.money(cost), Career.money(Career.funds)]
+	var ag := action_group_summary()
+	if ag != "":
+		t += "\n[color=#9fb4cc]Action groups[/color] " + ag
 	for w in craft_warnings():
 		t += "\n[color=%s]%s[/color]" % ["#ff6a5a" if w.bad else "#ffcf5a", w.text]
 	_summary.text = t
@@ -490,6 +493,25 @@ func _refresh_readouts() -> void:
 
 ## Things a new player would want to know before launching: [{bad, text}]
 ## (bad = it will not work; otherwise a likely surprise).
+## "1: 2 engines · 3: chute": what each action group holds.
+func action_group_summary() -> String:
+	var out := PackedStringArray()
+	for g in range(1, 10):
+		var kinds := {}
+		for i in model.parts.size():
+			if g in model.groups_of(i):
+				var d := Sim.part(model.parts[i].part)
+				var kind := "engine" if d.has("engine") else ("chute" if d.has("parachute") else ("leg" if d.has("leg") else
+					("brakes" if d.has("wheel") else ("dock" if d.has("docking") else "part"))))
+				kinds[kind] = int(kinds.get(kind, 0)) + 1
+		if not kinds.is_empty():
+			var bits := PackedStringArray()
+			for kname in kinds:
+				bits.append("%d %ss" % [kinds[kname], kname] if kinds[kname] > 1 and kname != "brakes" else kname)
+			out.append("[b]%d[/b] %s" % [g, ", ".join(bits)])
+	return "  ·  ".join(out)
+
+
 func craft_warnings() -> Array:
 	var out := []
 	if _stats.is_empty() or _stats.has("error"):
@@ -926,6 +948,14 @@ func _key(k: InputEventKey) -> void:
 				_rebuild_loose()
 		KEY_ESCAPE:
 			_drop_held()
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+			# action groups: the hovered part (and its symmetric copies) in or out
+			if _hover >= 0 and _held.is_empty():
+				var g: int = k.keycode - KEY_0
+				var on := model.toggle_group(_hover, g)
+				var nm: String = Sim.part(model.parts[_hover].part).name
+				toast("%s %s action group %d (now in %s)" % [nm, "added to" if on else "taken out of", g,
+					", ".join(model.groups_of(_hover).map(func(x): return str(x))) if not model.groups_of(_hover).is_empty() else "none"])
 		KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_MINUS, KEY_EQUAL:
 			# thrust limit of the hovered engine (and its symmetric copies)
 			if _hover >= 0 and _held.is_empty() and Sim.part(model.parts[_hover].part).has("engine"):
@@ -1245,5 +1275,7 @@ func _update_hint() -> void:
 		_hint.text = "%s — click to pick up · Del removes · Q/E/W/S/A/D rotate · arrows/PgUp/PgDn offset (Shift: bigger steps)" % Sim.part(p.part).name
 		if Sim.part(p.part).has("engine"):
 			_hint.text += " · [ ] thrust limit (now %d%%)" % roundi(float(p.get("limit", 1.0)) * 100.0)
+		var gs := model.groups_of(_hover)
+		_hint.text += " · 1-9 action group (in %s)" % (", ".join(gs.map(func(x): return str(x))) if not gs.is_empty() else "none")
 	else:
 		_hint.text = "Pick a part on the left · click a part on the craft to pick it up · right-drag orbit · wheel zoom · middle-drag or PgUp/PgDn move view up/down · F frame craft · Ctrl+Z/Y undo/redo · Ctrl+S save"

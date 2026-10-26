@@ -235,6 +235,10 @@ void trs_world_dock(trs_world *w, int a, int pa, int b, int pb);
 /* Lets go at docking port `port` of vessel id (either side of a docked
  * pair). Returns the new vessel, or -1 if that port holds nothing. */
 int trs_world_undock(trs_world *w, int id, int port);
+/* Action group g (1..9) of vessel id: engines in it toggle (a solid only
+ * lights), parachutes arm, legs toggle, wheels toggle the brakes, a docked
+ * port lets go. Returns how many things happened. */
+int trs_world_action_group(trs_world *w, int id, int g);
 /* A craft on wheels on the runway east of the launch site at (lat, lon):
  * nose east, wheels down, brakes on. Returns the vessel id. */
 int trs_world_launch_runway(trs_world *w, const trs_craft *c, int body, double lat, double lon);

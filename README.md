@@ -62,6 +62,11 @@ itself down a level at a time and always keeps at least 15 s of real time before
 flyby whose low point safely clears the surface isn't slowed. On the map, a path that dips into
 the air carries on in dim red to where it would hit the ground without drag.
 
+**Action groups**: in the hangar, hover a part and press **1-9** to put it (and its symmetric
+copies) into that group, or take it out; the readouts list what each group holds. In flight the
+same key fires the group: engines toggle on and off (a solid booster only lights), parachutes
+arm, legs go down or up, wheels toggle the brakes, and a docked port lets go.
+
 The staging list's **+ new stage** opens an empty stage card: drag part chips (or a whole stage)
 onto it.
 
@@ -73,7 +78,8 @@ helps whenever an engine burns. With SAS on, letting go of the keys stops the tu
 holds that attitude (it doesn't swing back to where you started).
 
 **Power**: pods and probe cores carry batteries, and reaction torque runs on them (about 0.1 kW
-per kN m at full effort; probe cores also draw a little all the time). Out of power, the wheels
+per kN m at full effort; probe cores also draw a little all the time, and a crew switches its
+pod off when it isn't steering). Out of power, the wheels
 stop and an uncrewed probe can't be steered at all. **Sunfin Solar Panels** give 1.5 kW facing
 the sun at Floe's distance (more nearer Austra, none in a planet's shadow; their face looks out
 from the hull), **Krill-Cell Batteries** store more, and a **Squawk Antenna** sends experiment

@@ -122,6 +122,7 @@ int trs_craft_from_json(trs_craft *c, const trs_part_catalog *cat, const trs_jso
 		const trs_json *f = trs_json_get(pj, "fuel");
 		if (f && f->type == TRS_JSON_NUMBER)
 			c->parts[k].fuel = f->num;
+		c->parts[k].groups = (int)trs_json_num(pj, "groups", 0) & 0x1ff;
 		const trs_json *l = trs_json_get(pj, "limit");
 		if (l && l->type == TRS_JSON_NUMBER) {
 			if (!(l->num > 0 && l->num <= 1)) {
@@ -167,6 +168,8 @@ trs_json *trs_craft_to_json(const trs_craft *c) {
 			trs_json_set(pj, "fuel", trs_json_new_num(p->fuel));
 		if (p->limit != 1)
 			trs_json_set(pj, "limit", trs_json_new_num(p->limit));
+		if (p->groups)
+			trs_json_set(pj, "groups", trs_json_new_num(p->groups));
 		trs_json_push(parts, pj);
 	}
 	trs_json_set(j, "parts", parts);

@@ -493,6 +493,8 @@ func _key(k: InputEventKey) -> void:
 			_toggle_brakes()
 		KEY_O:
 			_toggle_science()
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+			_action_group(k.keycode - KEY_0)
 		KEY_F5:
 			quicksave()
 		KEY_F9:
@@ -1082,6 +1084,14 @@ func quickload() -> bool:
 	Sfx.play("click")
 	hud.toast("Quickloaded: back to T+%s" % FlightHUD.fmt_time(session.time() - mission_start), 2.5)
 	return true
+
+
+## 1-9: the craft's action groups (set up in the hangar).
+func _action_group(g: int) -> void:
+	var n: int = session.core.vessel_action_group(session.active, g)
+	session._telemetry_tick = -1
+	Sfx.play("click" if n == 0 else "ignite")
+	hud.toast("Action group %d: %s" % [g, "%d thing%s happened" % [n, "" if n == 1 else "s"] if n > 0 else "nothing in it (hover a part in the hangar and press %d)" % g], 2.0)
 
 
 ## B: wheel brakes on / off.

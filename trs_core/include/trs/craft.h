@@ -49,6 +49,7 @@ typedef struct {
 	trs_quat rot;         /* vessel-local orientation */
 	int stage;            /* activation stage, -1 = none */
 	int sym;              /* symmetry group (0 = none), editor metadata */
+	int groups;           /* action groups it belongs to: bit g-1 for group g (1..9) */
 	double fuel;          /* remaining propellant, kg (liquid or solid) */
 	double mono;          /* remaining monopropellant, kg */
 	double ec;            /* stored electricity, kJ */

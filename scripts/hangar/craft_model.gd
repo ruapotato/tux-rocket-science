@@ -57,6 +57,7 @@ func to_meta() -> Dictionary:
 			"parent_node": p.parent_node,
 			"stage": int(p.stage),
 			"sym": int(p.sym),
+			"groups": int(p.get("groups", 0)),
 		})
 	return {"name": craft_name, "description": description, "parts": out_parts}
 
@@ -96,6 +97,8 @@ func load_bin(meta: Dictionary, floats: PackedFloat64Array) -> void:
 			"stage": int(p.stage),
 			"sym": int(p.sym),
 		}
+		if int(p.get("groups", 0)) != 0:
+			q["groups"] = int(p.groups)
 		if floats[o + 7] >= 0.0:
 			q["fuel"] = floats[o + 7]
 		if floats[o + 8] != 1.0:
@@ -334,6 +337,8 @@ func _extract(i: int) -> Dictionary:
 		})
 		if p.has("limit"):
 			out[-1]["limit"] = p.limit
+		if p.has("groups"):
+			out[-1]["groups"] = p.groups
 	return {"parts": out, "root_node": parts[i].node}
 
 
@@ -424,6 +429,8 @@ func _append_held(held: Dictionary, parent: int, node: String, parent_node: Stri
 		})
 		if h.has("limit"):
 			parts[-1]["limit"] = h.limit
+		if h.has("groups"):
+			parts[-1]["groups"] = h.groups
 	return base
 
 
@@ -854,6 +861,35 @@ func merge_stage(s: int, t: int) -> void:
 			p.stage = t
 	_compact_stages()
 	changed.emit()
+
+
+## Puts part i (and its symmetric counterparts) into action group g
+## (1..9), or takes it out if it is in. Returns whether it is in now.
+func toggle_group(i: int, g: int) -> bool:
+	if i < 0 or i >= parts.size() or g < 1 or g > 9:
+		return false
+	checkpoint()
+	var bit := 1 << (g - 1)
+	var on := (int(parts[i].get("groups", 0)) & bit) == 0
+	for c in counterparts(i):
+		var m := int(parts[c].get("groups", 0))
+		m = (m | bit) if on else (m & ~bit)
+		if m == 0:
+			parts[c].erase("groups")
+		else:
+			parts[c]["groups"] = m
+	changed.emit()
+	return on
+
+
+## The groups part i is in, as numbers.
+func groups_of(i: int) -> Array:
+	var out := []
+	var m := int(parts[i].get("groups", 0)) if i >= 0 and i < parts.size() else 0
+	for g in range(1, 10):
+		if m & (1 << (g - 1)):
+			out.append(g)
+	return out
 
 
 ## Engine thrust limit (fraction of full, 0.05..1) for part i and its

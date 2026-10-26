@@ -66,6 +66,26 @@ func run(_runner: Node) -> Dictionary:
 	_editor_ops()
 	_insert_ops()
 	_staging_ops()
+	# action groups set in the hangar survive the file, byte for byte
+	var mg := CraftModel.new()
+	mg.load_text(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "sidecar.craft.json"))
+	var eng := -1
+	for i in mg.parts.size():
+		if mg.parts[i].part == "engine_lifter" and mg.parts[i].sym != 0:
+			eng = i
+	var in1 := mg.toggle_group(eng, 1)
+	mg.toggle_group(eng, 4)
+	var ta := mg.save_text()
+	var mb := CraftModel.new()
+	mb.load_text(ta)
+	var copies := 0
+	for i in mb.parts.size():
+		if mb.groups_of(i) == [1, 4]:
+			copies += 1
+	var out := mb.toggle_group(eng, 1)
+	_check(in1 and copies == mg.counterparts(eng).size() and copies >= 2 and mb.save_text() != ta and not out and mb.groups_of(eng) == [4]
+		and (func(): var mc := CraftModel.new(); mc.load_text(ta); return mc.save_text() == ta).call(),
+		"action groups: a side engine and its %d symmetric copies in groups 1 and 4, through the file and back byte for byte; taken out of 1 again" % (copies - 1))
 	return {"status": "FAIL" if _failed else "PASS", "log": "\n".join(_log)}
 
 

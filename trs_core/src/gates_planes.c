@@ -262,3 +262,99 @@ trs_gate_status trs_gate_planes(trs_log *out, const char *data_dir) {
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }
+
+/* test-actions: action groups. Groups set on parts survive the craft file
+ * and the world save; group 1 lights a liquid engine and a second press
+ * puts it out (thrust there and gone); group 2 arms the parachute; group 3
+ * puts the legs down and up; an empty group does nothing. */
+static int stack_on(trs_craft *c, const trs_part_catalog *cat, int parent, const char *id) {
+	int di = trs_catalog_find(cat, id);
+	const trs_attach_node *pb = trs_part_node(trs_craft_def(c, parent), "bottom");
+	const trs_attach_node *ct = trs_part_node(&cat->defs[di], "top");
+	return trs_craft_add(c, di, parent, "top", "bottom", v3_sub(v3_add(c->parts[parent].pos, pb->pos), ct->pos), quat_identity(), 0, 0);
+}
+
+trs_gate_status trs_gate_actions(trs_log *out, const char *data_dir) {
+	trs_part_catalog cat;
+	trs_system sys;
+	char path[1024], err[256];
+	if (!trs_gate_load_catalog(out, data_dir, &cat))
+		return TRS_GATE_FAIL;
+	snprintf(path, sizeof path, "%s/bodies/austra_system.json", data_dir);
+	if (!trs_system_load(&sys, path, err, sizeof err))
+		return TRS_GATE_FAIL;
+	int floe = trs_system_find(&sys, "floe");
+	const trs_body *F = &sys.bodies[floe];
+	int failed = 0;
+	trs_craft c;
+	trs_craft_init(&c, &cat);
+	int pod = trs_craft_add(&c, trs_catalog_find(&cat, "pod_1"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+	int tank = stack_on(&c, &cat, pod, "tank_m");
+	int eng = stack_on(&c, &cat, tank, "engine_small");
+	int chute = trs_craft_add(&c, trs_catalog_find(&cat, "parachute"), pod, "bottom", "top", v3(0, 0.675, 0), quat_identity(), 0, 0);
+	int leg = trs_craft_add(&c, trs_catalog_find(&cat, "landing_leg"), tank, "", "", v3(0, 0, 0.625), quat_identity(), -1, 0);
+	c.parts[eng].groups = 1 << 0;
+	c.parts[chute].groups = 1 << 1;
+	c.parts[leg].groups = 1 << 2;
+	/* through the craft file and back */
+	trs_json *j = trs_craft_to_json(&c);
+	trs_craft back;
+	int read = trs_craft_from_json(&back, &cat, j, err, sizeof err);
+	trs_json_free(j);
+	{
+		int ok = read && back.parts[eng].groups == 1 && back.parts[chute].groups == 2 && back.parts[leg].groups == 4 && back.parts[pod].groups == 0;
+		failed += !ok;
+		trs_log_printf(out, "%s groups through the craft file: engine %d, chute %d, leg %d, pod %d\n", ok ? "ok  " : "FAIL",
+				back.parts[eng].groups, back.parts[chute].groups, back.parts[leg].groups, back.parts[pod].groups);
+	}
+	trs_world *w = malloc(sizeof(trs_world));
+	trs_world_init(w, &sys, 0);
+	trs_v3 r = v3(F->radius + 100000, 0, 0);
+	int id = trs_world_add_craft(w, &back, floe, r, v3(0, sqrt(F->mu / v3_len(r)), 0), quat_identity());
+	trs_vessel *vs = &w->vessels[id];
+	vs->throttle = 1;
+	vs->sas = TRS_SAS_OFF;
+	double fuel0 = vs->craft->parts[tank].fuel;
+	int n1 = trs_world_action_group(w, id, 1);
+	trs_world_step_physics(w);
+	double burned = fuel0 - vs->craft->parts[tank].fuel;
+	int n1b = trs_world_action_group(w, id, 1);
+	double fuel1 = vs->craft->parts[tank].fuel;
+	trs_world_step_physics(w);
+	double burned_after = fuel1 - vs->craft->parts[tank].fuel;
+	{
+		int ok = n1 == 1 && n1b == 1 && burned > 0 && burned_after == 0;
+		failed += !ok;
+		trs_log_printf(out, "%s group 1: engine lit (%.4f kg burned in a tick), pressed again: out (%.4f kg)\n", ok ? "ok  " : "FAIL", burned, burned_after);
+	}
+	{
+		int n2 = trs_world_action_group(w, id, 2);
+		int armed = vs->craft->parts[chute].chute == TRS_CHUTE_ARMED;
+		int n3 = trs_world_action_group(w, id, 3), down = vs->craft->parts[leg].legs_deployed;
+		int n3b = trs_world_action_group(w, id, 3), up = !vs->craft->parts[leg].legs_deployed;
+		int n9 = trs_world_action_group(w, id, 9);
+		int ok = n2 == 1 && armed && n3 == 1 && down && n3b == 1 && up && n9 == 0;
+		failed += !ok;
+		trs_log_printf(out, "%s group 2 arms the chute (%s); group 3 legs down (%s) and up (%s); group 9, empty: %d things\n", ok ? "ok  " : "FAIL",
+				armed ? "armed" : "no", down ? "yes" : "no", up ? "yes" : "no", n9);
+	}
+	/* through the world save */
+	{
+		trs_json *wj = trs_world_to_json(w);
+		trs_world *w2 = malloc(sizeof(trs_world));
+		trs_world_init(w2, &sys, 0);
+		int loaded = trs_world_from_json(w2, &cat, wj, err, sizeof err);
+		int ok = loaded && w2->vessels[id].craft->parts[eng].groups == 1 && w2->vessels[id].craft->parts[leg].groups == 4;
+		failed += !ok;
+		trs_log_printf(out, "%s groups through the world save: %s\n", ok ? "ok  " : "FAIL", ok ? "kept" : err);
+		trs_json_free(wj);
+		trs_world_free(w2);
+		free(w2);
+	}
+	trs_world_free(w);
+	free(w);
+	trs_craft_free(&back);
+	trs_craft_free(&c);
+	trs_catalog_free(&cat);
+	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
+}

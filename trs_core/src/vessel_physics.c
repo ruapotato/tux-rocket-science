@@ -1380,6 +1380,49 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 	return made < max ? made : max;
 }
 
+int trs_world_action_group(trs_world *w, int id, int g) {
+	trs_vessel *vs = &w->vessels[id];
+	if (!vs->craft || g < 1 || g > 9)
+		return 0;
+	int bit = 1 << (g - 1), n = 0, brake = 0, port = -1;
+	trs_craft *c = vs->craft;
+	for (int i = 0; i < c->count; i++) {
+		trs_part *p = &c->parts[i];
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (!(p->groups & bit))
+			continue;
+		if (d->propellant != TRS_PROP_NONE && d->propellant != TRS_PROP_SOLID) {
+			p->engine_on = !p->engine_on; /* a solid, once lit, can't be put out */
+			n++;
+		} else if (d->propellant == TRS_PROP_SOLID && !p->engine_on) {
+			p->engine_on = 1;
+			n++;
+		}
+		if (d->is_parachute && p->chute == TRS_CHUTE_STOWED) {
+			p->chute = TRS_CHUTE_ARMED;
+			n++;
+		}
+		if (d->is_leg) {
+			p->legs_deployed = !p->legs_deployed;
+			vs->dirty = 1; /* the feet move */
+			n++;
+		}
+		if (d->is_wheel)
+			brake = 1;
+		if (d->is_dock && port < 0 && trs_craft_def(c, i)->is_dock && (p->parent >= 0 && trs_craft_def(c, p->parent)->is_dock))
+			port = i; /* the joint between two ports: this one sits on the other */
+	}
+	if (brake) {
+		vs->brakes = !vs->brakes;
+		n++;
+	}
+	if (vs->mode == TRS_MODE_LANDED && n > 0 && !vs->clamped)
+		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+	if (port >= 0 && trs_world_undock(w, id, port) >= 0)
+		n++;
+	return n;
+}
+
 int trs_vessel_deploy_chutes(trs_world *w, int id) {
 	trs_vessel *vs = &w->vessels[id];
 	if (!vs->craft)

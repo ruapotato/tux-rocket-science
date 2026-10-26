@@ -121,6 +121,12 @@ static void m_vessel_use_ec(void *self, const trs_val *a, trs_val *r) {
 	}
 }
 
+/* vessel_action_group(id, g) -> how many things happened */
+static void m_vessel_action_group(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = ok_vessel(h, a[0].i) ? trs_world_action_group(h->world, (int)a[0].i, (int)a[1].i) : 0;
+}
+
 /* vessel_set_brakes(id, on) */
 static void m_vessel_set_brakes(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -1343,6 +1349,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "flight_launch", m_flight_launch, I, 2, { S, S }, { "craft", "body" } },
 	{ "flight_launch_runway", m_flight_launch_runway, I, 2, { S, S }, { "craft", "body" } },
 	{ "vessel_use_ec", m_vessel_use_ec, B, 2, { I, F }, { "id", "kj" } },
+	{ "vessel_action_group", m_vessel_action_group, I, 2, { I, I }, { "id", "group" } },
 	{ "vessel_set_brakes", m_vessel_set_brakes, V, 2, { I, B }, { "id", "on" } },
 	{ "flight_spawn_orbit", m_flight_spawn_orbit, I, 4, { S, S, F, F }, { "craft", "body", "altitude", "inc_deg" } },
 	{ "vessel_set_throttle", m_vessel_set_throttle, V, 2, { I, F }, { "id", "throttle" } },

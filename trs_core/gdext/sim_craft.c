@@ -89,6 +89,7 @@ static trs_json *meta_of(const trs_craft *c) {
 		trs_json_set(pj, "parent_node", trs_json_new_str(p->parent_node));
 		trs_json_set(pj, "stage", trs_json_new_num(p->stage));
 		trs_json_set(pj, "sym", trs_json_new_num(p->sym));
+		trs_json_set(pj, "groups", trs_json_new_num(p->groups));
 		trs_json_push(parts, pj);
 	}
 	trs_json_set(m, "parts", parts);
@@ -131,6 +132,7 @@ static int craft_from_bin(trs_sim_handle *h, const char *meta, const trs_val *fl
 				v3(f[0], f[1], f[2]), q, (int)trs_json_num(pj, "stage", -1), (int)trs_json_num(pj, "sym", 0));
 		if (f[7] >= 0)
 			c->parts[k].fuel = f[7];
+		c->parts[k].groups = (int)trs_json_num(pj, "groups", 0) & 0x1ff;
 		if (!(f[8] > 0 && f[8] <= 1)) {
 			snprintf(err, errlen, "part %d: thrust limit must be in (0, 1]", i);
 			trs_craft_free(c);

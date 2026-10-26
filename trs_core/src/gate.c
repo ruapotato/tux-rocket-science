@@ -93,6 +93,7 @@ trs_gate_status trs_gate_eva(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_planes(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_power(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_actions(trs_log *log, const char *data_dir);
 
 static const trs_gate_def GATES[] = {
 	{ "test-smoke", "M0", gate_smoke },
@@ -113,6 +114,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-approach", "M15", trs_gate_approach },
 	{ "test-planes", "M17", trs_gate_planes },
 	{ "test-power", "M18", trs_gate_power },
+	{ "test-actions", "M19", trs_gate_actions },
 	{ "test-craft-roundtrip", "M3", NULL },
 	{ "test-ascent", "M4", NULL },
 	{ "test-moon", "M5", NULL },
