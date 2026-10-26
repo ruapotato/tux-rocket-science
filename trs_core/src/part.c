@@ -121,6 +121,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->antenna_kj_per_point = trs_json_num(pw, "antenna_kj_per_point", 0);
 		d->antenna_fraction = trs_json_num(pw, "antenna_fraction", 0);
 	}
+	d->is_ladder = trs_json_get(j, "ladder") != NULL;
 	const trs_json *ev = trs_json_get(j, "eva");
 	if (ev) {
 		d->is_eva = 1;

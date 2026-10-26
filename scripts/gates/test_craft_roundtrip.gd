@@ -101,6 +101,9 @@ func _build_hopper() -> CraftModel:
 	var tank := _stack_below(m, dec, "tank_m")
 	_stack_below(m, tank, "engine_lifter")
 	m.attach_surface(CraftModel.held_single("fin"), tank, 0.0, -0.6, 3)
+	# a ladder from the tank's top down past the engine, for the crew on the pad
+	var h: float = Sim.part("tank_m").shape.height
+	m.attach_surface(CraftModel.held_single("ladder"), tank, PI / 3, h * 0.5 - Sim.part("ladder").shape.height * 0.5, 1)
 	return m
 
 
@@ -146,6 +149,9 @@ func _build_lander() -> CraftModel:
 	srb.parts.append({"part": "nosecone", "parent": 0, "node": "bottom", "parent_node": "top",
 		"pos": [0.0, 2.5 + 0.55, 0.0], "rot": DMath.q_identity(), "stage": -1, "sym": 0})
 	_attach_booster(m, decs[0], srb)
+	# a ladder between two legs, its foot 0.7 m clear of the ground (a slope must not catch it)
+	var lh: float = Sim.part("tank_m").shape.height
+	m.attach_surface(CraftModel.held_single("ladder"), lt, 0.0, lh * 0.5 - Sim.part("ladder").shape.height * 0.5 + 0.8, 1)
 	return m
 
 

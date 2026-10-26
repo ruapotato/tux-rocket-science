@@ -132,15 +132,14 @@ int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist) {
 	trs_vessel_state(w, target, &rt, &vt);
 	attitude_of(w, tv, &q, &om);
 	const trs_part_def *ed = trs_craft_def(ev->craft, 0);
-	/* the penguin climbs the hull to the hatch: what counts is the gap to
-	 * the nearest part of the craft (as a solid cylinder), and it goes in
-	 * at the crewed part nearest to it */
+	/* in at the crewed part nearest to it, if the penguin can reach that
+	 * part, or a ladder on the craft (it climbs the ladder to the hatch) */
 	trs_v3 local = v3_add(quat_rotate(quat_conj(q), v3_sub(re, rt)), tv->cm);
 	int best = -1;
 	double best_crew = INFINITY;
 	for (int i = 0; i < tv->craft->count; i++) {
 		const trs_part_def *d = trs_craft_def(tv->craft, i);
-		if (d->is_eva)
+		if (d->is_eva || !(d->crew > 0 || d->is_ladder))
 			continue;
 		const trs_part *p = &tv->craft->parts[i];
 		trs_v3 lp = quat_rotate(quat_conj(p->rot), v3_sub(local, p->pos));

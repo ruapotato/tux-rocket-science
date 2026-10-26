@@ -103,6 +103,7 @@ typedef struct {
 	 * eva_reach m of its hull */
 	int is_eva;
 	double eva_walk, eva_jump, eva_reach;
+	int is_ladder; /* a penguin within reach of it can climb it to the hatch */
 
 	/* wheel: a sprung foot wheel_length out along the
 	 * part's +Z (off the hull), rolling along the craft's nose with

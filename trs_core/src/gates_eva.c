@@ -220,6 +220,42 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 		free(w);
 		trs_craft_free(&pod);
 	}
+	/* 3b. a pod high on a tall tank: out of reach from the ground, until a
+	 *     ladder runs down the tank to where the penguin stands */
+	for (int with_ladder = 0; with_ladder < 2; with_ladder++) {
+		trs_craft t;
+		trs_craft_init(&t, &cat);
+		int pi = trs_catalog_find(&cat, "pod_1"), ti = trs_catalog_find(&cat, "tank_l"), li = trs_catalog_find(&cat, "ladder");
+		const trs_part_def *pd1 = &cat.defs[pi], *td = &cat.defs[ti], *ld = &cat.defs[li];
+		trs_craft_add(&t, ti, -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&t, pi, 0, "bottom", "top", v3(0, td->height * 0.5 + pd1->height * 0.5, 0), quat_identity(), -1, 0);
+		if (with_ladder) /* on the tank's side, its foot level with the tank's */
+			trs_craft_add(&t, li, 0, "", "", v3(0, -td->height * 0.5 + ld->height * 0.5, td->radius), quat_identity(), -1, 0);
+		trs_world *w = malloc(sizeof(trs_world));
+		trs_world_init(w, &sys, 0);
+		int tid = stand(w, &t, floe, td->height * 0.5, 0.05);
+		w->vessels[tid].sas = TRS_SAS_STABILITY;
+		run(w, 2);
+		/* a penguin on the ground beside the tank, on the ladder's side */
+		const trs_body *F = &sys.bodies[floe];
+		trs_v3 up = v3_norm(w->vessels[tid].r), side = quat_rotate(w->vessels[tid].q, v3(0, 0, 1));
+		side = v3_norm(v3_sub(side, v3_scale(up, v3_dot(side, up))));
+		trs_v3 at = v3_add(w->vessels[tid].r, v3_scale(side, td->radius + pd->radius + 0.3));
+		double ground = trs_body_terrain_at(F, w->t, at);
+		at = v3_scale(v3_norm(at), F->radius + ground + pd->height * 0.5 + 0.02);
+		int pid = trs_world_add_craft(w, &pc, floe, at, v3_cross(trs_body_omega(F), at), quat_from_to(v3(0, 1, 0), v3_norm(at)));
+		w->vessels[pid].sas = TRS_SAS_UPRIGHT;
+		run(w, 1);
+		double gap;
+		int hatch = trs_eva_hatch(w, pid, tid, &gap);
+		int ok = with_ladder ? hatch == 1 : hatch < 0;
+		failed += !ok;
+		trs_log_printf(out, "%s pod 3.75 m up a tank, penguin on the ground beside it%s: %s (%.2f m to the nearest of pod%s)\n", ok ? "ok  " : "FAIL",
+				with_ladder ? ", ladder down the tank" : "", hatch >= 0 ? "can climb in" : "out of reach", gap, with_ladder ? " and ladder" : "");
+		trs_world_free(w);
+		free(w);
+		trs_craft_free(&t);
+	}
 	/* 4. the jetpack in deep space: dv = F t / m, mono = F t / (Isp g0) */
 	{
 		trs_system vsys;

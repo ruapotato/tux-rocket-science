@@ -193,6 +193,26 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A ladder: two rails standing off the hull with rungs every 30 cm.
+static func _ladder(root: Node3D, sh: Dictionary) -> void:
+	var h: float = sh.get("height", 3.0)
+	var w: float = sh.get("width", 0.4)
+	var steel := mat("ladder", Color(0.85, 0.75, 0.2), 0.5, 0.4)
+	for x in [-w * 0.5, w * 0.5]:
+		var rail := CylinderMesh.new()
+		rail.top_radius = 0.018
+		rail.bottom_radius = 0.018
+		rail.height = h
+		_mesh(root, rail, steel, Transform3D(Basis.IDENTITY, Vector3(x, 0, 0.09)))
+	var n := int(h / 0.3)
+	for k in n + 1:
+		var rung := CylinderMesh.new()
+		rung.top_radius = 0.012
+		rung.bottom_radius = 0.012
+		rung.height = w
+		_mesh(root, rung, steel, Transform3D(Basis(Vector3.BACK, PI / 2), Vector3(0, -h * 0.5 + h * k / n, 0.09)))
+
+
 ## A solar panel: a dark blue cell grid in a frame, its face (+Z) out from
 ## the hull on a short stand-off.
 static func _panel(root: Node3D, sh: Dictionary) -> void:
@@ -428,6 +448,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_jet(root, sh)
 		"panel":
 			_panel(root, sh)
+		"ladder":
+			_ladder(root, sh)
 		"antenna":
 			_antenna(root, sh)
 		"wheel":

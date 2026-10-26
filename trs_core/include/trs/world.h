@@ -246,9 +246,9 @@ int trs_world_launch_runway(trs_world *w, const trs_craft *c, int body, double l
  * `part` of vessel `id` and stands beside its hull as a vessel of its own.
  * Returns the new vessel id or -1. */
 int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def);
-/* The crewed part of vessel `target` nearest penguin vessel `eva`, if any
- * part of its hull is within the penguin's reach (it climbs the rest);
- * -1 otherwise. *dist gets the gap to the hull. */
+/* The crewed part of vessel `target` nearest penguin vessel `eva`, if that
+ * part or a ladder on the craft is within the penguin's reach (it climbs
+ * the ladder); -1 otherwise. *dist gets the gap to the nearest of them. */
 int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist);
 /* Is vessel id a penguin on EVA? */
 int trs_vessel_is_eva(const trs_vessel *vs);

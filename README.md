@@ -116,8 +116,10 @@ repeat of the same result is worth half the last. Everything is in `data/career/
 **EVA**: **F** sends a penguin out of the pod you're flying. Out there, **WASD** walks (relative
 to the view, up to 1.6 m/s, as far as friction lets the feet push), **Space** jumps (2.2 m/s off
 the ground: knee height on Floe, a couple of metres on Krill), and **R** arms the jetpack: then
-WASD and **Shift / Ctrl** push it about on a few kilograms of mono. Walk up to any part of a
-craft with a free seat and **F** climbs back in (the penguin climbs the hull to the hatch).
+WASD and **Shift / Ctrl** push it about on a few kilograms of mono. Walk up to a pod with a free
+seat (or a **Waddle Ladder** on its craft: the penguin climbs it to the hatch) and **F** climbs
+back in. The Hopper and the Krill Lander carry ladders; fit one to any rocket whose pod stands
+out of reach of the ground.
 A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
 recovered at home, or lost.
 

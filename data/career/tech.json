@@ -2,7 +2,7 @@
   "_doc": "R&D: each node costs research and needs the nodes it lists. Parts in no node are always available.",
   "nodes": [
     { "id": "basics", "name": "Basic Rocketry", "cost": 0, "requires": [],
-      "parts": ["pod_1", "tank_s", "tank_m", "engine_lifter", "decoupler_stack", "fin", "parachute", "nosecone", "thermometer"] },
+      "parts": ["pod_1", "tank_s", "tank_m", "engine_lifter", "decoupler_stack", "fin", "parachute", "nosecone", "thermometer", "ladder"] },
     { "id": "rocketry", "name": "Bigger Rockets", "cost": 5, "requires": ["basics"],
       "parts": ["tank_l", "srb", "engine_small"] },
     { "id": "orbits", "name": "Getting to Orbit", "cost": 15, "requires": ["rocketry"],
