@@ -221,6 +221,8 @@ static double plan_score(const trs_system *sys, int body, const trs_orbit *o, do
 	double best = INFINITY;
 	*pe_alt = NAN;
 	for (int i = 0; i < np; i++) {
+		if (p[i].t1 <= n->t + 1e-6 && p[i].node < 0 && i + 1 < np)
+			continue; /* before the burn: not what it changes */
 		if (p[i].body == to) {
 			*pe_alt = p[i].orbit.rp - tb->radius;
 			return -1e12 + fabs(*pe_alt - want_pe);
@@ -291,17 +293,21 @@ int trs_plan_transfer(const trs_system *sys, int body, const trs_orbit *o, doubl
 int trs_plan_correction(const trs_system *sys, int body, const trs_orbit *o, double t_now, int to, double want_pe_alt,
 		double horizon, trs_node *out, double *pe_alt) {
 	/* a small burn a minute from now, searched by pattern steps in
-	 * (prograde, normal, radial) from nothing */
-	double t = t_now + 60, b[3] = { 0, 0, 0 }, step = 10, pe;
+	 * (prograde, normal, radial) from nothing; each m/s of it costs as much
+	 * as CORR_M_PER_MS of periapsis error, so it settles on a cheap burn */
+	const double CORR_M_PER_MS = 200.0;
+	double t = t_now + 60, b[3] = { 0, 0, 0 }, step = 2, pe;
 	trs_node n0 = { t, 0, 0, 0 };
 	double best = plan_score(sys, body, o, t_now, to, want_pe_alt, &n0, horizon, &pe);
-	for (int it = 0; it < 2000 && step > 1e-6; it++) {
+	for (int it = 0; it < 3000 && step > 1e-6; it++) {
 		int moved = 0;
 		for (int k = 0; k < 6; k++) {
 			double c[3] = { b[0], b[1], b[2] };
 			c[k / 2] += (k % 2 ? -step : step);
 			trs_node n = { t, c[0], c[1], c[2] };
 			double s = plan_score(sys, body, o, t_now, to, want_pe_alt, &n, horizon, &pe);
+			if (s < -1e11)
+				s += CORR_M_PER_MS * sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
 			if (s < best) {
 				best = s, b[0] = c[0], b[1] = c[1], b[2] = c[2];
 				moved = 1;
@@ -309,8 +315,6 @@ int trs_plan_correction(const trs_system *sys, int body, const trs_orbit *o, dou
 		}
 		if (!moved)
 			step *= 0.5;
-		else if (best < -1e11 && fabs(best + 1e12) < 1000)
-			break;
 	}
 	out->t = t, out->pro = b[0], out->nrm = b[1], out->rad = b[2];
 	plan_score(sys, body, o, t_now, to, want_pe_alt, out, horizon, pe_alt);
