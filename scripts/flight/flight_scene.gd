@@ -493,6 +493,10 @@ func _key(k: InputEventKey) -> void:
 			_toggle_brakes()
 		KEY_O:
 			_toggle_science()
+		KEY_F5:
+			quicksave()
+		KEY_F9:
+			quickload()
 		KEY_Z:
 			_throttle = 1.0
 		KEY_X:
@@ -1017,6 +1021,67 @@ func _eva_controls() -> void:
 		session.set_sas("upright")
 	elif t.altitude_terrain > 40.0 and t.sas == "upright":
 		session.set_sas("stability")
+
+
+## F5: everything as it is now (the world, who sits where, the program,
+## the roster, the craft flown, its planned burns and target, the mission
+## clock) into the quicksave; F9 puts it all back.
+func quicksave() -> bool:
+	if not persistent:
+		hud.toast("No quicksave on this flight", 2.0)
+		return false
+	var d := {"version": 1, "world": session.core.world_save(), "seats": Sim.seats, "career": Career.state(), "crew": Crew.crew,
+		"active": session.active, "serial": session.core.vessel_serial(session.active), "target": session.target,
+		"nodes": session.nodes, "mission_start": mission_start, "launched": _launched, "mission": _mission,
+		"launch_text": session.launch_text, "launch_site": session.launch_site, "pre_launch": session._pre_launch, "t": session.time()}
+	var f := FileAccess.open(Sim.save_dir + "quicksave.json", FileAccess.WRITE)
+	if f == null:
+		hud.toast("Quicksave failed: can't write the save", 2.5)
+		return false
+	f.store_string(JSON.stringify(d))
+	f.close()
+	Sfx.play("click")
+	hud.toast("Quicksaved at T+%s (F9 to load)" % FlightHUD.fmt_time(session.time() - mission_start), 2.0)
+	return true
+
+
+func quickload() -> bool:
+	if not persistent:
+		hud.toast("No quickload on this flight", 2.0)
+		return false
+	var text := FileAccess.get_file_as_string(Sim.save_dir + "quicksave.json")
+	var d = JSON.parse_string(text) if text != "" else null
+	if not d is Dictionary:
+		hud.toast("No quicksave yet (F5 makes one)", 2.0)
+		return false
+	session.set_warp("physics", 0)
+	if not session.core.world_load(d.world):
+		hud.toast("Quicksave unreadable: " + session.core.last_error(), 3.0)
+		return false
+	Sim.seats = d.seats
+	Career.restore(d.career)
+	Crew.crew = d.crew
+	Crew.save_roster()
+	session.launch_text = d.launch_text
+	session.launch_site = d.launch_site
+	session._pre_launch = d.pre_launch
+	var id := int(d.active)
+	if session.core.vessel_alive(id) and session.core.vessel_serial(id) == int(d.serial):
+		session.switch_to(id)
+	session.target = int(d.target) if session.core.vessel_alive(int(d.target)) else -1
+	session.nodes = d.nodes
+	mission_start = float(d.mission_start)
+	_launched = d.launched
+	_mission = d.mission
+	_wreck_set = false
+	_fail_in = 0.0
+	hud.hide_failure()
+	_clear_views()
+	_refresh_crew()
+	Sim.save_game()
+	Sfx.play("click")
+	hud.toast("Quickloaded: back to T+%s" % FlightHUD.fmt_time(session.time() - mission_start), 2.5)
+	return true
 
 
 ## B: wheel brakes on / off.

@@ -22,7 +22,7 @@
 ## flying a craft left in orbit resumes it; a crewed wreck dropped from the
 ## world loses its crew; switching craft shows who is aboard; and you can't
 ## walk away from a craft in the air; and the engines go quiet when paused
-## or left behind.
+## or left behind; and a quicksave (F5) loads back (F9) exactly.
 extends RefCounted
 
 var _log := PackedStringArray()
@@ -167,6 +167,28 @@ func run(runner: Node) -> Dictionary:
 	await _frames(tree, 2)
 	_check(roar > 0.0 and paused == 0.0 and back_on > 0.0 and Sfx.engine_level == 0.0,
 		"engine sound: %.2f flying, %.2f paused, %.2f resumed, %.2f after leaving flight" % [roar, paused, back_on, Sfx.engine_level])
+
+	# quicksave and quickload: F5 mid-climb, fly on (stage, a planned burn,
+	# research), F9 puts the world, the plan and the program back exactly
+	scene = await _flight(tree, FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json"))
+	scene._throttle = 1.0
+	scene._stage()
+	scene.session.step_ticks(300)
+	var qs_ok: bool = scene.quicksave()
+	var saved_world: String = scene.session.core.world_save()
+	var saved_t: float = scene.session.time()
+	var saved_research := Career.research
+	var who: Array = Sim.crew_of(scene.session.active)
+	scene.session.step_ticks(400)
+	scene._stage()
+	scene.session.nodes = [[scene.session.time() + 100.0, 50.0, 0.0, 0.0]]
+	Career.research += 7.0
+	var moved: bool = scene.session.core.world_save() != saved_world
+	var ql_ok: bool = scene.quickload()
+	_check(qs_ok and ql_ok and moved and scene.session.core.world_save() == saved_world and scene.session.time() == saved_t
+		and scene.session.nodes.is_empty() and Career.research == saved_research and Sim.crew_of(scene.session.active) == who,
+		"F5 at T %.1f s, flew on (staged, planned a burn, +7 research), F9: world identical, time %.1f s, no burn, research %.1f, %s aboard" % [
+			saved_t, scene.session.time(), Career.research, who])
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}
 
 
