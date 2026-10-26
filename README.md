@@ -15,7 +15,7 @@ orbit, plan a burn to the moon, land, and come home.
 | Where | Keys |
 |---|---|
 | Hangar | click a part, then click a node or surface · **X** symmetry · **Q/E W/S A/D** rotate · arrows / PgUp / PgDn offset · **[ ]** thrust limit of the engine under the cursor (Shift: 20% steps) · **Del** · **Ctrl+Z/Y** · right-drag orbit · wheel zoom |
-| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **R** RCS: **IJKL** slide on screen, **H/N** forward/back · **Y** target · **U** undock · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
+| Flight | **Z/X** full/cut throttle · **Shift/Ctrl** (or drag the THR bar) throttle · **WASD**/arrows steer relative to the view (W tips the nose away from the camera, D swings it right on screen) · **QE** roll · **T** SAS · **Space** stage · **P** parachute · **G** legs · **R** RCS: **IJKL** slide on screen, **H/N** forward/back · **Y** target · **U** undock · **F** EVA · **O** science · **B** brakes · **,/.** or ◀◀ ▶▶ time warp · **V** surface/orbit speed · **M** map · **[ ]** switch vessel · **Esc** menu (revert) |
 | Map | centred on your vessel · click the trajectory to add a maneuver node, drag its handles (Shift = fine) · **Tab** vessel / planet focus · **Skip to burn** fast-forwards to just before the node · **MNV** SAS points at the burn |
 | Hangar | the craft hangs at a working height; while holding a part, free attach nodes show orange and the one it will snap to turns green · **F** frame craft · **PgUp/PgDn** move the view |
 
@@ -71,6 +71,13 @@ stick, and the faster and lower you fly, the harder they bite. Fins further aft 
 more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono. Engine gimbal
 helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
 holds that attitude (it doesn't swing back to where you started).
+
+**Planes**: Gannet Wings lift (their flaps are ailerons), the Skua jet engine breathes air (lots of
+push for little fuel, more in thick air, nothing in space or past about 520 m/s), and Waddle-Wheel
+gear rolls along the craft's nose, grips sideways and brakes with **B**; the nose gear steers.
+A craft with wheels launches from the **runway** (the hangar's From: button), lying on its wheels
+nose east, brakes on. Try the stock **Gull**: SPACE starts the jet, Z, B, and pull up at about
+100 m/s. The STAGES panel's Δv counts rockets only; a JET line says how long the fuel lasts.
 
 **Kelp**: the second planet, sunward of Floe: green, a little bigger, with 1.2x Floe's surface
 gravity and air three and a half times as thick reaching 110 km up. Parachutes bite hard there,

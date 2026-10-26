@@ -193,6 +193,51 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A jet engine: an intake lip and fan at the front (top), a grey nacelle,
+## and a tapering hot nozzle behind.
+static func _jet(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r * 0.96, h * 0.6, h * 0.2, hull(Color(0.7, 0.72, 0.76), {"panels": 10.0, "ring_spacing": 0.0, "metal": 0.6, "roughness_base": 0.35}), 48)
+	_ring(root, r * 1.01, h * 0.5 - 0.03, 0.05, mat("orange", ORANGE, 0.0, 0.45))
+	var fan := CylinderMesh.new()
+	fan.top_radius = r * 0.8
+	fan.bottom_radius = r * 0.8
+	fan.height = 0.04
+	_mesh(root, fan, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, h * 0.5 - 0.02, 0)))
+	var hub := SphereMesh.new()
+	hub.radius = r * 0.25
+	hub.height = r * 0.5
+	_mesh(root, hub, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, h * 0.5, 0)))
+	_cyl(root, r * 0.92, r * 0.55, h * 0.4, -h * 0.3, mat("jet_nozzle", Color(0.32, 0.3, 0.29), 0.85, 0.35), 48)
+
+
+## Landing gear: a strut out from the hull (+Z) to a tyre whose axle runs
+## across the craft (local X), so it rolls along the craft's nose.
+static func _wheel(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.get("radius", 0.16)
+	var L: float = sh.get("length", 0.6)
+	var steel := mat("steel", STEEL, 0.75, 0.3)
+	var strut := CylinderMesh.new()
+	strut.top_radius = 0.035
+	strut.bottom_radius = 0.035
+	strut.height = L - r
+	_mesh(root, strut, steel, Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, (L - r) * 0.5)))
+	var tyre := CylinderMesh.new()
+	tyre.top_radius = r
+	tyre.bottom_radius = r
+	tyre.height = r * 0.7
+	_mesh(root, tyre, mat("tyre", Color(0.08, 0.08, 0.09), 0.0, 0.8), Transform3D(Basis(Vector3.BACK, PI / 2), Vector3(0, 0, L - r)))
+	var hubc := CylinderMesh.new()
+	hubc.top_radius = r * 0.45
+	hubc.bottom_radius = r * 0.45
+	hubc.height = r * 0.74
+	_mesh(root, hubc, mat("yellow", YELLOW, 0.2, 0.5), Transform3D(Basis(Vector3.BACK, PI / 2), Vector3(0, 0, L - r)))
+	var mount := BoxMesh.new()
+	mount.size = Vector3(0.14, 0.2, 0.06)
+	_mesh(root, mount, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.03)))
+
+
 ## A small science instrument on a hull (its back, -Z, on the surface): a
 ## graphite case with a dial face, a thermometer tube or a puffball sphere.
 static func _instrument(root: Node3D, sh: Dictionary) -> void:
@@ -340,6 +385,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_cone(root, d, sh)
 		"instrument":
 			_instrument(root, sh)
+		"jet":
+			_jet(root, sh)
+		"wheel":
+			_wheel(root, sh)
 		"lab":
 			_lab(root, sh)
 		"penguin":

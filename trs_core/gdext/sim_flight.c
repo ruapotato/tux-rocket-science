@@ -92,6 +92,31 @@ static void m_flight_launch(void *self, const trs_val *a, trs_val *r) {
 	trs_craft_free(&c);
 }
 
+/* flight_launch_runway(craft_text, body_id) -> vessel id on the runway */
+static void m_flight_launch_runway(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = -1;
+	trs_craft c;
+	if (!h->world || !craft_from_text(h, a[0].s, &c))
+		return;
+	int b = trs_system_find(&h->world->sys, a[1].s);
+	if (b < 0 || !h->world->sys.bodies[b].has_site) {
+		snprintf(h->err, sizeof h->err, "no launch site on %s", a[1].s);
+		trs_craft_free(&c);
+		return;
+	}
+	const trs_body *bd = &h->world->sys.bodies[b];
+	r->i = trs_world_launch_runway(h->world, &c, b, bd->site_lat, bd->site_lon);
+	trs_craft_free(&c);
+}
+
+/* vessel_set_brakes(id, on) */
+static void m_vessel_set_brakes(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (ok_vessel(h, a[0].i))
+		h->world->vessels[a[0].i].brakes = a[1].b;
+}
+
 /* flight_spawn_orbit(craft_text, body_id, altitude, inc_deg) -> id, circular */
 static void m_flight_spawn_orbit(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -409,6 +434,11 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "in_atmosphere", trs_json_new_bool(b->atm.height > 0 && rl - b->radius < b->atm.height));
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
 	trs_json_set(j, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
+	trs_json_set(j, "brakes", trs_json_new_bool(vs->brakes));
+	int wheels = 0;
+	for (int i = 0; vs->craft && i < vs->craft->count; i++)
+		wheels += trs_craft_def(vs->craft, i)->is_wheel;
+	trs_json_set(j, "wheels", trs_json_new_num(wheels));
 	trs_json_set(j, "contacts", trs_json_new_num(vs->mode == TRS_MODE_LANDED ? 1 : vs->contacts));
 	trs_json_set(j, "clamped", trs_json_new_bool(vs->clamped));
 	trs_json_set(j, "liftoff_t", vs->lifted ? trs_json_new_num(vs->liftoff_t) : trs_json_new(TRS_JSON_NULL));
@@ -461,12 +491,26 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 				continue;
 			lit++;
 			solids += d->propellant == TRS_PROP_SOLID;
-			double full = trs_part_mdot(c, i) * trs_engine_isp(d, p) * TRS_G0;
+			/* as the physics pushes: a jet by the air and speed it has now */
+			double full = trs_part_mdot(c, i) * trs_engine_isp(d, p) * TRS_G0 * trs_engine_air_factor(d, vs->density, vs->air_speed);
 			trs_v3 ax = quat_rotate(c->parts[i].rot, v3(0, 1, 0));
 			tmv = v3_add(tmv, v3_scale(ax, full));
 			tv = v3_add(tv, v3_scale(ax, full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle)));
 		}
 		double thrust = v3_len(tv), thrust_max = v3_len(tmv);
+		/* jets: how many, the fuel they burn now, kg/s */
+		int jets = 0;
+		double jet_flow = 0;
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			if (!d->air_breathing)
+				continue;
+			jets++;
+			if (c->parts[i].engine_on && trs_craft_engine_fed(c, &vs->fuel, i))
+				jet_flow += trs_part_mdot(c, i) * vs->throttle * trs_engine_air_factor(d, vs->density, vs->air_speed);
+		}
+		trs_json_set(j, "jets", trs_json_new_num(jets));
+		trs_json_set(j, "jet_flow", trs_json_new_num(jet_flow));
 		trs_json_set(j, "mass", trs_json_new_num(vs->mass));
 		trs_json_set(j, "parts", trs_json_new_num(c->count));
 		trs_json_set(j, "thrust", trs_json_new_num(thrust));
@@ -1269,6 +1313,8 @@ static void m_flight_spawn_state(void *self, const trs_val *a, trs_val *r) {
 #define V TRS_T_VOID
 const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "flight_launch", m_flight_launch, I, 2, { S, S }, { "craft", "body" } },
+	{ "flight_launch_runway", m_flight_launch_runway, I, 2, { S, S }, { "craft", "body" } },
+	{ "vessel_set_brakes", m_vessel_set_brakes, V, 2, { I, B }, { "id", "on" } },
 	{ "flight_spawn_orbit", m_flight_spawn_orbit, I, 4, { S, S, F, F }, { "craft", "body", "altitude", "inc_deg" } },
 	{ "vessel_set_throttle", m_vessel_set_throttle, V, 2, { I, F }, { "id", "throttle" } },
 	{ "vessel_set_input", m_vessel_set_input, V, 4, { I, F, F, F }, { "id", "pitch", "yaw", "roll" } },

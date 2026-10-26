@@ -34,6 +34,8 @@ var tutorial := false  # the next flight runs the First Flight walkthrough
 var pending_crew: Array = []
 ## A line for the hangar to show after a recovered flight.
 var last_mission_note := ""
+## Where the next launch starts: "pad" or "runway".
+var pending_site := "pad"
 ## The next flight takes over this vessel already in the world (-1: launch).
 var pending_vessel := -1
 

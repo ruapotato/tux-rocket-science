@@ -613,6 +613,68 @@
         { "name": "bottom", "pos": [0, -0.4, 0], "dir": [0, -1, 0], "radius": 0.625 }
       ],
       "surface_attach": true
+    },
+    {
+      "id": "wing",
+      "name": "Gannet Wing",
+      "category": "aero",
+      "description": "A proper wing: lifts once you're moving, and its aileron flap rolls you. Put one on each side, a little behind the centre of mass.",
+      "mass": 220,
+      "cost": 700,
+      "aero": { "cd_top": 0.1, "cd_bottom": 0.1, "cd_side": 1.2, "area_side": 6.0, "area_axial": 0.15, "lift_slope": 4.0, "control_deflection_deg": 12 },
+      "crash_tolerance": 12,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
+      "shape": { "type": "fin", "span": 3.4, "root": 2.4, "tip": 1.1, "thickness": 0.09 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "jet_engine",
+      "name": "Skua J-90 Jet Engine",
+      "category": "engines",
+      "description": "Breathes the air it flies through: very little fuel for its push, but none at all in space, and nothing left past about 520 m/s. Thicker air, more thrust.",
+      "mass": 900,
+      "cost": 2800,
+      "engine": { "propellant": "liquid", "thrust_vac": 90000, "isp_vac": 3600, "isp_sl": 3600, "air_breathing": true, "v_max": 520, "rho_ref": 1.225 },
+      "crash_tolerance": 7,
+      "thermal": { "max_temp": 1400, "skin_heat": 10000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.5, "cd_bottom": 0.6, "cd_side": 1.0 },
+      "shape": { "type": "jet", "radius": 0.625, "height": 1.8 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.9, 0], "dir": [0, 1, 0], "radius": 0.625 },
+        { "name": "bottom", "pos": [0, -0.9, 0], "dir": [0, -1, 0], "radius": 0.625 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "wheel_gear",
+      "name": "Waddle-Wheel Landing Gear",
+      "category": "utility",
+      "description": "A sprung wheel for runways. It rolls along the craft's nose and grips sideways; B brakes. Fit them on the belly near the centre of mass.",
+      "mass": 70,
+      "cost": 350,
+      "wheel": { "length": 1.0, "spring": 400000, "damper": 40000, "max_load_speed": 6, "mu_roll": 0.03, "mu_brake": 0.7, "mu_side": 0.9, "steer_deg": 0 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.8, "area_side": 0.15, "area_axial": 0.06 },
+      "shape": { "type": "wheel", "radius": 0.16, "length": 1.0 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "wheel_nose",
+      "name": "Waddle-Wheel Nose Gear",
+      "category": "utility",
+      "description": "The steering wheel: fit one under the nose, ahead of the centre of mass. It turns with the yaw keys while you roll.",
+      "mass": 60,
+      "cost": 400,
+      "wheel": { "length": 0.55, "spring": 400000, "damper": 40000, "max_load_speed": 6, "mu_roll": 0.03, "mu_brake": 0.7, "mu_side": 0.9, "steer_deg": 15 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.8, "area_side": 0.15, "area_axial": 0.06 },
+      "shape": { "type": "wheel", "radius": 0.14, "length": 0.55, "steer": true },
+      "nodes": [],
+      "surface_attach": true
     }
   ]
 }

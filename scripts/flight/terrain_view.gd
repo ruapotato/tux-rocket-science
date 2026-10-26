@@ -68,7 +68,7 @@ func set_body(b: int) -> void:
 		_site_node.queue_free()
 		_site_node = null
 	if info.has("site"):
-		_site_node = LaunchSite.build()
+		_site_node = LaunchSite.build(info.radius)
 		_site_pos = LaunchSite.site_fixed_godot(core, b)
 		_site_d = LaunchSite.site_fixed_d(core, b)
 		add_child(_site_node)

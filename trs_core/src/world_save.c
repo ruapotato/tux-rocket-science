@@ -218,6 +218,8 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_V(o, vs, translate);
 		PUT_V(o, vs, walk);
 		PUT_I(o, vs, jump);
+		PUT_I(o, vs, brakes);
+		PUT_D(o, vs, air_speed);
 		PUT_V(o, vs, rcs_rot);
 		PUT_V(o, vs, rcs_force);
 		PUT_D(o, vs, rcs_mdot);
@@ -326,6 +328,8 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_V(o, vs, translate);
 		GET_V(o, vs, walk);
 		GET_I(o, vs, jump);
+		GET_I(o, vs, brakes);
+		GET_D(o, vs, air_speed);
 		GET_V(o, vs, rcs_rot);
 		GET_V(o, vs, rcs_force);
 		GET_D(o, vs, rcs_mdot);

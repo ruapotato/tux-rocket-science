@@ -107,6 +107,8 @@ typedef struct {
 	trs_v3 translate; /* RCS translation command, vessel-local, each in [-1, 1] */
 	trs_v3 walk;      /* EVA: wanted ground speed, m/s: x east, y north (z unused) */
 	int jump;         /* EVA: jump on the next tick that has a foot on the ground */
+	int brakes;       /* wheel brakes on */
+	double air_speed; /* speed through the air at the start of the tick (jets), m/s */
 	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
 	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
@@ -228,6 +230,9 @@ void trs_world_dock(trs_world *w, int a, int pa, int b, int pb);
 /* Lets go at docking port `port` of vessel id (either side of a docked
  * pair). Returns the new vessel, or -1 if that port holds nothing. */
 int trs_world_undock(trs_world *w, int id, int port);
+/* A craft on wheels on the runway east of the launch site at (lat, lon):
+ * nose east, wheels down, brakes on. Returns the vessel id. */
+int trs_world_launch_runway(trs_world *w, const trs_craft *c, int body, double lat, double lon);
 /* EVA: a penguin (catalog part `penguin_def`) climbs out of crewed part
  * `part` of vessel `id` and stands beside its hull as a vessel of its own.
  * Returns the new vessel id or -1. */

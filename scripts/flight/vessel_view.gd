@@ -224,10 +224,14 @@ func _plume(d: Dictionary) -> Node3D:
 			m.set_shader_parameter("core_color", Color(1.0, 0.88, 0.6))
 			m.set_shader_parameter("edge_color", Color(1.0, 0.45, 0.12))
 			m.set_shader_parameter("smoke", 1.0)
+		elif d.engine.get("air_breathing", false):
+			# a jet: faint hot air with a dull orange heart
+			m.set_shader_parameter("core_color", Color(1.0, 0.7, 0.45) if k == 1 else Color(0.85, 0.85, 0.9))
+			m.set_shader_parameter("edge_color", Color(0.55, 0.5, 0.5))
 		else:
 			m.set_shader_parameter("core_color", Color(1.0, 0.96, 0.85) if k == 1 else Color(0.75, 0.82, 1.0))
 			m.set_shader_parameter("edge_color", Color(0.3, 0.5, 1.0))
-		m.set_shader_parameter("intensity", 2.6 if k == 1 else 1.3)
+		m.set_shader_parameter("intensity", (2.6 if k == 1 else 1.3) * (0.25 if d.engine.get("air_breathing", false) else 1.0))
 		mi.material_override = m
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.name = "Core" if k == 1 else "Outer"

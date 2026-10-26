@@ -277,13 +277,14 @@ static void m_craft_stats_bin(void *self, const trs_val *a, trs_val *r) {
 static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, trs_val *r) {
 	trs_craft c = *cp;
 	trs_json *out = trs_json_new(TRS_JSON_OBJECT);
-	double g = 9.80665, p_sl = TRS_P_REF;
+	double g = 9.80665, p_sl = TRS_P_REF, rho_sl = 1.225;
 	if (h->world) {
 		int b = trs_system_find(&h->world->sys, body_id);
 		if (b >= 0) {
 			const trs_body *bd = &h->world->sys.bodies[b];
 			g = bd->mu / (bd->radius * bd->radius);
 			p_sl = bd->atm.p0;
+			rho_sl = bd->atm.rho0;
 		}
 	}
 	double mass;
@@ -393,6 +394,27 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 		trs_json_set(out, "mono", trs_json_new_num(mono));
 		trs_json_set(out, "rcs_blocks", trs_json_new_num(blocks));
 		trs_json_set(out, "rcs_dv", trs_json_new_num(blocks && mono > 0 ? thrust / flow * TRS_G0 * log(mass / (mass - mono)) : 0));
+	}
+	/* jets: standing at this body's sea level, full throttle: thrust, TWR
+	 * and how long all the liquid fuel aboard would feed them */
+	{
+		double jt = 0, jflow = 0, liquid = 0;
+		int jets = 0;
+		for (int i = 0; i < c.count; i++) {
+			const trs_part_def *d = trs_craft_def(&c, i);
+			if (d->fuel_liquid > 0)
+				liquid += c.parts[i].fuel;
+			if (d->air_breathing) {
+				double f = trs_engine_air_factor(d, rho_sl, 0);
+				jets++;
+				jt += d->thrust_vac * f;
+				jflow += trs_engine_mdot(d) * f;
+			}
+		}
+		trs_json_set(out, "jets", trs_json_new_num(jets));
+		trs_json_set(out, "jet_thrust_sl", trs_json_new_num(jt));
+		trs_json_set(out, "jet_twr_sl", trs_json_new_num(jt / (mass * g)));
+		trs_json_set(out, "jet_time_sl", trs_json_new_num(jflow > 0 ? liquid / jflow : 0));
 	}
 	trs_json_set(out, "crew", trs_json_new_num(crew));
 	trs_json *com = trs_json_new(TRS_JSON_ARRAY);

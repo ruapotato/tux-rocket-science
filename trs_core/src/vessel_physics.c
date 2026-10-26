@@ -60,11 +60,14 @@ static void build_contacts(trs_vessel *vs) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		trs_v3 local[16];
 		int m = 0, leg = 0;
-		if (d->is_leg) {
+		if (d->is_wheel) {
+			local[m++] = v3(0, 0, d->wheel_length); /* off the hull, always down */
+			leg = 1;
+		} else if (d->is_leg) {
 			local[m++] = trs_leg_foot(d, p->legs_deployed ? 1.0 : 0.0);
 			leg = p->legs_deployed;
-		} else if (!strcmp(d->category, "aero") && d->is_parachute == 0 && d->radius < 0.31 && d->height <= 1.0) {
-			/* fins: root ends and the tip */
+		} else if (d->plate) {
+			/* fins and wings: the root's ends and the tip */
 			local[m++] = v3(0, d->height * 0.5, 0);
 			local[m++] = v3(0, -d->height * 0.5, 0);
 			local[m++] = v3(0, -d->height * 0.5, d->fin_span);
@@ -175,9 +178,12 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 		double thr = d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle;
 		if (thr <= 0)
 			continue;
+		double air = trs_engine_air_factor(d, vs->density, vs->air_speed);
+		if (air <= 0)
+			continue; /* a jet in vacuum, or past its top speed */
 		int k = es->n++;
 		es->idx[k] = i;
-		es->mdot[k] = trs_part_mdot(c, i) * thr;
+		es->mdot[k] = trs_part_mdot(c, i) * thr * air;
 		es->dir[k] = part_axis(p);
 		double f = es->mdot[k] * trs_engine_isp(d, pressure) * TRS_G0;
 		trs_v3 fv = v3_scale(es->dir[k], f);
@@ -426,6 +432,8 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 #define RADIAL_CLEAR_S 2.0 /* s a radially dropped piece passes through its core */
 #define GROUND_SKIP 2.0 /* m: see ground() */
 #define CONTACT_ROT_OMEGA 15.0 /* rad/s: cap on the contacts' stiffness against turning */
+#define RUNWAY_EAST 400.0 /* m from the pad to the runway's west end */
+#define CONTACT_DAMP_STEP 0.5 /* cap on (rotational damping rate) x tick */
 #define CONTACT_TRANS_OMEGA 35.0 /* rad/s: cap on all the contacts' stiffness together, for the RK4 step */
 #define FRICTION_MU 0.5
 #define SLIP_REG 0.08 /* m/s: friction regularisation */
@@ -438,6 +446,7 @@ typedef struct {
 	int crash_part[MAX_CRASH];
 	double crash_speed[MAX_CRASH];
 	double max_speed;
+	trs_v3 friction_torque; /* the part of the torque from friction, vessel-local */
 } contact_report;
 
 /* Ground force (SOI frame) and torque about the CoM (vessel-local) for a
@@ -451,6 +460,7 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 		rep->touching = 0;
 		rep->ncrash = 0;
 		rep->max_speed = 0;
+		rep->friction_torque = v3(0, 0, 0);
 	}
 	const trs_body *b = &w->sys.bodies[vs->body];
 	double rl = v3_len(r);
@@ -477,7 +487,7 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 	 * springs turn it end over end, its largest inertia) so soft it sinks.
 	 * All the springs together are also held inside what the translational
 	 * step can follow. */
-	double rot_k = 0, k_sum = 0;
+	double rot_k = 0, k_sum = 0, rot_c = 0;
 	trs_m3 i_inv = m3_inverse(&vs->inertia);
 	/* Depth of each contact point. The terrain is sampled only near the
 	 * ground: a point standing well clear of the local ground plane (more
@@ -511,14 +521,23 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 		depths[k] = (b->radius + trs_body_terrain_at(b, t, p) - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
 		if (depths[k] > 0) {
 			double kk = vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_spring : k_hull;
+			double ck = vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_damper : c_hull;
 			trs_v3 u = quat_rotate(quat_conj(vs->q), v3_cross(arm, nrm));
-			rot_k += kk * v3_dot(u, m3_mulv(&i_inv, u));
+			double ui = v3_dot(u, m3_mulv(&i_inv, u));
+			rot_k += kk * ui;
+			rot_c += ck * ui;
 			k_sum += kk;
 		}
 	}
 	double soften = rot_k > 0 ? fmin(1, CONTACT_ROT_OMEGA * CONTACT_ROT_OMEGA / rot_k) : 1;
 	if (k_sum > 0)
 		soften = fmin(soften, CONTACT_TRANS_OMEGA * CONTACT_TRANS_OMEGA * m / k_sum);
+	/* the dampers too: a turning rate is damped by sum c u.I^-1.u per
+	 * second, and an explicit step overshoots (and chatters) once that
+	 * times the tick passes about 1 */
+	double damp = sqrt(soften);
+	if (rot_c * damp * TRS_PHYSICS_DT > CONTACT_DAMP_STEP)
+		damp = CONTACT_DAMP_STEP / (rot_c * TRS_PHYSICS_DT);
 	for (int k = 0; k < vs->ncontact; k++) {
 		double depth = depths[k];
 		if (depth <= 0)
@@ -534,18 +553,39 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 			cc = d->leg_damper;
 		}
 		kk *= soften;
-		cc *= sqrt(soften);
+		cc *= damp;
 		double fn = kk * depth - cc * vn;
 		if (fn < 0)
 			fn = 0;
 		trs_v3 vt = v3_sub(v3_sub(vp, v3_scale(nrm, vn)), feet);
 		double vtl = v3_len(vt);
 		trs_v3 ft = v3_scale(vt, -FRICTION_MU * fn / fmax(vtl, SLIP_REG));
+		if (d->is_wheel) {
+			/* a wheel rolls along the craft's nose (steered, ahead of the
+			 * centre of mass, toward the turn the pilot asks for about the
+			 * ground's normal) and grips across it */
+			trs_v3 nose = quat_rotate(vs->q, v3(0, 1, 0));
+			trs_v3 roll = v3_sub(nose, v3_scale(nrm, v3_dot(nose, nrm)));
+			double rl = v3_len(roll);
+			roll = rl > 1e-6 ? v3_scale(roll, 1.0 / rl) : v3_norm(v3_cross(nrm, quat_rotate(vs->q, v3(1, 0, 0))));
+			if (d->wheel_steer > 0 && c->parts[vs->contact_part[k]].pos.y > vs->cm.y) {
+				trs_v3 want = quat_rotate(vs->q, v3(vs->input.x, vs->input.z, vs->input.y));
+				double turn = clampd(v3_dot(want, nrm), -1, 1) * d->wheel_steer;
+				roll = v3_add(v3_scale(roll, cos(turn)), v3_scale(v3_cross(nrm, roll), sin(turn)));
+			}
+			double vr = v3_dot(vt, roll);
+			trs_v3 vs_side = v3_sub(vt, v3_scale(roll, vr));
+			double vsl = v3_len(vs_side);
+			double mu_r = vs->brakes ? d->wheel_mu_brake : d->wheel_mu_roll;
+			ft = v3_add(v3_scale(roll, -mu_r * fn * vr / fmax(fabs(vr), SLIP_REG)),
+					v3_scale(vs_side, -d->wheel_mu_side * fn / fmax(vsl, SLIP_REG)));
+		}
 		trs_v3 f = v3_add(v3_scale(nrm, fn), ft);
 		*force = v3_add(*force, f);
 		if (torque_local)
 			*torque_local = v3_add(*torque_local, quat_rotate(quat_conj(vs->q), v3_cross(arm, f)));
 		if (rep) {
+			rep->friction_torque = v3_add(rep->friction_torque, quat_rotate(quat_conj(vs->q), v3_cross(arm, ft)));
 			rep->touching++;
 			double impact = -vn;
 			double tol = vs->contact_leg[k] ? d->leg_max_speed : d->crash_tolerance;
@@ -966,6 +1006,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	const trs_body *b = &w->sys.bodies[vs->body];
 	vs->altitude = v3_len(vs->r) - b->radius;
 	trs_atmosphere_at(b, vs->altitude, &vs->pressure, &vs->density);
+	vs->air_speed = v3_len(v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r)));
 	update_chutes(w, vs, t, h);
 
 	engine_set es;
@@ -980,6 +1021,20 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	vs->contacts = rep.touching;
 	if (rep.touching)
 		vs->max_impact = fmax(vs->max_impact, rep.max_speed);
+	/* Friction can slow a turn to a stop within a tick but not past it:
+	 * held over the whole tick, the friction torque of a craft that turns
+	 * easily about some axis (a plane rocking on its wheels) would flip
+	 * its spin every step and chatter. */
+	if (rep.touching) {
+		trs_v3 wl = quat_rotate(quat_conj(vs->q), v3_sub(vs->w, trs_body_omega(b)));
+		trs_m3 ii = m3_inverse(&vs->inertia);
+		trs_v3 dw = v3_scale(m3_mulv(&ii, rep.friction_torque), h);
+		double wl2 = v3_len2(wl), along = v3_dot(dw, wl);
+		if (wl2 > 1e-18 && -along > wl2) {
+			double k = wl2 / -along;
+			ground_torque = v3_sub(ground_torque, v3_scale(rep.friction_torque, 1 - k));
+		}
+	}
 	trs_v3 torque = v3_add(v3_add(control_torque(w, vs, es.gimbal_authority), aero_torque), es.torque_local);
 	torque = v3_add(v3_add(torque, ground_torque), vs->ext_torque);
 	/* RCS: rotation share from the controller plus the pilot's translation,
@@ -1388,5 +1443,52 @@ int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, dou
 	vs->v = v3_cross(trs_body_omega(b), vs->r);
 	vs->q = quat_normalize(quat_mul(trs_body_quat(b, w->t), vs->fixed_q));
 	vs->w = trs_body_omega(b);
+	return id;
+}
+
+/* The runway: RUNWAY_EAST m east of the pad along the flat shelf. A craft
+ * with wheels lies nose east on them (the side its wheels stand out on
+ * turned to the ground), brakes on, free to roll once they're off. */
+int trs_world_launch_runway(trs_world *w, const trs_craft *c, int body, double lat, double lon) {
+	const trs_body *b = &w->sys.bodies[body];
+	trs_v3 site = v3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+	trs_v3 east0 = v3_norm(v3_cross(v3(0, 0, 1), site));
+	double ang = RUNWAY_EAST / b->radius;
+	trs_v3 up = v3_norm(v3_add(v3_scale(site, cos(ang)), v3_scale(east0, sin(ang))));
+	trs_v3 east = v3_norm(v3_cross(v3(0, 0, 1), up));
+	int id = trs_world_add_craft(w, c, body, v3_scale(up, b->radius * 2), v3(0, 0, 0), quat_identity());
+	if (id < 0)
+		return id;
+	trs_vessel *vs = &w->vessels[id];
+	/* which way the wheels stand out from the craft's axis */
+	trs_v3 dn = v3(0, 0, 0);
+	for (int k = 0; k < vs->ncontact; k++)
+		if (trs_craft_def(vs->craft, vs->contact_part[k])->is_wheel) {
+			trs_v3 a = v3_sub(vs->contact_pt[k], vs->cm);
+			dn = v3_add(dn, v3(a.x, 0, a.z));
+		}
+	if (v3_len(dn) < 1e-6)
+		dn = v3(0, 0, -1);
+	dn = v3_norm(dn);
+	/* local frame (x, y = nose, z) -> world: y to east, dn to -up */
+	trs_v3 lx = v3_cross(v3(0, 1, 0), dn); /* completes (lx, y, dn) right-handed */
+	trs_v3 wx = v3_cross(east, v3_neg(up));
+	trs_quat q_local = quat_from_basis(lx, v3(0, 1, 0), dn);
+	trs_quat q_world = quat_from_basis(wx, east, v3_neg(up));
+	trs_quat q = quat_normalize(quat_mul(q_world, quat_conj(q_local)));
+	double lowest = INFINITY;
+	for (int k = 0; k < vs->ncontact; k++)
+		lowest = fmin(lowest, v3_dot(quat_rotate(q, v3_sub(vs->contact_pt[k], vs->cm)), up));
+	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, up) : 0;
+	trs_v3 fixed_r = v3_scale(up, b->radius + h - lowest + 0.02);
+	vs->r = trs_body_from_fixed(b, w->t, fixed_r);
+	vs->v = v3_cross(trs_body_omega(b), vs->r);
+	vs->q = quat_normalize(quat_mul(trs_body_quat(b, w->t), q));
+	vs->w = trs_body_omega(b);
+	vs->sas_hold = vs->q;
+	vs->brakes = 1;
+	vs->landed = 1;
+	vs->lifted = 1; /* no clamps: the mission clock runs from here */
+	vs->liftoff_t = w->t;
 	return id;
 }

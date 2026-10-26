@@ -396,6 +396,8 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
 [b]Y[/b] pick a target (again for the next)   [b]U[/b] undock   SAS [b]TGT[/b] / [b]RV-[/b] / [b]DOCK[/b]: point at it /
    against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
+[b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in)   [b]O[/b] science
+[b]B[/b] wheel brakes (planes start on the runway with them on)
 [b]V[/b] surface / orbital speed
 
 [b]. ,[/b] or the [b]▶▶ ◀◀[/b] buttons: faster / slower time   [b]/[/b] or [b]■[/b] normal time
@@ -606,7 +608,12 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 				d.dv if t.in_atmosphere else d.dv_vac, fmt_time(d.burn_time), ("  TWR %.2f" % d.twr if d.twr < 100.0 else "  TWR >100") if d.twr > 0 else ""]
 		st += line + "\n"
 		first = false
+	if int(t.get("jets", 0)) > 0:
+		var flow: float = t.get("jet_flow", 0.0)
+		st += "[color=#ffcf6a]JET[/color] %s\n" % ("fuel for %s at this throttle, here" % fmt_time(t.liquid / flow) if flow > 0.0 else "idle (no air, no throttle, or too fast)")
 	st += "[color=#9fb4cc]Total[/color] [b]%.0f m/s[/b] %s" % [total, "(local pressure)" if t.in_atmosphere else "(vacuum)"]
+	if int(t.get("jets", 0)) > 0:
+		st += " [color=#6f86a6]rockets only[/color]"
 	_stages.text = st
 	_throttle.set_meta("value", t.throttle)
 	_throttle.queue_redraw()

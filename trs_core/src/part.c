@@ -61,6 +61,9 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->isp_vac = trs_json_num(e, "isp_vac", 0);
 		d->isp_sl = trs_json_num(e, "isp_sl", d->isp_vac);
 		d->gimbal = trs_json_num(e, "gimbal_deg", 0) * TRS_PI / 180.0;
+		d->air_breathing = trs_json_bool(e, "air_breathing", 0);
+		d->jet_v_max = trs_json_num(e, "v_max", 600);
+		d->jet_rho_ref = trs_json_num(e, "rho_ref", 1.225);
 		if (d->thrust_vac <= 0 || d->isp_vac <= 0) {
 			snprintf(err, errlen, "part %s: engine needs thrust_vac and isp_vac", d->id);
 			return 0;
@@ -114,6 +117,18 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->eva_walk = trs_json_num(ev, "walk_speed", 1.5);
 		d->eva_jump = trs_json_num(ev, "jump_speed", 2.0);
 		d->eva_reach = trs_json_num(ev, "reach", 1.5);
+	}
+	const trs_json *wh = trs_json_get(j, "wheel");
+	if (wh) {
+		d->is_wheel = 1;
+		d->wheel_length = trs_json_num(wh, "length", 0.5);
+		d->leg_spring = trs_json_num(wh, "spring", 0);
+		d->leg_damper = trs_json_num(wh, "damper", 0);
+		d->leg_max_speed = trs_json_num(wh, "max_load_speed", 8);
+		d->wheel_mu_roll = trs_json_num(wh, "mu_roll", 0.03);
+		d->wheel_mu_brake = trs_json_num(wh, "mu_brake", 0.7);
+		d->wheel_mu_side = trs_json_num(wh, "mu_side", 0.9);
+		d->wheel_steer = trs_json_num(wh, "steer_deg", 0) * TRS_PI / 180.0;
 	}
 	const trs_json *lg = trs_json_get(j, "leg");
 	if (lg) {
@@ -217,6 +232,13 @@ double trs_engine_isp(const trs_part_def *d, double pressure) {
 
 double trs_engine_mdot(const trs_part_def *d) {
 	return d->thrust_vac / (d->isp_vac * TRS_G0);
+}
+
+double trs_engine_air_factor(const trs_part_def *d, double density, double airspeed) {
+	if (!d->air_breathing)
+		return 1;
+	double s = airspeed / fmax(d->jet_v_max, 1e-9);
+	return density / fmax(d->jet_rho_ref, 1e-12) * fmax(0, 1 - s * s);
 }
 
 trs_v3 trs_leg_foot(const trs_part_def *d, double k) {

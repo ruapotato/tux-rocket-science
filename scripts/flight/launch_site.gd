@@ -48,9 +48,36 @@ void fragment() {
 """
 
 
-static func build() -> Node3D:
+## The runway: a strip east from RUNWAY_FROM m to RUNWAY_TO m (where the
+## flat shelf ends), laid in 100 m slabs that follow the planet's curve.
+const RUNWAY_FROM := 380.0
+const RUNWAY_TO := 1500.0
+
+
+static func _runway(root: Node3D, radius: float) -> void:
+	var asphalt := PartVisual.mat("runway", Color(0.2, 0.21, 0.23), 0.0, 0.95)
+	var paint := PartVisual.mat("runway_paint", Color(0.92, 0.92, 0.9), 0.0, 0.8)
+	var x := RUNWAY_FROM
+	while x < RUNWAY_TO:
+		var len := minf(100.0, RUNWAY_TO - x)
+		var mid := x + len * 0.5
+		var a := mid / radius
+		var slab := Node3D.new()
+		slab.position = Vector3(radius * sin(a), radius * (cos(a) - 1.0) + 0.04, 0)
+		slab.rotation.z = -a
+		root.add_child(slab)
+		_box(slab, Vector3(len, 0.1, 30), Vector3.ZERO, asphalt)
+		for k in int(len / 20.0):
+			_box(slab, Vector3(8, 0.02, 0.5), Vector3(-len * 0.5 + 10.0 + k * 20.0, 0.06, 0), paint)
+		for e in [-14.0, 14.0]:
+			_box(slab, Vector3(len, 0.02, 0.4), Vector3(0, 0.06, e), paint)
+		x += len
+
+
+static func build(radius := 600000.0) -> Node3D:
 	var root := Node3D.new()
 	root.name = "LaunchSite"
+	_runway(root, radius)
 	var cm := ShaderMaterial.new()
 	var sh := Shader.new()
 	sh.code = CONCRETE_SHADER

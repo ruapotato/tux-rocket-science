@@ -57,6 +57,11 @@ typedef struct {
 	/* engine */
 	trs_propellant propellant;
 	double thrust_vac, isp_vac, isp_sl, gimbal; /* gimbal in radians */
+	/* air-breathing (jet): thrust_vac is the static sea-level thrust; flow
+	 * and thrust scale with air density / jet_rho_ref and fall off as
+	 * 1 - (airspeed / jet_v_max)^2; nothing in vacuum */
+	int air_breathing;
+	double jet_v_max, jet_rho_ref;
 
 	/* RCS: small monopropellant thrusters; each nozzle pushes opposite the
 	 * way it points (part-local position and exhaust direction) */
@@ -90,6 +95,13 @@ typedef struct {
 	 * eva_reach m of its hull */
 	int is_eva;
 	double eva_walk, eva_jump, eva_reach;
+
+	/* wheel: a sprung foot wheel_length out along the
+	 * part's +Z (off the hull), rolling along the craft's nose with
+	 * mu_roll (mu_brake braked), gripping sideways with mu_side; wheels
+	 * ahead of the centre of mass steer up to wheel_steer rad */
+	int is_wheel;
+	double wheel_length, wheel_mu_roll, wheel_mu_brake, wheel_mu_side, wheel_steer;
 
 	/* landing leg */
 	int is_leg;
@@ -133,6 +145,9 @@ const trs_attach_node *trs_part_node(const trs_part_def *d, const char *name);
 /* Engine helpers. mdot is independent of pressure; thrust scales with Isp. */
 double trs_engine_isp(const trs_part_def *d, double pressure);
 double trs_engine_mdot(const trs_part_def *d); /* at full throttle */
+/* share of a jet's static sea-level flow (and thrust) at this air density
+ * and airspeed; 1 for rockets */
+double trs_engine_air_factor(const trs_part_def *d, double density, double airspeed);
 /* Leg foot contact point (part-local) for deployment fraction k in [0, 1].
  * The visuals use the same formula, so feet touch where they are drawn. */
 trs_v3 trs_leg_foot(const trs_part_def *d, double k);

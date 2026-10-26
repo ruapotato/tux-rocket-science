@@ -15,6 +15,8 @@
       "parts": ["landing_leg", "snow_lab"] },
     { "id": "heavy", "name": "Heavy Lifting", "cost": 45, "requires": ["staging"],
       "parts": ["tank_xm", "tank_xl", "decoupler_xl", "adapter_21", "mount_tri", "engine_big", "pod_3", "nosecone_xl"] },
+    { "id": "flight", "name": "Wings and Wheels", "cost": 25, "requires": ["rocketry"],
+      "parts": ["wing", "jet_engine", "wheel_gear", "wheel_nose"] },
     { "id": "docking", "name": "Docking", "cost": 60, "requires": ["control"],
       "parts": ["dock_port"] }
   ]

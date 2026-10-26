@@ -1,0 +1,128 @@
+{
+  "format": "trs-craft",
+  "version": 1,
+  "name": "Gull",
+  "description": "",
+  "parts": [
+    {
+      "part": "pod_1",
+      "parent": -1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, 0, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "tank_l",
+      "parent": 0,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -2.375, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "jet_engine",
+      "parent": 1,
+      "node": "top",
+      "parent_node": "bottom",
+      "pos": [0, -5.15, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": 0,
+      "sym": 0
+    },
+    {
+      "part": "wing",
+      "parent": 1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.625, -2.925, 0],
+      "rot": [0, 0.7071067811865475, 0, 0.7071067811865476],
+      "stage": -1,
+      "sym": 1
+    },
+    {
+      "part": "wing",
+      "parent": 1,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.625, -2.925, 0],
+      "rot": [0, -0.7071067811865476, 0, 0.7071067811865475],
+      "stage": -1,
+      "sym": 1
+    },
+    {
+      "part": "fin",
+      "parent": 2,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.625, -5.15, 0],
+      "rot": [0, 0.7071067811865475, 0, 0.7071067811865476],
+      "stage": -1,
+      "sym": 2
+    },
+    {
+      "part": "fin",
+      "parent": 2,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.625, -5.15, 0],
+      "rot": [0, -0.7071067811865476, 0, 0.7071067811865475],
+      "stage": -1,
+      "sym": 2
+    },
+    {
+      "part": "fin",
+      "parent": 2,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, -5.15, 0.625],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "wheel_nose",
+      "parent": 1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0, -0.7749999999999999, -0.765],
+      "rot": [0, 1, 0, 0],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "wheel_gear",
+      "parent": 1,
+      "node": "",
+      "parent_node": "",
+      "pos": [0.5631245313561253, -3.575, -0.5469147668375249],
+      "rot": [0, 0.9210609940028852, 0, 0.3894183423086504],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "wheel_gear",
+      "parent": 1,
+      "node": "",
+      "parent_node": "",
+      "pos": [-0.5631245313561253, -3.575, -0.546914766837525],
+      "rot": [0, 0.9210609940028852, 0, -0.38941834230865036],
+      "stage": -1,
+      "sym": 0
+    },
+    {
+      "part": "parachute",
+      "parent": 0,
+      "node": "bottom",
+      "parent_node": "top",
+      "pos": [0, 0.675, 0],
+      "rot": [0, 0, 0, 1],
+      "stage": -1,
+      "sym": 0
+    }
+  ]
+}

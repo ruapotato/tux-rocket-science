@@ -267,6 +267,8 @@ func _build_ui() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(spacer)
+	_site_button = _button("From: Pad", _cycle_site, "Where it launches: the pad (standing up, clamped) or the runway (lying on its wheels, nose east)")
+	bar.add_child(_site_button)
 	var launch := _button("  LAUNCH  ", _on_launch, "Roll out to the Glacier Shelf launch pad")
 	launch.add_theme_color_override("font_color", Color(1, 1, 1))
 	launch.add_theme_stylebox_override("normal", HangarTheme.box(PartVisual.ORANGE.darkened(0.15), 6))
@@ -414,7 +416,28 @@ func toast(msg: String) -> void:
 
 # ---- model events ------------------------------------------------------------
 
+var _site_button: Button
+var _site := ""  # "" picks by the craft: the runway if it has wheels
+
+
+## Where the craft will launch from.
+func launch_site() -> String:
+	if _site != "":
+		return _site
+	for p in model.parts:
+		if Sim.part(p.part).has("wheel"):
+			return "runway"
+	return "pad"
+
+
+func _cycle_site() -> void:
+	_site = "pad" if launch_site() == "runway" else "runway"
+	_site_button.text = "From: %s" % launch_site().capitalize()
+
+
 func _on_model_changed() -> void:
+	if _site_button:
+		_site_button.text = "From: %s" % launch_site().capitalize()
 	# part numbers may have changed: forget the hover until the next frame
 	_hover = -1
 	_highlight([])
@@ -766,6 +789,7 @@ func _on_launch() -> void:
 	if not _loose.is_empty():
 		toast("%d set-aside assembl%s stay in the hangar" % [_loose.size(), "y" if _loose.size() == 1 else "ies"])
 	Sim.pending_craft_text = model.save_text()
+	Sim.pending_site = launch_site()
 	if ResourceLoader.exists("res://scenes/flight.tscn"):
 		get_tree().change_scene_to_file("res://scenes/flight.tscn")
 	else:

@@ -636,7 +636,9 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			trs_v3 fv_vac = v3(0, 0, 0), fv_sl = v3(0, 0, 0); /* net: tilted engines partly cancel */
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
-				if (!c.parts[i].engine_on || d->propellant == TRS_PROP_NONE)
+				/* rocket stages only: a jet's thrust depends on the air and
+				 * speed, so it is reported apart (trs_craft_jet_stats) */
+				if (!c.parts[i].engine_on || d->propellant == TRS_PROP_NONE || d->air_breathing)
 					continue;
 				if (drop[i])
 					drop_has_engines = 1;
@@ -667,7 +669,7 @@ int trs_craft_stage_stats(const trs_craft *src, int next_stage, double g_ref, do
 			double tau = INFINITY;
 			for (int i = 0; i < c.count; i++) {
 				const trs_part_def *d = trs_craft_def(&c, i);
-				md[i] = c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID && trs_craft_engine_fed(&c, &net, i)
+				md[i] = c.parts[i].engine_on && d->propellant == TRS_PROP_LIQUID && !d->air_breathing && trs_craft_engine_fed(&c, &net, i)
 						? trs_part_mdot(&c, i) : 0;
 			}
 			trs_fuel_rates(&net, &c, md, rate);

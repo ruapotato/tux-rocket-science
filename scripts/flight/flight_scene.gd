@@ -67,6 +67,7 @@ func _ready() -> void:
 	if Sim.tutorial:
 		# the walkthrough flies alone, in a world of its own
 		session = FlightSession.new()
+		session.launch_site = "pad"
 		session.launch(text, "floe")
 	else:
 		persistent = true
@@ -76,6 +77,8 @@ func _ready() -> void:
 			_resumed = true
 			_launched = true
 		else:
+			session.launch_site = Sim.pending_site
+			Sim.pending_site = "pad"  # the next launch from elsewhere starts on the pad
 			cleared = _clear_pad()
 			_seats_snapshot = Sim.seats.duplicate(true)
 			_roster_snapshot = Crew.crew.duplicate(true)
@@ -106,6 +109,9 @@ func _ready() -> void:
 		# the mission clock runs from its liftoff, however long ago
 		mission_start = float(tr.liftoff_t) if tr.get("liftoff_t") != null else session.time()
 		hud.toast("Back aboard %s: %s over %s." % [tr.get("name", "the vessel"), str(tr.get("situation", "")).replace("_", " "), str(tr.get("body", "")).capitalize()], 4.0)
+	elif session.launch_site == "runway":
+		hud.toast("%sPASA, %s is on the runway, brakes on. SPACE starts the engine, Z full throttle, B lets the brakes off." % [
+			("Cleared the runway first: recovered %s. " % ", ".join(cleared)) if not cleared.is_empty() else "", session.telemetry().get("name", "vessel")], 6.0)
 	else:
 		hud.toast("%sPASA, %s is on the pad. Z for full throttle, SPACE to launch." % [
 			("Cleared the pad first: recovered %s. " % ", ".join(cleared)) if not cleared.is_empty() else "", session.telemetry().get("name", "vessel")], 5.0)
@@ -483,6 +489,8 @@ func _key(k: InputEventKey) -> void:
 				_stage()
 		KEY_F:
 			_eva_key()
+		KEY_B:
+			_toggle_brakes()
 		KEY_O:
 			_toggle_science()
 		KEY_Z:
@@ -584,7 +592,9 @@ func _stage() -> void:
 	if not _launched:
 		_launched = true
 		mission_start = session.time()
-		if t1.get("thrust", 0.0) > 0.0:
+		if session.launch_site == "runway":
+			hud.toast("Engine running. B lets the brakes off; pull up (S) once you're fast enough." if t1.get("thrust", 0.0) > 0.0 else "Engine started: Z for full throttle", 3.5)
+		elif t1.get("thrust", 0.0) > 0.0:
 			hud.toast("Liftoff! The penguins are going to space." if not crew_names.is_empty() else "Liftoff!", 3.0)
 		else:
 			hud.toast("Clamps released, but no engine is burning! (Z for full throttle)", 3.5)
@@ -984,6 +994,19 @@ func _eva_controls() -> void:
 		session.set_sas("upright")
 	elif t.altitude_terrain > 40.0 and t.sas == "upright":
 		session.set_sas("stability")
+
+
+## B: wheel brakes on / off.
+func _toggle_brakes() -> void:
+	var t := session.telemetry()
+	if int(t.get("wheels", 0)) == 0:
+		hud.toast("No wheels to brake", 1.5)
+		return
+	var on: bool = not t.get("brakes", false)
+	session.core.vessel_set_brakes(session.active, on)
+	session._telemetry_tick = -1
+	Sfx.play("click")
+	hud.toast("Brakes on" if on else "Brakes off: free to roll", 1.5)
 
 
 ## F: a penguin climbs out of the pod we fly, or (on EVA) back into the
