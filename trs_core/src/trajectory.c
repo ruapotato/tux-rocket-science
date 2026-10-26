@@ -149,3 +149,62 @@ int trs_closest_approach(const trs_patch *a, int na, const trs_patch *b, int nb,
 		}
 	return found;
 }
+
+/* ---- transfer windows ------------------------------------------------------- */
+
+/* Between two bodies circling the same parent: the Hohmann transfer from
+ * `from`'s orbit to `to`'s. The phase angle is how far `to` must lead
+ * `from` (measured in their orbital plane, prograde) at departure; the
+ * window is when it next does. Circular, coplanar orbits are assumed
+ * (both at their semi-major axes) for the best lead and the burn; the
+ * moment it comes round uses the bodies' real positions. */
+/* how far body `to` leads `from` round their parent at time t, rad */
+static double lead_at(const trs_system *sys, int from, int to, double t) {
+	trs_v3 ra, va, rb, vb;
+	trs_body_state(sys, from, t, &ra, &va);
+	trs_body_state(sys, to, t, &rb, &vb);
+	trs_v3 h = v3_norm(v3_cross(ra, va));
+	return atan2(v3_dot(h, v3_cross(ra, rb)), v3_dot(ra, rb));
+}
+
+int trs_transfer_window(const trs_system *sys, int from, int to, double t, double park_r, trs_transfer *out) {
+	if (from <= 0 || to <= 0 || from == to)
+		return 0;
+	const trs_body *a = &sys->bodies[from], *b = &sys->bodies[to];
+	if (a->parent != b->parent || a->parent < 0)
+		return 0;
+	double mu = sys->bodies[a->parent].mu;
+	double r1 = a->orbit.a, r2 = b->orbit.a;
+	double at = 0.5 * (r1 + r2);
+	out->flight_time = TRS_PI * sqrt(at * at * at / mu);
+	double n1 = sqrt(mu / (r1 * r1 * r1)), n2 = sqrt(mu / (r2 * r2 * r2));
+	out->phase_best = TRS_PI - n2 * out->flight_time; /* to's lead at departure */
+	double ang = lead_at(sys, from, to, t); /* to's lead now */
+	out->phase_now = ang;
+	/* the lead changes at about (n2 - n1): a first guess at when it equals
+	 * the best one, then corrected against the bodies' real positions
+	 * (their orbits aren't quite circles) */
+	double rel = n2 - n1, d = remainder(out->phase_best - ang, 2 * TRS_PI);
+	double wait = d / rel;
+	double synodic = 2 * TRS_PI / fabs(rel);
+	while (wait < 0)
+		wait += synodic;
+	while (wait >= synodic)
+		wait -= synodic;
+	for (int it = 0; it < 30; it++) {
+		double err = remainder(lead_at(sys, from, to, t + wait) - out->phase_best, 2 * TRS_PI);
+		wait -= err / rel;
+		if (fabs(err) < 1e-12)
+			break;
+	}
+	if (wait < 0)
+		wait += synodic;
+	out->wait = wait;
+	out->synodic = synodic;
+	/* the speed to leave with (hyperbolic excess), and the burn from a
+	 * circular parking orbit of radius park_r around `from` */
+	double v_t = sqrt(mu * (2 / r1 - 1 / at)), v_from = sqrt(mu / r1);
+	out->v_inf = fabs(v_t - v_from);
+	out->dv_eject = park_r > 0 ? sqrt(out->v_inf * out->v_inf + 2 * a->mu / park_r) - sqrt(a->mu / park_r) : 0;
+	return 1;
+}

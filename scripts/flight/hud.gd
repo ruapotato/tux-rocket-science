@@ -559,10 +559,13 @@ static func signed(v: float, dec: int) -> String:
 static func fmt_time(s: float) -> String:
 	if s < 0 or is_inf(s) or is_nan(s):
 		return "—"
-	var d := int(s / 21600.0)  # Floe days are short; show hours instead
+	# Floe's days are short (5.5 h): times are told in hours, and past 100 h
+	# just in hours and minutes
 	var h := int(s / 3600.0)
 	var m := int(fmod(s, 3600.0) / 60.0)
 	var sec := fmod(s, 60.0)
+	if h >= 100:
+		return "%dh %02dm" % [h, m]
 	if h > 0:
 		return "%dh %02dm %02ds" % [h, m, int(sec)]
 	if m > 0:

@@ -64,4 +64,13 @@ typedef struct {
 /* Returns 1 and fills *out if the paths share a body somewhere in [t0, t1]. */
 int trs_closest_approach(const trs_patch *a, int na, const trs_patch *b, int nb, double t0, double t1, trs_approach *out);
 
+/* A Hohmann transfer between sibling bodies (circular, coplanar model):
+ * phases in rad (how far `to` leads `from`), times in s, speeds in m/s. */
+typedef struct {
+	double phase_best, phase_now, wait, synodic, flight_time, v_inf, dv_eject;
+} trs_transfer;
+/* park_r: radius of a circular parking orbit around `from` for dv_eject
+ * (0: skip). Returns 0 if the two don't share a parent. */
+int trs_transfer_window(const trs_system *sys, int from, int to, double t, double park_r, trs_transfer *out);
+
 #endif

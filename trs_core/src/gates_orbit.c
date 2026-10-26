@@ -460,6 +460,33 @@ trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir) {
 		trs_log_printf(log, "%s equal circles 30 deg apart in inclination: meet at the node at t %.3f s (want %.3f), %.4f m apart, %.1f m/s\n",
 				ok ? "ok  " : "FAIL", ap.t, want_t, ap.dist, ap.rel_speed);
 	}
+	/* transfer window Floe -> Kelp: the best lead is pi - n2 T (T half the
+	 * transfer ellipse's period); at now + wait the lead is that; the wait
+	 * is under one synodic period; the ejection burn from 100 km is
+	 * sqrt(v_inf^2 + 2 mu/r) - sqrt(mu/r) */
+	{
+		int kelp = trs_system_find(&sys, "kelp");
+		const trs_body *F = &sys.bodies[floe], *K = &sys.bodies[kelp];
+		double mu = sys.bodies[0].mu, r1 = F->orbit.a, r2 = K->orbit.a, at = 0.5 * (r1 + r2);
+		double T = TRS_PI * sqrt(at * at * at / mu), best = TRS_PI - sqrt(mu / (r2 * r2 * r2)) * T;
+		double park = R + 100e3, vinf = fabs(sqrt(mu * (2 / r1 - 1 / at)) - sqrt(mu / r1));
+		double dv = sqrt(vinf * vinf + 2 * F->mu / park) - sqrt(F->mu / park);
+		trs_transfer tr;
+		int got = trs_transfer_window(&sys, floe, kelp, 1000, park, &tr);
+		trs_transfer then;
+		trs_transfer_window(&sys, floe, kelp, 1000 + tr.wait, park, &then);
+		double lead_err = remainder(then.phase_now - tr.phase_best, 2 * TRS_PI);
+		int ok = got && fabs(tr.phase_best - best) < 1e-12 && fabs(tr.flight_time - T) < 1e-6 && tr.wait >= 0 && tr.wait < tr.synodic &&
+				fabs(lead_err) < 1e-9 && fabs(tr.dv_eject - dv) < 1e-9;
+		failed += !ok;
+		trs_log_printf(log, "%s Floe -> Kelp: lead %.2f deg (now %.2f), window in %.1f d (synodic %.1f d), then the lead is off by %.4f deg; %.1f d flight, eject %.1f m/s from 100 km\n",
+				ok ? "ok  " : "FAIL", tr.phase_best * 180 / TRS_PI, tr.phase_now * 180 / TRS_PI, tr.wait / 86400, tr.synodic / 86400,
+				lead_err * 180 / TRS_PI, tr.flight_time / 86400, tr.dv_eject);
+		trs_transfer none;
+		int bad = trs_transfer_window(&sys, floe, trs_system_find(&sys, "krill"), 0, 0, &none);
+		failed += bad;
+		trs_log_printf(log, "%s Floe -> Krill (not siblings): no window reported\n", bad ? "FAIL" : "ok  ");
+	}
 	{
 		trs_patch a = ca_patch(floe, 100), b = a;
 		b.body = floe + 1;

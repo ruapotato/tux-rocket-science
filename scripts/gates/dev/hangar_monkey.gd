@@ -72,7 +72,7 @@ func run(runner: Node) -> Dictionary:
 			hangar._click()
 		elif r < 0.75:
 			var k: int = [KEY_W, KEY_S, KEY_A, KEY_D, KEY_Q, KEY_E, KEY_X, KEY_DELETE, KEY_ESCAPE, KEY_BRACKETLEFT, KEY_BRACKETRIGHT,
-				KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PAGEUP, KEY_F][_rng.randi() % 17]
+				KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PAGEUP, KEY_F, KEY_1, KEY_2, KEY_5, KEY_9][_rng.randi() % 21]
 			what = "key " + OS.get_keycode_string(k)
 			hangar._key(_ev(k, _rng.randf() < 0.2))
 		elif r < 0.85:

@@ -94,6 +94,10 @@ A craft with wheels launches from the **runway** (the hangar's From: button), ly
 nose east, brakes on. Try the stock **Gull**: SPACE starts the jet, Z, B, and pull up at about
 100 m/s. The STAGES panel's Δv counts rockets only; a JET line says how long the fuel lasts.
 
+**Transfer windows**: on the map, focus another planet (Tab) or Austra to see when the next
+Hohmann window opens (how far the target should lead your planet, and how far it does now), the
+burn to leave from your orbit, and the trip time.
+
 **Kelp**: the second planet, sunward of Floe: green, a little bigger, with 1.2x Floe's surface
 gravity and air three and a half times as thick reaching 110 km up. Parachutes bite hard there,
 coming in is hot, and climbing back out takes a real rocket. Its research is worth 7x Floe's.

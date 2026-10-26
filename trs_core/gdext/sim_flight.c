@@ -1065,6 +1065,25 @@ static int vessel_trajectory(trs_sim_handle *h, int id, const trs_val *nodes_arr
 
 static const char *PATCH_END[] = { "horizon", "soi_exit", "soi_enter", "atmosphere", "surface", "node" };
 
+/* transfer_window(from_body, to_body, park_r) -> JSON {phase_best_deg,
+ * phase_now_deg, wait, synodic, flight_time, v_inf, dv_eject} or {} */
+static void m_transfer_window(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
+	trs_transfer tr;
+	if (h->world && a[0].i >= 0 && a[1].i >= 0 && a[0].i < h->world->sys.count && a[1].i < h->world->sys.count &&
+			trs_transfer_window(&h->world->sys, (int)a[0].i, (int)a[1].i, h->world->t, a[2].f, &tr)) {
+		trs_json_set(j, "phase_best_deg", trs_json_new_num(tr.phase_best * DEG));
+		trs_json_set(j, "phase_now_deg", trs_json_new_num(tr.phase_now * DEG));
+		trs_json_set(j, "wait", trs_json_new_num(tr.wait));
+		trs_json_set(j, "synodic", trs_json_new_num(tr.synodic));
+		trs_json_set(j, "flight_time", trs_json_new_num(tr.flight_time));
+		trs_json_set(j, "v_inf", trs_json_new_num(tr.v_inf));
+		trs_json_set(j, "dv_eject", trs_json_new_num(tr.dv_eject));
+	}
+	ret_json(r, j);
+}
+
 /* closest_approach(id, target, nodes, horizon) -> JSON {t, dist, rel_speed,
  * body_index, pos, target_pos} (positions relative to that body, sim axes)
  * or {} if the two paths never share a body in that time */
@@ -1389,6 +1408,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "terrain_patch", m_terrain_patch, A, 3, { I, A, I }, { "body", "patch", "res" } },
 	{ "sas_direction", m_sas_direction, A, 2, { I, S }, { "id", "mode" } },
 	{ "trajectory", m_trajectory, S, 4, { I, A, I, F }, { "id", "nodes", "max_patches", "horizon" } },
+	{ "transfer_window", m_transfer_window, S, 3, { I, I, F }, { "from", "to", "park_r" } },
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },

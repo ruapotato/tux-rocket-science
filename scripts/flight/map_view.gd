@@ -417,6 +417,31 @@ func _draw_body_orbit(i: int, offs: Array) -> void:
 	om.surface_end()
 
 
+## Transfer windows from the planet we orbit to the one in focus (or to
+## every sibling planet when the star is in focus).
+func _transfer_text(t: Dictionary) -> String:
+	var home := int(t.get("body_index", -1))
+	if home <= 0 or int(_bodies[home].info.parent) != 0:
+		return ""
+	var dests := []
+	if focus_body > 0 and focus_body != home and int(_bodies[focus_body].info.parent) == 0:
+		dests = [focus_body]
+	elif focus_body == 0:
+		for i in _bodies.size():
+			if i != home and i > 0 and int(_bodies[i].info.parent) == 0:
+				dests.append(i)
+	var park: float = float(t.altitude) + float(_bodies[home].info.radius)
+	var out := ""
+	for d in dests:
+		var w: Dictionary = JSON.parse_string(session.core.transfer_window(home, d, park))
+		if w.is_empty():
+			continue
+		out += "\n[color=#9fe08a][b]To %s[/b][/color]: window in [b]%s[/b] (it should lead by %.1f°, now %.1f°)\n   eject %.0f m/s from here · %s flight · every %s" % [
+			_bodies[d].info.name, FlightHUD.fmt_time(w.wait), w.phase_best_deg, w.phase_now_deg, w.dv_eject,
+			FlightHUD.fmt_time(w.flight_time), FlightHUD.fmt_time(w.synodic)]
+	return out
+
+
 func _update_panel(t: Dictionary) -> void:
 	var txt := "[b]%s[/b] · focus [color=#8fd0ff]%s[/color]\n" % [t.get("name", ""), _bodies[focus_body].info.name]
 	if session.nodes.is_empty():
@@ -425,6 +450,7 @@ func _update_panel(t: Dictionary) -> void:
 		_del_btn.disabled = true
 		for b in _orbit_btns:
 			b.disabled = true
+		txt += _transfer_text(t)
 	else:
 		if selected_node < 0 or selected_node >= session.nodes.size():
 			selected_node = 0
