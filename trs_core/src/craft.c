@@ -66,6 +66,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	p->sym = sym;
 	p->fuel = fuel_capacity(&c->cat->defs[def]);
 	p->mono = c->cat->defs[def].fuel_mono;
+	p->ec = c->cat->defs[def].ec_capacity;
 	p->limit = 1;
 	p->temp = TRS_T_AMBIENT;
 	return c->count++;
@@ -191,6 +192,27 @@ double trs_craft_mono(const trs_craft *c, double *capacity) {
 	if (capacity)
 		*capacity = cap;
 	return m;
+}
+
+double trs_craft_ec(const trs_craft *c, double *capacity) {
+	double e = 0, cap = 0;
+	for (int i = 0; i < c->count; i++) {
+		e += c->parts[i].ec;
+		cap += trs_craft_def(c, i)->ec_capacity;
+	}
+	if (capacity)
+		*capacity = cap;
+	return e;
+}
+
+double trs_craft_ec_add(trs_craft *c, double kj) {
+	double cap, e = trs_craft_ec(c, &cap);
+	double want = fmin(cap, fmax(0, e + kj));
+	for (int i = 0; i < c->count; i++) {
+		double ci = trs_craft_def(c, i)->ec_capacity;
+		c->parts[i].ec = cap > 0 ? want * ci / cap : 0; /* every battery at the same charge */
+	}
+	return want - e;
 }
 
 void trs_craft_mono_draw(trs_craft *c, double amount) {

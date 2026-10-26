@@ -109,6 +109,11 @@ typedef struct {
 	int jump;         /* EVA: jump on the next tick that has a foot on the ground */
 	int brakes;       /* wheel brakes on */
 	double air_speed; /* speed through the air at the start of the tick (jets), m/s */
+	/* electricity this tick (telemetry): generated and used, kW; in
+	 * sunlight; powered (charge left or the sun covering the draw) */
+	double ec_gen, ec_use;
+	int sunlit, powered;
+	double wheel_load; /* reaction wheels' effort last tick, 0..1 */
 	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
 	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
@@ -243,6 +248,8 @@ int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def);
 int trs_eva_hatch(const trs_world *w, int eva, int target, double *dist);
 /* Is vessel id a penguin on EVA? */
 int trs_vessel_is_eva(const trs_vessel *vs);
+/* Solar power (kW) reaching vessel vs's panels now; *sunlit: out of shadow. */
+double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit);
 /* Local horizon frame at r (SOI frame): up, north, east. */
 void trs_local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east);
 /* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);

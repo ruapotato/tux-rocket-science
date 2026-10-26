@@ -316,6 +316,35 @@ func results_subjects(id: int) -> Array:
 	return results_on(id).map(func(r): return r.subject)
 
 
+## Sends result `subject` aboard vessel `id` home by antenna: it counts at
+## the antenna's fraction of its worth, for kJ per point received from the
+## batteries. Returns {ok, research, kj, why}.
+func transmit(id: int, subject_id: String, t: Dictionary) -> Dictionary:
+	var frac: float = t.get("antenna_fraction", 0.0)
+	if frac <= 0.0:
+		return {"ok": false, "why": "no antenna aboard"}
+	for p in JSON.parse_string(Sim.game.core.vessel_parts(id)):
+		var uid := str(int(p.uid))
+		var list: Array = aboard.get(uid, [])
+		for k in list.size():
+			var r: Dictionary = list[k]
+			if r.subject != subject_id:
+				continue
+			var pts := value(r.exp, r.body, r.situation) * frac
+			var kj: float = pts * float(t.get("antenna_kj_per_point", 0.0))
+			if not Sim.game.core.vessel_use_ec(id, kj):
+				return {"ok": false, "why": "needs %.0f kJ, the batteries hold %.0f" % [kj, t.get("ec", 0.0)]}
+			research += pts
+			credited[r.subject] = int(credited.get(r.subject, 0)) + 1
+			list.remove_at(k)
+			if list.is_empty():
+				aboard.erase(uid)
+			save()
+			changed.emit()
+			return {"ok": true, "research": pts, "kj": kj, "why": ""}
+	return {"ok": false, "why": "no such result aboard"}
+
+
 ## Moves the results held by part `from_uid` to part `to_uid` (a penguin
 ## climbing back in hands its samples over).
 func move_results(from_uid: String, to_uid: String) -> void:

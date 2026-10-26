@@ -652,9 +652,17 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 			vs->sas_target = d;
 	}
 	trs_craft *c = vs->craft;
+	/* reaction torque that runs on electricity stops when it runs out; an
+	 * uncrewed craft out of power can't be steered at all */
 	double wheel = 0;
-	for (int i = 0; i < c->count; i++)
-		wheel += trs_craft_def(c, i)->torque;
+	int crewed = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		crewed |= d->crew > 0;
+		if (vs->powered || d->torque_kw_per_knm <= 0)
+			wheel += d->torque;
+	}
+	vs->wheel_load = 0;
 	/* movable fins steer in the air: each can push q S CNa sin(deflection)
 	 * along its normal at its arm, so a rocket with more (and further aft)
 	 * fins answers the controls better, and none of it works in vacuum */
@@ -686,6 +694,8 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	trs_v3 Iw = m3_mulv(&vs->inertia, wb);
 	double Ix = vs->inertia.m[0][0], Iy = vs->inertia.m[1][1], Iz = vs->inertia.m[2][2];
 	trs_v3 cmd = v3(0, 0, 0);
+	if (!crewed && !vs->powered)
+		return cmd; /* a dead probe: nothing answers the controls */
 	int manual = fabs(vs->input.x) + fabs(vs->input.y) + fabs(vs->input.z) > 1e-6;
 	/* Letting go of the stick under stability SAS stops the turn where it
 	 * is (rate brought to rest, the hold point following the nose) and only
@@ -749,6 +759,7 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 		u[k] = ra[k] > 0 ? clampd((cm[k] - base) / ra[k], -1, 1) : 0;
 		cm[k] = base;
 		fs[k] = o[k] > 0 ? base / o[k] : 0; /* fins carry their share of it */
+		vs->wheel_load += fabs(fs[k]) / 3; /* the wheels' share of their full effort */
 	}
 	vs->rcs_rot = v3(u[0], u[1], u[2]);
 	if (fin[0] + fin[1] + fin[2] > 0) {
@@ -862,6 +873,48 @@ static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h
 		double rate = d->chute_inflate > 0 ? d->chute_full_cda / d->chute_inflate : 1e12;
 		p->chute_cda = target < p->chute_cda ? target : fmin(target, p->chute_cda + rate * h);
 	}
+}
+
+/* ---- electricity --------------------------------------------------------------- */
+
+/* Solar power (kW) on a vessel's panels now: each gives solar_kw x the
+ * cosine of the sun off its face x (solar_ref_m / distance)^2, nothing
+ * while any body stands between the vessel and the star. */
+double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit) {
+	*sunlit = 0;
+	if (!vs->craft)
+		return 0;
+	trs_v3 br, bv, vr, vv;
+	trs_body_state_abs(&w->sys, vs->body, w->t, &br, &bv);
+	trs_vessel_state(w, (int)(vs - w->vessels), &vr, &vv); /* in any mode */
+	trs_v3 p = v3_add(br, vr); /* from the star */
+	double d = v3_len(p);
+	if (d <= w->sys.bodies[0].radius)
+		return 0;
+	trs_v3 to_sun = v3_scale(p, -1.0 / d);
+	for (int k = 1; k < w->sys.count; k++) {
+		trs_v3 ck, cv;
+		trs_body_state_abs(&w->sys, k, w->t, &ck, &cv);
+		trs_v3 rel = v3_sub(ck, p);
+		double along = v3_dot(rel, to_sun);
+		if (along <= 0 || along >= d)
+			continue;
+		double miss = v3_len(v3_sub(rel, v3_scale(to_sun, along)));
+		if (miss < w->sys.bodies[k].radius)
+			return 0; /* in its shadow */
+	}
+	*sunlit = 1;
+	trs_v3 sl = quat_rotate(quat_conj(vs->q), to_sun);
+	double kw = 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *df = trs_craft_def(vs->craft, i);
+		if (df->solar_kw <= 0)
+			continue;
+		trs_v3 n = quat_rotate(vs->craft->parts[i].rot, v3(0, 0, 1));
+		double r = df->solar_ref_m / d;
+		kw += df->solar_kw * fmax(0, v3_dot(n, sl)) * r * r;
+	}
+	return kw;
 }
 
 /* ---- heating ------------------------------------------------------------------- */
@@ -1012,6 +1065,14 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	engine_set es;
 	gather_engines(vs, vs->pressure, &es);
 
+	/* electricity: the sun on the panels now, and whether there is power
+	 * to run the wheels and the probe this tick */
+	double base_draw = 0, cap_ec;
+	vs->ec_gen = trs_vessel_solar(w, vs, &vs->sunlit);
+	for (int i = 0; i < vs->craft->count; i++)
+		base_draw += trs_craft_def(vs->craft, i)->ec_draw;
+	vs->powered = trs_craft_ec(vs->craft, &cap_ec) > 1e-9 || vs->ec_gen >= base_draw + 1e-12;
+
 	/* attitude once per tick from start-of-tick torques */
 	trs_v3 fa, aero_torque;
 	aero(w, vs, vs->r, vs->v, &fa, &aero_torque);
@@ -1036,6 +1097,14 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 		}
 	}
 	trs_v3 torque = v3_add(v3_add(control_torque(w, vs, es.gimbal_authority), aero_torque), es.torque_local);
+	double wheel_kw = 0;
+	if (vs->powered)
+		for (int i = 0; i < vs->craft->count; i++) {
+			const trs_part_def *d = trs_craft_def(vs->craft, i);
+			wheel_kw += d->torque_kw_per_knm * d->torque / 1000.0;
+		}
+	vs->ec_use = (vs->powered ? base_draw : 0) + wheel_kw * vs->wheel_load;
+	trs_craft_ec_add(vs->craft, (vs->ec_gen - vs->ec_use) * h);
 	torque = v3_add(v3_add(torque, ground_torque), vs->ext_torque);
 	/* RCS: rotation share from the controller plus the pilot's translation,
 	 * cut back evenly if the monopropellant would run out this tick */

@@ -111,6 +111,16 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	const trs_json *fl = trs_json_get(j, "feed_line");
 	if (fl)
 		d->feed_reach = trs_json_num(fl, "reach", 0.6);
+	const trs_json *pw = trs_json_get(j, "power");
+	if (pw) {
+		d->ec_capacity = trs_json_num(pw, "battery_kj", 0);
+		d->ec_draw = trs_json_num(pw, "draw_kw", 0);
+		d->torque_kw_per_knm = trs_json_num(pw, "torque_kw_per_knm", 0);
+		d->solar_kw = trs_json_num(pw, "solar_kw", 0);
+		d->solar_ref_m = trs_json_num(pw, "solar_ref_m", 1.4e10);
+		d->antenna_kj_per_point = trs_json_num(pw, "antenna_kj_per_point", 0);
+		d->antenna_fraction = trs_json_num(pw, "antenna_fraction", 0);
+	}
 	const trs_json *ev = trs_json_get(j, "eva");
 	if (ev) {
 		d->is_eva = 1;

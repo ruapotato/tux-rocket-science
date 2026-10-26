@@ -89,6 +89,14 @@ typedef struct {
 	/* feed line: pipes propellant from its group to what its outlet reaches */
 	double feed_reach; /* m along local +Z from the attach point (0 = not a feed line) */
 
+	/* electricity, kJ and kW: a battery's store, a constant draw (probe
+	 * cores, pods), what reaction torque costs at full use per kN m of it,
+	 * a solar panel's output face-on to the sun at solar_ref_m from it (its
+	 * face is local +Z, off the hull), and an antenna's cost to send home
+	 * one point of research (it gets antenna_fraction of a result's worth) */
+	double ec_capacity, ec_draw, torque_kw_per_knm, solar_kw, solar_ref_m;
+	double antenna_kj_per_point, antenna_fraction;
+
 	/* a penguin out on a walk (EVA): its feet carry it at up to eva_walk m/s
 	 * over the ground (as far as friction lets them), it jumps off at
 	 * eva_jump m/s, and it can climb back aboard a crewed part within

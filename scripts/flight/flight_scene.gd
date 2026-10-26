@@ -873,7 +873,7 @@ func _toggle_science() -> void:
 func _fill_science() -> void:
 	var box: VBoxContainer = _science.get_child(0)
 	var t := session.telemetry()
-	var sig := JSON.stringify([Career.situation(t), t.get("body", ""), Career.results_on(session.active).size(), session.active])
+	var sig := JSON.stringify([Career.situation(t), t.get("body", ""), Career.results_on(session.active).size(), session.active, int(float(t.get("ec", 0.0)) / 10.0)])
 	if box.get_meta("sig", "") == sig:
 		return
 	box.set_meta("sig", sig)
@@ -914,6 +914,29 @@ func _fill_science() -> void:
 	var worth := 0.0
 	for r in res:
 		worth += Career.value(r.exp, r.body, r.situation)
+	var frac: float = t.get("antenna_fraction", 0.0)
+	if frac > 0.0 and persistent:
+		for r in res:
+			var row := HBoxContainer.new()
+			var b := Button.new()
+			b.text = "Send"
+			b.focus_mode = Control.FOCUS_NONE
+			var pts := Career.value(r.exp, r.body, r.situation) * frac
+			var kj: float = pts * float(t.get("antenna_kj_per_point", 0.0))
+			b.disabled = kj > float(t.get("ec", 0.0))
+			var subj: String = r.subject
+			b.pressed.connect(func():
+				var res2 := Career.transmit(session.active, subj, session.telemetry())
+				Sfx.play("click")
+				hud.toast("Sent home: +%.1f research for %.0f kJ" % [res2.research, res2.kj] if res2.ok else "Can't send: " + res2.why, 2.5)
+				box.set_meta("sig", "")
+				_fill_science())
+			row.add_child(b)
+			var l := Label.new()
+			l.text = "%s, %s · %.1f research by antenna (%.0f kJ)" % [Career.science.experiments[r.exp].name, Career.describe(r.situation, r.body).to_lower(), pts, kj]
+			l.add_theme_font_size_override("font_size", 12)
+			row.add_child(l)
+			box.add_child(row)
 	var foot := Label.new()
 	foot.text = "Aboard: %d results, worth %.1f research once recovered at Floe (O to close)" % [res.size(), worth]
 	foot.add_theme_font_size_override("font_size", 12)
@@ -1370,6 +1393,13 @@ func _render(delta: float) -> void:
 		if hf > 0.9 and session.time() - _heat_alarm_t > 1.2:
 			_heat_alarm_t = session.time()
 			Sfx.play("alarm", 0.6)
+	var powered: bool = t.get("powered", true)
+	if _was_powered and not powered and float(t.get("ec_capacity", 0.0)) > 0.0:
+		hud.toast("Batteries flat: the reaction wheels have stopped%s" % ("" if int(t.get("crew_capacity", 0)) > 0 else " and the probe can't be steered"), 4.0)
+		Sfx.play("alarm", 0.5)
+	_was_powered = powered
+	if not powered and float(t.get("ec_capacity", 0.0)) > 0.0 and hint == "":
+		hint = "No power: point a solar panel at the sun (or wait for daylight) to charge the batteries"
 	if t.get("eva", false):
 		var near := _hatch_near()
 		hint = "On EVA · WASD walk · Space jump · R jetpack (%.1f kg mono)%s" % [t.get("mono", 0.0),
@@ -1534,6 +1564,7 @@ var _roster_snapshot: Array = []
 var _seats_snapshot: Dictionary = {}
 var _career_snapshot: Dictionary = {}  # the program before this launch (reverts put it back)
 var _launch_cost := 0.0
+var _was_powered := true
 var _mission_tick := 0.0
 var _docked_seen := false
 var _science: PanelContainer

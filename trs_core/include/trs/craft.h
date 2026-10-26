@@ -51,6 +51,7 @@ typedef struct {
 	int sym;              /* symmetry group (0 = none), editor metadata */
 	double fuel;          /* remaining propellant, kg (liquid or solid) */
 	double mono;          /* remaining monopropellant, kg */
+	double ec;            /* stored electricity, kJ */
 	double limit;         /* engines: thrust limit, fraction of full (set in the hangar) */
 	int engine_on;
 	int chute;
@@ -92,6 +93,10 @@ double trs_part_mdot(const trs_craft *c, int i);
 double trs_craft_mass(const trs_craft *c);
 /* Monopropellant on board and its capacity, kg (the whole craft shares it). */
 double trs_craft_mono(const trs_craft *c, double *capacity);
+/* stored electricity (kJ) and capacity; adding (or drawing, < 0) spreads
+ * over the batteries, clamped to empty and full: returns what moved */
+double trs_craft_ec(const trs_craft *c, double *capacity);
+double trs_craft_ec_add(trs_craft *c, double kj);
 /* Removes `amount` kg of monopropellant evenly (proportionally) from every part holding some. */
 void trs_craft_mono_draw(trs_craft *c, double amount);
 double trs_craft_part_mass(const trs_craft *c, int i);

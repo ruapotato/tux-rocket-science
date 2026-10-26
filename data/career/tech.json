@@ -9,6 +9,8 @@
       "parts": ["engine_vac", "heat_shield", "reaction_wheel", "barometer"] },
     { "id": "staging", "name": "Clever Staging", "cost": 20, "requires": ["rocketry"],
       "parts": ["decoupler_radial", "feed_line"] },
+    { "id": "power", "name": "Electricity", "cost": 20, "requires": ["orbits"],
+      "parts": ["battery", "solar_panel", "antenna"] },
     { "id": "control", "name": "Fine Control", "cost": 30, "requires": ["orbits"],
       "parts": ["rcs_block", "mono_tank", "mono_radial", "probe_core"] },
     { "id": "landing", "name": "Landing Elsewhere", "cost": 35, "requires": ["orbits"],

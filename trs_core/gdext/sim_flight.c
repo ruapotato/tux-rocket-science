@@ -110,6 +110,17 @@ static void m_flight_launch_runway(void *self, const trs_val *a, trs_val *r) {
 	trs_craft_free(&c);
 }
 
+/* vessel_use_ec(id, kj) -> true and drawn if the batteries hold that much */
+static void m_vessel_use_ec(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->b = 0;
+	if (ok_vessel(h, a[0].i) && h->world->vessels[a[0].i].craft && a[1].f >= 0
+			&& trs_craft_ec(h->world->vessels[a[0].i].craft, NULL) >= a[1].f) {
+		trs_craft_ec_add(h->world->vessels[a[0].i].craft, -a[1].f);
+		r->b = 1;
+	}
+}
+
 /* vessel_set_brakes(id, on) */
 static void m_vessel_set_brakes(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -435,6 +446,23 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
 	trs_json_set(j, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
 	trs_json_set(j, "brakes", trs_json_new_bool(vs->brakes));
+	if (vs->craft) {
+		double ec_cap, ec = trs_craft_ec(vs->craft, &ec_cap), ant = 0, antf = 0;
+		for (int i = 0; i < vs->craft->count; i++) {
+			const trs_part_def *d = trs_craft_def(vs->craft, i);
+			if (d->antenna_fraction > antf)
+				antf = d->antenna_fraction, ant = d->antenna_kj_per_point;
+		}
+		int lit;
+		trs_json_set(j, "ec", trs_json_new_num(ec));
+		trs_json_set(j, "ec_capacity", trs_json_new_num(ec_cap));
+		trs_json_set(j, "ec_gen", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_gen : trs_vessel_solar(w, vs, &lit)));
+		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_use : 0));
+		trs_json_set(j, "sunlit", trs_json_new_bool(vs->mode == TRS_MODE_PHYSICS ? vs->sunlit : (trs_vessel_solar(w, vs, &lit), lit)));
+		trs_json_set(j, "powered", trs_json_new_bool(vs->mode != TRS_MODE_PHYSICS || vs->powered || ec > 1e-9));
+		trs_json_set(j, "antenna_fraction", trs_json_new_num(antf));
+		trs_json_set(j, "antenna_kj_per_point", trs_json_new_num(ant));
+	}
 	int wheels = 0;
 	for (int i = 0; vs->craft && i < vs->craft->count; i++)
 		wheels += trs_craft_def(vs->craft, i)->is_wheel;
@@ -1314,6 +1342,7 @@ static void m_flight_spawn_state(void *self, const trs_val *a, trs_val *r) {
 const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "flight_launch", m_flight_launch, I, 2, { S, S }, { "craft", "body" } },
 	{ "flight_launch_runway", m_flight_launch_runway, I, 2, { S, S }, { "craft", "body" } },
+	{ "vessel_use_ec", m_vessel_use_ec, B, 2, { I, F }, { "id", "kj" } },
 	{ "vessel_set_brakes", m_vessel_set_brakes, V, 2, { I, B }, { "id", "on" } },
 	{ "flight_spawn_orbit", m_flight_spawn_orbit, I, 4, { S, S, F, F }, { "craft", "body", "altitude", "inc_deg" } },
 	{ "vessel_set_throttle", m_vessel_set_throttle, V, 2, { I, F }, { "id", "throttle" } },

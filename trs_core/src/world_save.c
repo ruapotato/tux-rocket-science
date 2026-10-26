@@ -120,6 +120,7 @@ static trs_json *craft_json(const trs_craft *c) {
 		PUT_I(pj, p, sym);
 		PUT_D(pj, p, fuel);
 		PUT_D(pj, p, mono);
+		PUT_D(pj, p, ec);
 		PUT_D(pj, p, limit);
 		PUT_I(pj, p, engine_on);
 		PUT_I(pj, p, chute);
@@ -158,6 +159,8 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 		GET_I(pj, p, uid);
 		GET_D(pj, p, fuel);
 		GET_D(pj, p, mono);
+		if (trs_json_get(pj, "ec"))
+			GET_D(pj, p, ec); /* saves from before electricity keep their batteries full */
 		GET_D(pj, p, limit);
 		GET_I(pj, p, engine_on);
 		GET_I(pj, p, chute);

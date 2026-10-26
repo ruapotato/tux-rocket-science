@@ -72,6 +72,14 @@ more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono.
 helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
 holds that attitude (it doesn't swing back to where you started).
 
+**Power**: pods and probe cores carry batteries, and reaction torque runs on them (about 0.1 kW
+per kN m at full effort; probe cores also draw a little all the time). Out of power, the wheels
+stop and an uncrewed probe can't be steered at all. **Sunfin Solar Panels** give 1.5 kW facing
+the sun at Floe's distance (more nearer Austra, none in a planet's shadow; their face looks out
+from the hull), **Krill-Cell Batteries** store more, and a **Squawk Antenna** sends experiment
+results home from wherever you are for half their worth (O, then Send) at 20 kJ per research
+point. Electricity flows in normal time; on-rails warp is frozen time for it as for fuel.
+
 **Planes**: Gannet Wings lift (their flaps are ailerons), the Skua jet engine breathes air (lots of
 push for little fuel, more in thick air, nothing in space or past about 520 m/s), and Waddle-Wheel
 gear rolls along the craft's nose, grips sideways and brakes with **B**; the nose gear steers.

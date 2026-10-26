@@ -193,6 +193,45 @@ static func highlight_mat() -> StandardMaterial3D:
 
 ## opts: {"shroud": metres of interstage fairing above a decoupler,
 ##        "legs": 0..1 deployment for landing legs, "decals": bool}
+## A solar panel: a dark blue cell grid in a frame, its face (+Z) out from
+## the hull on a short stand-off.
+static func _panel(root: Node3D, sh: Dictionary) -> void:
+	var w: float = sh.get("width", 0.9)
+	var h: float = sh.get("height", 1.4)
+	var stand := BoxMesh.new()
+	stand.size = Vector3(0.08, 0.08, 0.12)
+	_mesh(root, stand, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.06)))
+	var frame := BoxMesh.new()
+	frame.size = Vector3(w, h, 0.03)
+	_mesh(root, frame, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.13)))
+	var cells := BoxMesh.new()
+	cells.size = Vector3(w * 0.94, h * 0.96, 0.01)
+	_mesh(root, cells, mat("solar_cells", Color(0.08, 0.14, 0.38), 0.6, 0.18), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.15)))
+	for k in range(1, 4):
+		var line := BoxMesh.new()
+		line.size = Vector3(w * 0.94, 0.012, 0.012)
+		_mesh(root, line, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 + h * k / 4.0, 0.157)))
+
+
+## An antenna: a thin mast out from the hull with a small dish at its tip.
+static func _antenna(root: Node3D, sh: Dictionary) -> void:
+	var h: float = sh.get("height", 0.9)
+	var mast := CylinderMesh.new()
+	mast.top_radius = 0.012
+	mast.bottom_radius = 0.02
+	mast.height = h
+	_mesh(root, mast, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, h * 0.5)))
+	var dish := CylinderMesh.new()
+	dish.top_radius = 0.16
+	dish.bottom_radius = 0.03
+	dish.height = 0.07
+	_mesh(root, dish, mat("dial", WHITE, 0.0, 0.3), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, h)))
+	var tip := SphereMesh.new()
+	tip.radius = 0.025
+	tip.height = 0.05
+	_mesh(root, tip, mat("red", RED, 0.0, 0.4), Transform3D(Basis.IDENTITY, Vector3(0, 0, h + 0.06)))
+
+
 ## A jet engine: an intake lip and fan at the front (top), a grey nacelle,
 ## and a tapering hot nozzle behind.
 static func _jet(root: Node3D, sh: Dictionary) -> void:
@@ -387,6 +426,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_instrument(root, sh)
 		"jet":
 			_jet(root, sh)
+		"panel":
+			_panel(root, sh)
+		"antenna":
+			_antenna(root, sh)
 		"wheel":
 			_wheel(root, sh)
 		"lab":

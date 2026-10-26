@@ -165,6 +165,33 @@ func run(runner: Node) -> Dictionary:
 	var aboard := Career.results_on(hop)
 	_check(not samp.is_empty() and _near(samp[0].value, want_s) and rs == "" and s.active == hop and aboard.size() == 1 and aboard[0].exp == "surface_sample",
 		"EVA surface sample worth %.1f, carried back in: Hopper holds %s" % [want_s, aboard.map(func(r): return r.subject)])
+	# 9. an antenna sends a result home: half its worth, for kJ per point
+	var m := CraftModel.new()
+	m.load_text(hopper)
+	var tank := -1
+	for i in m.parts.size():
+		if m.parts[i].part == "tank_m":
+			tank = i
+	m.attach_surface(CraftModel.held_single("antenna"), tank, 0.0, 0.0, 1)
+	Career.unlocked.append_array(["orbits", "power"])
+	scene = await _flight(tree, m.save_text())
+	s = scene.session
+	for p in JSON.parse_string(s.core.vessel_parts(s.active)):
+		if p.part == "pod_1":
+			pod_uid = str(int(p.uid))
+	t = s.telemetry()
+	Career.run(s.active, pod_uid, "crew_report", t)
+	var subj := Career.subject("crew_report", "floe", "landed")
+	var worth_now := Career.value("crew_report", "floe", "landed")
+	var r0 := Career.research
+	var e0: float = t.ec
+	var sent := Career.transmit(s.active, subj, s.telemetry())
+	var t2: Dictionary = JSON.parse_string(s.core.telemetry(s.active))  # fresh (no tick has passed)
+	var want_pts: float = worth_now * float(Sim.part("antenna").power.antenna_fraction)
+	var want_kj: float = want_pts * float(Sim.part("antenna").power.antenna_kj_per_point)
+	_check(sent.ok and _near(Career.research - r0, want_pts) and _near(e0 - float(t2.ec), want_kj) and Career.results_on(s.active).is_empty(),
+		"antenna: sent the pad crew report for +%.3f research (half of %.3f) and %.2f kJ (%.0f kJ per point); nothing left aboard" % [
+			Career.research - r0, worth_now, e0 - float(t2.ec), Sim.part("antenna").power.antenna_kj_per_point])
 	Career.load_from(Sim.save_dir + "career.json", "sandbox")
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}
 

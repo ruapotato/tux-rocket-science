@@ -677,6 +677,23 @@ func _update_fuel(t: Dictionary) -> void:
 		ml.add_theme_font_size_override("font_size", 12)
 		v.add_child(ml)
 		v.add_child(mbar)
+	var ecap: float = t.get("ec_capacity", 0.0)
+	if ecap > 0.0 or float(t.get("ec_gen", 0.0)) > 0.0:
+		var ebar := ProgressBar.new()
+		ebar.max_value = maxf(ecap, 1e-9)
+		ebar.value = t.get("ec", 0.0)
+		ebar.show_percentage = false
+		ebar.custom_minimum_size = Vector2(250, 10)
+		var ef := StyleBoxFlat.new()
+		ef.bg_color = Color(1.0, 0.86, 0.3) if t.get("powered", true) else Color(0.6, 0.25, 0.2)
+		ebar.add_theme_stylebox_override("fill", ef)
+		var el := Label.new()
+		var net: float = float(t.get("ec_gen", 0.0)) - float(t.get("ec_use", 0.0))
+		el.text = "Power  %.0f / %.0f kJ  %s%.2f kW%s" % [t.get("ec", 0.0), ecap, "+" if net >= 0.0 else "", net,
+			"  sun %.2f kW" % float(t.ec_gen) if float(t.get("ec_gen", 0.0)) > 0.0 else ("  in shadow" if not t.get("sunlit", true) else "")]
+		el.add_theme_font_size_override("font_size", 12)
+		v.add_child(el)
+		v.add_child(ebar)
 	if t.get("stage_liquid_capacity", 0.0) <= 0.0 and t.get("stage_solid_capacity", 0.0) <= 0.0:
 		var none := Label.new()
 		none.text = "No engine in this stage"

@@ -416,6 +416,22 @@ static void stats_json(trs_sim_handle *h, trs_craft *cp, const char *body_id, tr
 		trs_json_set(out, "jet_twr_sl", trs_json_new_num(jt / (mass * g)));
 		trs_json_set(out, "jet_time_sl", trs_json_new_num(jflow > 0 ? liquid / jflow : 0));
 	}
+	/* electricity: stored, solar face-on at each panel's reference
+	 * distance (Floe's), drawn idle, and drawn with the wheels flat out */
+	{
+		double cap, ec = trs_craft_ec(&c, &cap), solar = 0, draw = 0, wheels = 0;
+		for (int i = 0; i < c.count; i++) {
+			const trs_part_def *d = trs_craft_def(&c, i);
+			solar += d->solar_kw;
+			draw += d->ec_draw;
+			wheels += d->torque_kw_per_knm * d->torque / 1000.0;
+		}
+		trs_json_set(out, "ec", trs_json_new_num(ec));
+		trs_json_set(out, "ec_capacity", trs_json_new_num(cap));
+		trs_json_set(out, "solar_kw", trs_json_new_num(solar));
+		trs_json_set(out, "ec_draw", trs_json_new_num(draw));
+		trs_json_set(out, "wheel_kw", trs_json_new_num(wheels));
+	}
 	trs_json_set(out, "crew", trs_json_new_num(crew));
 	trs_json *com = trs_json_new(TRS_JSON_ARRAY);
 	trs_json_push(com, trs_json_new_num(cm.x));

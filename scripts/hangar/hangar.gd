@@ -472,6 +472,12 @@ func _refresh_readouts() -> void:
 	if int(_stats.get("rcs_blocks", 0)) > 0 or _stats.get("mono", 0.0) > 0.0:
 		t += "\n[color=#9fb4cc]RCS[/color] %d block%s · mono %.0f kg · [color=#5fd8c4]%.0f m/s[/color] of sliding" % [
 			int(_stats.get("rcs_blocks", 0)), "" if int(_stats.get("rcs_blocks", 0)) == 1 else "s", _stats.get("mono", 0.0), _stats.get("rcs_dv", 0.0)]
+	if float(_stats.get("ec_capacity", 0.0)) > 0.0 or float(_stats.get("solar_kw", 0.0)) > 0.0:
+		var idle: float = _stats.get("ec_draw", 0.0)
+		t += "\n[color=#9fb4cc]Power[/color] %.0f kJ · draws %.2f kW idle, %.2f kW wheels flat out%s" % [_stats.ec_capacity, idle,
+			idle + float(_stats.get("wheel_kw", 0.0)), " · [color=#ffe07a]sun %.1f kW[/color] at Floe" % float(_stats.solar_kw) if float(_stats.get("solar_kw", 0.0)) > 0.0 else ""]
+		if idle > 0.0 and float(_stats.get("solar_kw", 0.0)) <= 0.0:
+			t += " · [color=#9fb4cc]%s on its batteries[/color]" % FlightHUD.fmt_time(float(_stats.ec_capacity) / idle)
 	if Career.is_career():
 		var ids := model.parts.map(func(p): return str(p.part))
 		var cost := Career.craft_cost(ids)
