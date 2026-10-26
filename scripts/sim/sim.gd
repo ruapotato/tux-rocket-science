@@ -56,10 +56,24 @@ func _init() -> void:
 	err = core.load_catalog(ProjectSettings.globalize_path(CATALOG_PATH))
 	if err != "":
 		push_error("trs_core: " + err)
+	for b in JSON.parse_string(FileAccess.get_file_as_string(SYSTEM_PATH)).bodies:
+		_looks[b.id] = b.get("look", {})
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(CATALOG_PATH))
 	for p in data.parts:
 		catalog[p.id] = p
 		catalog_order.append(p.id)
+
+
+var _looks := {}
+
+
+## How a body looks (data/bodies "look"): style, sky, tau, clouds, colours.
+func look(body_id: String) -> Dictionary:
+	return _looks.get(body_id, {})
+
+
+static func col(a, fallback := Color(0.5, 0.5, 0.5)) -> Color:
+	return Color(a[0], a[1], a[2]) if a is Array and a.size() >= 3 else fallback
 
 
 func part(id: String) -> Dictionary:

@@ -112,18 +112,16 @@ func setup(c: TrsSim) -> void:
 				m.emission_enabled = true
 				m.emission = Color(1.0, 0.85, 0.6)
 				m.emission_energy_multiplier = 6.0
-			"floe":
-				atmo = Atmosphere.make(info.radius, info.atmosphere_height, info.get("scale_height", 5800.0))
-			"krill":
-				pass
 			_:
 				m.albedo_color = Color(0.6, 0.6, 0.6)
+				if float(info.get("atmosphere_height", 0.0)) > 0.0:
+					atmo = Atmosphere.make(info.radius, info.atmosphere_height, info.get("scale_height", 5800.0), Sim.look(info.id).get("tau", []))
 		node.material_override = m if info.id == "austra" else PlanetBake.planet_material(core, i)
 		add_child(node)
 		if atmo:
 			add_child(atmo)
 		var clouds: MeshInstance3D = null
-		if info.id == "floe":
+		if Sim.look(info.id).get("clouds", false):
 			clouds = MeshInstance3D.new()
 			var cm := SphereMesh.new()
 			cm.radius = 1.0

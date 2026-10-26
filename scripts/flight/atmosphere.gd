@@ -116,7 +116,7 @@ static var _shader: Shader
 
 ## A shell mesh whose material renders the atmosphere for a body.
 ## Scale the node to the atmosphere top radius (scaled units).
-static func make(planet_radius: float, atmo_height: float, scale_h: float) -> MeshInstance3D:
+static func make(planet_radius: float, atmo_height: float, scale_h: float, tau: Array = []) -> MeshInstance3D:
 	if _shader == null:
 		_shader = Shader.new()
 		_shader.code = SHADER
@@ -131,6 +131,8 @@ static func make(planet_radius: float, atmo_height: float, scale_h: float) -> Me
 	m.shader = _shader
 	m.set_shader_parameter("shell_ratio", (planet_radius + atmo_height) / planet_radius)
 	m.set_shader_parameter("scale_height", scale_h / planet_radius)
+	if tau.size() >= 3:
+		m.set_shader_parameter("tau", Vector3(tau[0], tau[1], tau[2]))
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.set_meta("radius", planet_radius + atmo_height)

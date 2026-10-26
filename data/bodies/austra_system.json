@@ -30,7 +30,9 @@
                      { "name": "Puffin Spires", "lat_deg": 1.6, "lon_deg": -76.4, "radius_km": 11, "height": 5200 },
                      { "name": "Brinewall Ridge", "lat_deg": -1.4, "lon_deg": -73.0, "radius_km": 8, "height": 3400 }
                    ] },
-      "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68, "flat_radius": 1500 }
+      "launch_site": { "name": "Glacier Shelf Launch Complex", "lat_deg": -0.097, "lon_deg": -74.6, "altitude": 68, "flat_radius": 1500 },
+      "look": { "style": "ice", "sky": [0.62, 0.76, 0.93], "tau": [0.035, 0.10, 0.34], "clouds": true,
+                "low": [0.70, 0.76, 0.85], "high": [0.86, 0.88, 0.92], "slope": [0.55, 0.72, 0.88], "rock": [0.24, 0.24, 0.27], "range": 1600 }
     },
     {
       "id": "krill",
@@ -41,7 +43,29 @@
       "radius": 220000,
       "tidally_locked": true,
       "terrain": { "seed": 41, "amplitude": 1800, "base_freq": 2.2, "octaves": 15, "persistence": 0.52, "offset": 0, "ridge": 0.15, "crater_freq": 9, "crater_depth": 2600, "mountain_amplitude": 2400, "mountain_freq": 30, "mountain_coverage": 0.22 },
-      "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 }
+      "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 },
+      "look": { "style": "rock", "low": [0.30, 0.295, 0.30], "high": [0.55, 0.53, 0.5], "slope": [0.22, 0.21, 0.22], "rock": [0.17, 0.165, 0.17], "range": 1800 }
+    },
+    {
+      "id": "kelp",
+      "name": "Kelp",
+      "kind": "planet",
+      "parent": "austra",
+      "mu": 6.47e12,
+      "radius": 750000,
+      "rotation_period": 26400,
+      "rotation_at_epoch_deg": 40,
+      "orbit": { "a": 9500000000, "e": 0.02, "inc_deg": 1.5, "lan_deg": 80, "argp_deg": 20, "mean_anomaly_deg": 150 },
+      "atmosphere": {
+        "height": 110000,
+        "sea_level_pressure": 354600,
+        "sea_level_density": 4.1,
+        "scale_height": 9000
+      },
+      "terrain": { "seed": 23, "amplitude": 2200, "base_freq": 2.6, "octaves": 15, "persistence": 0.5, "offset": 300, "ridge": 0.3, "mountain_amplitude": 4200, "mountain_freq": 38, "mountain_coverage": 0.3 },
+      "look": { "style": "moss", "sky": [0.56, 0.78, 0.62], "tau": [0.16, 0.24, 0.30], "clouds": true,
+                "low": [0.20, 0.36, 0.20], "high": [0.56, 0.52, 0.34], "slope": [0.26, 0.30, 0.18], "rock": [0.21, 0.19, 0.15],
+                "basin": [0.08, 0.26, 0.22], "range": 2000 }
     }
   ]
 }

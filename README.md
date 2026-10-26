@@ -72,6 +72,11 @@ more, and nothing moves them in vacuum. **RCS** jets work anywhere there's mono.
 helps whenever an engine burns. With SAS on, letting go of the keys stops the turn where it is and
 holds that attitude (it doesn't swing back to where you started).
 
+**Kelp**: the second planet, sunward of Floe: green, a little bigger, with 1.2x Floe's surface
+gravity and air three and a half times as thick reaching 110 km up. Parachutes bite hard there,
+coming in is hot, and climbing back out takes a real rocket. Its research is worth 7x Floe's.
+Planet looks live in `data/bodies/` ("look": colours, sky, haze, clouds), so new worlds need no code.
+
 **Career**: the main menu's first button switches between the **Sandbox** (every part, free; your
 original save) and a **Career** (its own world, crew and program). A career starts with ƒ25,000
 and Basic Rocketry. Every part has a cost; launching pays for the craft and recovering it at

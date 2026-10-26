@@ -163,7 +163,7 @@ static func textures(core: TrsSim, body: int) -> Dictionary:
 	for b in sys.bodies:
 		if b.id == info.id:
 			tdata = JSON.stringify(b.get("terrain", {})) + str(b.get("launch_site", {}))
-	var key := "%s_%d_%d" % [info.id, VERSION, hash(tdata) & 0x7fffffff]
+	var key := "%s_%d_%d" % [info.id, VERSION, hash(tdata + str(Sim.look(info.id))) & 0x7fffffff]
 	var dir := "user://cache/"
 	DirAccess.make_dir_recursive_absolute(dir)
 	var ap := dir + key + "_albedo.png"
@@ -189,7 +189,14 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 	var R: float = info.radius
 	var a_img := Image.create(W, H, false, Image.FORMAT_RGB8)
 	var n_img := Image.create(W, H, false, Image.FORMAT_RGB8)
-	var ice_world: bool = info.id == "floe"
+	var lk: Dictionary = Sim.look(info.id)
+	var style: String = lk.get("style", "rock")
+	var ice_world: bool = style == "ice"
+	var moss: bool = style == "moss"
+	var c_low := Sim.col(lk.get("low"))
+	var c_high := Sim.col(lk.get("high"))
+	var c_basin := Sim.col(lk.get("basin"), c_low)
+	var c_rock := Sim.col(lk.get("rock"), Color(0.2, 0.2, 0.2))
 	var noise := FastNoiseLite.new()
 	noise.seed = hash(info.id)
 	noise.frequency = 0.02
@@ -221,6 +228,14 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 				col = col.lerp(Color(0.3, 0.31, 0.35), clampf((slope - 0.12) * 5.0, 0.0, 0.9))
 				if absf(lat) > 1.2:  # polar caps
 					col = col.lerp(Color(1.0, 1.0, 1.0), clampf((absf(lat) - 1.2) * 4.0, 0.0, 1.0))
+			elif moss:
+				# lowland forests of kelp-moss, olive uplands, dark still seas
+				var hk := clampf((hc - 200.0) / 3800.0, 0.0, 1.0)
+				col = c_low.lerp(c_high, clampf(pow(hk, 0.8) + nz * 0.12, 0.0, 1.0))
+				if hc < 350.0:
+					col = col.lerp(c_basin.lerp(c_basin * 1.4, nz), clampf((350.0 - hc) / 350.0, 0.0, 1.0) * 0.9)
+				col = col.lerp(c_rock, clampf((slope - 0.1) * 4.0, 0.0, 0.85))
+				col.a = 1.0
 			else:
 				var hk := clampf((hc + 1200.0) / 2600.0, 0.0, 1.0)
 				col = Color(0.2, 0.195, 0.2).lerp(Color(0.66, 0.64, 0.6), pow(hk, 1.3))

@@ -1229,7 +1229,7 @@ func _render(delta: float) -> void:
 	# cloud deck 7 km up on bodies that have weather; from below it would be
 	# an overcast we don't model yet, so it shows once you're above it
 	var deck: float = 7000.0
-	var has_clouds: bool = t.body == "floe"
+	var has_clouds: bool = Sim.look(t.body).get("clouds", false)
 	var above: float = t.altitude - deck
 	_clouds.visible = has_clouds and above > 2000.0
 	_terrain.set_cloud_shadows(has_clouds, Frame.spin(bodies[bi * 5 + 3]).inverse() * sun_dir, deck / bodies[bi * 5 + 4])
@@ -1247,9 +1247,10 @@ func _render(delta: float) -> void:
 	var day := clampf(up.dot(sun_dir) * 3.0 + 0.4, 0.0, 1.0)
 	if atm_h > 0.0 and t.altitude < atm_h:
 		density = pow(1.0 - clampf(t.altitude / atm_h, 0.0, 1.0), 1.6)
-		_env.fog_light_color = Color(0.62, 0.76, 0.93).lerp(Color(0.02, 0.02, 0.05), 1.0 - day)
+		var sky := Sim.col(Sim.look(t.body).get("sky"), Color(0.62, 0.76, 0.93))
+		_env.fog_light_color = sky.lerp(Color(0.02, 0.02, 0.05), 1.0 - day)
 		_env.fog_density = 0.00003 * density
-		_env.ambient_light_color = Color(0.55, 0.65, 0.85)
+		_env.ambient_light_color = sky * Color(0.89, 0.86, 0.91)
 		_env.ambient_light_energy = 0.1 + 0.4 * density * day
 	else:
 		_env.fog_density = 0.0

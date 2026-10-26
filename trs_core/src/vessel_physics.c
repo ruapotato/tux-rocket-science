@@ -425,7 +425,8 @@ static void aero(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v, t
 #define CONTACT_ZETA 0.8
 #define RADIAL_CLEAR_S 2.0 /* s a radially dropped piece passes through its core */
 #define GROUND_SKIP 2.0 /* m: see ground() */
-#define CONTACT_ROT_OMEGA 25.0 /* rad/s: cap on the contacts' stiffness against turning */
+#define CONTACT_ROT_OMEGA 15.0 /* rad/s: cap on the contacts' stiffness against turning */
+#define CONTACT_TRANS_OMEGA 35.0 /* rad/s: cap on all the contacts' stiffness together, for the RK4 step */
 #define FRICTION_MU 0.5
 #define SLIP_REG 0.08 /* m/s: friction regularisation */
 
@@ -468,8 +469,16 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 	/* The contact torque is held over the tick (attitude steps once), so the
 	 * springs' combined stiffness against turning must stay well inside what
 	 * that step can follow: a long rocket landing on one end would otherwise
-	 * see sum k |arm x n|^2 / I far past 1/h^2 and spin up without bound. */
-	double rot_k = 0, i_min = fmin(vs->inertia.m[0][0], fmin(vs->inertia.m[1][1], vs->inertia.m[2][2]));
+	 * see sum k |arm x n|^2 / I far past 1/h^2 and spin up without bound.
+	 * Each spring turns the craft about its own axis u = arm x n, against
+	 * the inertia about that axis: sum k u.I^-1.u bounds the fastest turning
+	 * mode (it is the trace of I^-1 K). Measuring against the smallest
+	 * inertia instead would make a rocket lying on its side (where the
+	 * springs turn it end over end, its largest inertia) so soft it sinks.
+	 * All the springs together are also held inside what the translational
+	 * step can follow. */
+	double rot_k = 0, k_sum = 0;
+	trs_m3 i_inv = m3_inverse(&vs->inertia);
 	/* Depth of each contact point. The terrain is sampled only near the
 	 * ground: a point standing well clear of the local ground plane (more
 	 * than GROUND_SKIP plus its sideways distance from the vessel, i.e. any
@@ -500,10 +509,16 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 		}
 		double pl = v3_len(p);
 		depths[k] = (b->radius + trs_body_terrain_at(b, t, p) - pl) * v3_dot(nrm, v3_scale(p, 1.0 / pl));
-		if (depths[k] > 0)
-			rot_k += (vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_spring : k_hull) * v3_len2(v3_cross(arm, nrm));
+		if (depths[k] > 0) {
+			double kk = vs->contact_leg[k] ? trs_craft_def(c, vs->contact_part[k])->leg_spring : k_hull;
+			trs_v3 u = quat_rotate(quat_conj(vs->q), v3_cross(arm, nrm));
+			rot_k += kk * v3_dot(u, m3_mulv(&i_inv, u));
+			k_sum += kk;
+		}
 	}
-	double soften = rot_k > 0 ? fmin(1, CONTACT_ROT_OMEGA * CONTACT_ROT_OMEGA * fmax(i_min, 1e-9) / rot_k) : 1;
+	double soften = rot_k > 0 ? fmin(1, CONTACT_ROT_OMEGA * CONTACT_ROT_OMEGA / rot_k) : 1;
+	if (k_sum > 0)
+		soften = fmin(soften, CONTACT_TRANS_OMEGA * CONTACT_TRANS_OMEGA * m / k_sum);
 	for (int k = 0; k < vs->ncontact; k++) {
 		double depth = depths[k];
 		if (depth <= 0)

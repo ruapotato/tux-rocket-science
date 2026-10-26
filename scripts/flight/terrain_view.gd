@@ -57,6 +57,10 @@ func set_body(b: int) -> void:
 	body = b
 	var info: Dictionary = JSON.parse_string(core.body_info(b))
 	_style = _styles().get(info.id, _styles()["default"])
+	var lk: Dictionary = Sim.look(info.id)
+	if lk.has("low"):
+		_style = {"kind": 0 if lk.get("style", "") == "ice" else 1, "low": Sim.col(lk.low), "high": Sim.col(lk.high),
+			"slope": Sim.col(lk.slope), "rock": Sim.col(lk.rock), "range": float(lk.get("range", 1500.0))}
 	_style["radius"] = info.radius
 	_material = TerrainShader.make(_style, PlanetBake.textures(core, b))
 	_noise.seed = hash(info.id)
