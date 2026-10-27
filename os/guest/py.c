@@ -644,7 +644,7 @@ static VmStatus n_deg(VM *v, Value *a, int n, Value *out)
 /* one line to the ship, its answer into buf (the envelope off, as do()) */
 static const char *ask(VM *v, const char *line)
 {
-    static char said[2048];
+    static char said[16384];
     Value l = str_newz(line), r;
     Value args[1] = { l };
     n_do(v, args, 1, &r);
@@ -701,22 +701,15 @@ static VmStatus n_get(VM *v, Value *a, int n, Value *out)
 }
 
 /* the rest of this slice, given up; false in the foreground */
+static void dbg_waiting(VM *v);
+
 static bool yield(VM *v)
 {
+    dbg_waiting(v);
     if (sysc(SYS_yield, 0, 0, 0) == 1) return true;
     vm_runtime_error(v, "this waits for the ship to move on, and typed at a terminal the ship "
                         "waits for the command: run the script in the background (ship run <script>)");
     return false;
-}
-
-/* until the game has moved on a frame (and done what was asked in this one) */
-static bool next_frame(VM *v)
-{
-    double f0 = reading_num(v, "frame");
-    for (;;) {
-        if (!yield(v)) return false;
-        if (reading_num(v, "frame") != f0) return true;
-    }
 }
 
 /* wait(seconds): of game time */
@@ -724,8 +717,12 @@ static VmStatus n_wait(VM *v, Value *a, int n, Value *out)
 {
     (void)n;
     double until = reading_num(v, "time") + arg_num(a[0]);
-    while (reading_num(v, "time") < until)
+    char wake[64];
+    nom_snprintf(wake, sizeof wake, "wake %d", (int)until + 1);
+    while (reading_num(v, "time") < until) {
+        ask(v, wake);           /* so a warp eases off before it */
         if (!yield(v)) return VM_ERROR;
+    }
     *out = VAL_NIL;
     return VM_OK;
 }
@@ -819,7 +816,6 @@ static void line_of(char *out, size_t cap, const char *verb, Value *a, int n)
     { char line[256]; line_of(line, sizeof line, verb, a, n); return program(v, line, out); }
 PROGRAM(n_launch, "launch")
 PROGRAM(n_circularize, "circularize")
-PROGRAM(n_burn, "burn")
 PROGRAM(n_transfer, "transfer")
 PROGRAM(n_window, "window")
 PROGRAM(n_warp_to, "warp")
@@ -869,7 +865,6 @@ static VmStatus quick(VM *v, const char *verb, Value *a, int n, Value *out)
 
 #define QUICK(fn, verb) \
     static VmStatus fn(VM *v, Value *a, int n, Value *out) { return quick(v, verb, a, n, out); }
-QUICK(n_throttle, "throttle")
 QUICK(n_stage, "stage")
 QUICK(n_sas, "sas")
 QUICK(n_point, "point")
@@ -880,6 +875,546 @@ QUICK(n_say, "say")
 QUICK(n_abort, "abort")
 QUICK(n_autostage, "autostage")
 QUICK(n_target, "target")
+
+
+/* ======================================================= TUX ROCKET SCIENCE
+ * THE DOT. The ship and every part aboard is a thing with readings and
+ * things it does, by a path in the game's table (os/core/computer.c):
+ *
+ *     engine = ship.part("Swivel")
+ *     engine.throttle = 100          # set: the game does it this frame
+ *     if engine.fuel < 50:           # read: what the game said this frame
+ *         booster_drop.decouple()    # do: done, then the next frame
+ *     print(ship.orbit.top)
+ *
+ * A dict's keys read the same way (orbit.top or orbit["top"]), and a
+ * string's or a list's functions are its methods ("a,b".split(","),
+ * names.append(x)). */
+
+/* the answer to `obj get`, as a value: "@part.12:Swivel" a thing,
+ * "@[a:x|b:y]" a list of them, true/false, a number, or a word */
+static Value decode(const char *r)
+{
+    if (r[0] == '@' && r[1] == '[') {
+        Value l = list_new();
+        const char *q = r + 2;
+        while (*q && *q != ']') {
+            const char *e = q;
+            while (*e && *e != '|' && *e != ']') e++;
+            const char *c = q;
+            while (c < e && *c != ':') c++;
+            list_push(AS_LIST(l), handle_new(q, (size_t)(c - q), c < e ? c + 1 : c, c < e ? (size_t)(e - c - 1) : 0));
+            q = *e == '|' ? e + 1 : e;
+        }
+        return l;
+    }
+    if (r[0] == '@') {
+        const char *c = r + 1;
+        while (*c && *c != ':') c++;
+        return handle_new(r + 1, (size_t)(c - r - 1), *c ? c + 1 : c, *c ? nom_strlen(c + 1) : 0);
+    }
+    if (!nom_strcmp(r, "true")) return VAL_BOOL(1);
+    if (!nom_strcmp(r, "false")) return VAL_BOOL(0);
+    if (!nom_strcmp(r, "nil") || !nom_strcmp(r, "none")) return VAL_NIL;
+    return reading_value(r);
+}
+
+static void child(char *out, size_t cap, Handle *h, const char *name)
+{
+    nom_snprintf(out, cap, "%s%s%s", h->path, h->path[0] ? "." : "", name);
+}
+
+/* run with `ship run` (a slice a frame, between the game's frames) or typed
+ * at a terminal (to the end, the ship waiting): asked once, at the start */
+static int g_bg = -1;
+static bool in_background(void)
+{
+    if (g_bg < 0) g_bg = sysc(SYS_yield, 0, 0, 0) == 1;
+    return g_bg == 1;
+}
+
+/* the game has moved on a frame (in the background; at a terminal, not) */
+static bool frame_passes(VM *v)
+{
+    if (!in_background()) return true;
+    double f0 = reading_num(v, "frame");
+    while (reading_num(v, "frame") == f0)
+        if (!yield(v)) return false;
+    return true;
+}
+
+/* a part that went with a stage (or broke off) */
+static bool gone(VM *v, Value obj, const char *r)
+{
+    if (nom_strcmp(r, "-ERR not aboard")) return false;
+    vm_runtime_error(v, "%s isn't aboard any more (it went with a stage, or broke off)",
+                     AS_HANDLE(obj)->label[0] ? AS_HANDLE(obj)->label : "that part");
+    return true;
+}
+
+bool host_getattr(VM *v, Value obj, Str *name, Value *out)
+{
+    if (IS_DICT(obj)) {
+        Value key = str_new(name->s, name->len), got;
+        bool ok = dict_get(AS_DICT(obj), key, &got);
+        val_release(key);
+        if (!ok) { vm_runtime_error(v, "no '%s' in it (it has: keys(it))", name->s); return false; }
+        *out = val_retain(got);
+        return true;
+    }
+    if (IS_HANDLE(obj)) {
+        char path[128], line[200];
+        child(path, sizeof path, AS_HANDLE(obj), name->s);
+        nom_snprintf(line, sizeof line, "obj get %s", path);
+        const char *r = ask(v, line);
+        if (gone(v, obj, r)) return false;
+        if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return false; }
+        *out = decode(r);
+        return true;
+    }
+    vm_runtime_error(v, "a %s has no .%s", IS_STR(obj) ? "string" : IS_LIST(obj) ? "list" : obj.k == V_NIL ? "nothing (None)" : "number", name->s);
+    return false;
+}
+
+bool host_setattr(VM *v, Value obj, Str *name, Value val)
+{
+    if (IS_DICT(obj)) {
+        dict_set(AS_DICT(obj), str_new(name->s, name->len), val_retain(val));
+        return true;
+    }
+    if (!IS_HANDLE(obj)) { vm_runtime_error(v, "can't set .%s on that", name->s); return false; }
+    if (val.k != V_INT && val.k != V_NUM && val.k != V_BOOL) {
+        vm_runtime_error(v, ".%s wants a number", name->s);
+        return false;
+    }
+    char path[128], line[220];
+    child(path, sizeof path, AS_HANDLE(obj), name->s);
+    Buf b; buf_init(&b);
+    if (val.k == V_BOOL) buf_puts(&b, val.as.i ? "1" : "0");
+    else val_tostr(&b, val);
+    buf_putc(&b, 0);
+    nom_snprintf(line, sizeof line, "obj set %s %s", path, b.p);
+    buf_free(&b);
+    const char *r = ask(v, line);
+    if (gone(v, obj, r)) return false;
+    if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return false; }
+    return true;
+}
+
+static VmStatus n_join(VM *v, Value *a, int n, Value *out);
+static VmStatus n_ship(VM *v, Value *a, int n, Value *out);
+
+/* ship.part("Swivel"): the one part called that */
+static VmStatus find_parts(VM *v, Value name, bool one, Value *out)
+{
+    if (!IS_STR(name)) { vm_runtime_error(v, "part() wants a name: ship.part(\"Swivel\")"); return VM_ERROR; }
+    char line[200];
+    nom_snprintf(line, sizeof line, "obj find - %s", AS_STR(name)->s);
+    Value l = decode(ask(v, line));
+    if (!one) { *out = l; return VM_OK; }
+    List *ls = AS_LIST(l);
+    if (ls->len == 1) { *out = val_retain(ls->v[0]); val_release(l); return VM_OK; }
+    if (ls->len == 0)
+        vm_runtime_error(v, "no part called '%s' aboard (print(ship.parts) lists them)", AS_STR(name)->s);
+    else {
+        Buf b; buf_init(&b);
+        for (u32 i = 0; i < ls->len; i++) { if (i) buf_puts(&b, ", "); val_tostr(&b, ls->v[i]); }
+        buf_putc(&b, 0);
+        vm_runtime_error(v, "%d parts are called '%s': %s (name one, or ship.parts(\"%s\") for them all)",
+                         (int)ls->len, AS_STR(name)->s, b.p, AS_STR(name)->s);
+        buf_free(&b);
+    }
+    val_release(l);
+    return VM_ERROR;
+}
+
+VmStatus host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value *out)
+{
+    if (IS_HANDLE(obj)) {
+        Handle *h = AS_HANDLE(obj);
+        if (!name) {
+            if (h->path[0]) { vm_runtime_error(v, "%s is a part, not a call", h->label); return VM_ERROR; }
+            return n_ship(v, args, n, out);          /* ship(): the old json */
+        }
+        if (!h->path[0] && (!nom_strcmp(name->s, "part") || !nom_strcmp(name->s, "parts")) && n == 1)
+            return find_parts(v, args[0], name->s[4] == 0, out);
+        if (n == 0 && !h->path[0] && !nom_strcmp(name->s, "parts"))
+            return host_getattr(v, obj, name, out) ? VM_OK : VM_ERROR;
+        char path[128];
+        child(path, sizeof path, h, name->s);
+        Buf b; buf_init(&b);
+        buf_puts(&b, "obj call ");
+        buf_puts(&b, path);
+        for (int i = 0; i < n; i++) { buf_putc(&b, ' '); val_tostr(&b, args[i]); }
+        buf_putc(&b, 0);
+        const char *r = ask(v, b.p);
+        buf_free(&b);
+        if (gone(v, obj, r)) return VM_ERROR;
+        if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return VM_ERROR; }
+        if (!frame_passes(v)) return VM_ERROR;
+        *out = VAL_NIL;
+        return VM_OK;
+    }
+    if (!name) { vm_runtime_error(v, "that can't be called"); return VM_ERROR; }
+    /* Python's own spellings that put the thing in a different place */
+    if (IS_STR(obj) && !nom_strcmp(name->s, "join") && n == 1) {
+        Value as[2] = { args[0], obj };
+        return n_join(v, as, 2, out);
+    }
+    if (IS_DICT(obj) && !nom_strcmp(name->s, "get") && (n == 1 || n == 2)) {
+        Value got;
+        *out = dict_get(AS_DICT(obj), args[0], &got) ? val_retain(got) : (n == 2 ? val_retain(args[1]) : VAL_NIL);
+        return VM_OK;
+    }
+    if (IS_LIST(obj) && !nom_strcmp(name->s, "pop") && n == 0) {
+        List *l = AS_LIST(obj);
+        if (!l->len) { vm_runtime_error(v, "pop from an empty list"); return VM_ERROR; }
+        *out = l->v[--l->len];
+        return VM_OK;
+    }
+    /* the rest: x.f(a) is f(x, a) */
+    int k = native_find(name->s, (int)name->len);
+    int count = 0;
+    const Native *tbl = native_table(&count);
+    if (k < 0 || n + 1 > NOM_ARGS_MAX || n + 1 < tbl[k].minargs || n + 1 > tbl[k].maxargs) {
+        vm_runtime_error(v, "a %s has no .%s()", IS_STR(obj) ? "string" : IS_LIST(obj) ? "list" : IS_DICT(obj) ? "dict" : "number", name->s);
+        return VM_ERROR;
+    }
+    Value all[NOM_ARGS_MAX];
+    all[0] = obj;
+    for (int i = 0; i < n; i++) all[i + 1] = args[i];
+    return tbl[k].fn(v, all, n + 1, out);
+}
+
+/* format(x, ".1f") -- what f"{x:.1f}" does: [,][.places][f d % s], and a
+ * width with < > ^ before it */
+static void put_fixed(Buf *b, double x, int places, bool commas)
+{
+    if (x != x) { buf_puts(b, "nan"); return; }
+    if (x < 0) { buf_putc(b, '-'); x = -x; }
+    if (x > 9e15) { buf_putnum(b, x, places); return; }
+    double p = 1;
+    for (int i = 0; i < places; i++) p *= 10;
+    /* half to even, as Python does: 62.5 is "62" */
+    double xp = x * p, fl = nom_floor(xp);
+    u64 all = (u64)fl + (xp - fl > 0.5 || (xp - fl == 0.5 && ((u64)fl & 1)) ? 1 : 0);
+    u64 whole = (u64)((double)all / p), frac = all - (u64)((double)whole * p);
+    char dig[32];
+    int nd = 0;
+    do { dig[nd++] = (char)('0' + whole % 10); whole /= 10; } while (whole);
+    for (int i = nd - 1; i >= 0; i--) {
+        buf_putc(b, dig[i]);
+        if (commas && i && i % 3 == 0) buf_putc(b, ',');
+    }
+    if (places > 0) {
+        buf_putc(b, '.');
+        char fd[24];
+        for (int i = places - 1; i >= 0; i--) { fd[i] = (char)('0' + frac % 10); frac /= 10; }
+        buf_put(b, fd, (size_t)places);
+    }
+}
+
+static VmStatus n_format(VM *v, Value *a, int n, Value *out)
+{
+    (void)v;
+    const char *s = (n > 1 && IS_STR(a[1])) ? AS_STR(a[1])->s : "";
+    char align = 0, type = 0;
+    int width = 0, places = -1;
+    bool commas = false;
+    if (s[0] && (s[1] == '<' || s[1] == '>' || s[1] == '^')) s++;      /* (a fill: spaces only) */
+    if (*s == '<' || *s == '>' || *s == '^') align = *s++;
+    while (*s >= '0' && *s <= '9') width = width * 10 + (*s++ - '0');
+    if (*s == ',') { commas = true; s++; }
+    if (*s == '.') { s++; places = 0; while (*s >= '0' && *s <= '9') places = places * 10 + (*s++ - '0'); }
+    if (*s) type = *s;
+    Buf b; buf_init(&b);
+    bool num = a[0].k == V_INT || a[0].k == V_NUM;
+    if (num && (type == 'f' || type == 'F' || type == '%' || type == 'd' || places >= 0 || commas)) {
+        double x = val_num(a[0]);
+        if (type == '%') x *= 100;
+        int pl = type == 'd' ? 0 : places >= 0 ? places : (type == 'f' || type == '%') ? 6 : (a[0].k == V_INT ? 0 : 2);
+        put_fixed(&b, x, pl, commas);
+        if (type == '%') buf_putc(&b, '%');
+    } else {
+        val_tostr(&b, a[0]);
+    }
+    int pad = width - (int)b.len;
+    Buf o; buf_init(&o);
+    if (!align) align = num ? '>' : '<';
+    int left = pad <= 0 ? 0 : align == '>' ? pad : align == '^' ? pad / 2 : 0;
+    int right = pad <= 0 ? 0 : pad - left;
+    for (int i = 0; i < left; i++) buf_putc(&o, ' ');
+    if (b.len) buf_put(&o, b.p, b.len);
+    for (int i = 0; i < right; i++) buf_putc(&o, ' ');
+    *out = str_new(o.p ? o.p : "", o.len);
+    buf_free(&b);
+    buf_free(&o);
+    return VM_OK;
+}
+
+static VmStatus n_clamp(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)n;
+    double x = val_num(a[0]), lo = val_num(a[1]), hi = val_num(a[2]);
+    *out = val_retain(x < lo ? a[1] : x > hi ? a[2] : a[0]);
+    return VM_OK;
+}
+
+static VmStatus n_affix(VM *v, Value *a, int n, Value *out, bool end)
+{
+    (void)v; (void)n;
+    if (!IS_STR(a[0]) || !IS_STR(a[1])) { *out = VAL_BOOL(0); return VM_OK; }
+    Str *s = AS_STR(a[0]), *f = AS_STR(a[1]);
+    *out = VAL_BOOL(f->len <= s->len && !nom_memcmp(s->s + (end ? s->len - f->len : 0), f->s, f->len));
+    return VM_OK;
+}
+static VmStatus n_startswith(VM *v, Value *a, int n, Value *out) { return n_affix(v, a, n, out, false); }
+static VmStatus n_endswith(VM *v, Value *a, int n, Value *out) { return n_affix(v, a, n, out, true); }
+
+/* ---- aiming, burning, and the maths of an orbit ---- */
+
+static double obj_num(VM *v, const char *path, bool *ok)
+{
+    char line[160];
+    nom_snprintf(line, sizeof line, "obj get %s", path);
+    const char *r = ask(v, line);
+    if (is_err(r)) { *ok = false; return 0; }
+    return nom_strtod(r, 0);
+}
+
+/* until the nose is where it was told (2 degrees) and has stopped turning,
+ * or a minute of game time: true if it got there */
+static VmStatus wait_aimed(VM *v, Value *out)
+{
+    *out = VAL_BOOL(1);
+    if (!in_background()) return VM_OK;
+    if (!frame_passes(v)) return VM_ERROR;
+    double t0 = reading_num(v, "time");
+    for (;;) {
+        if (reading_num(v, "aim_error") < 2.0 && reading_num(v, "turn_rate") < 1.0) return VM_OK;
+        if (reading_num(v, "time") - t0 > 60.0) {
+            char m[96];
+            nom_snprintf(m, sizeof m, "aim: still %d degrees off after a minute\n", (int)reading_num(v, "aim_error"));
+            g_puts(m);
+            *out = VAL_BOOL(0);
+            return VM_OK;
+        }
+        if (!yield(v)) return VM_ERROR;
+    }
+}
+
+/* aim("prograde"): points along it and holds it there (SAS) */
+static VmStatus n_aim(VM *v, Value *a, int n, Value *out)
+{
+    if (!IS_STR(a[0])) { vm_runtime_error(v, "aim() wants a direction: aim(\"prograde\")"); return VM_ERROR; }
+    char line[96];
+    nom_snprintf(line, sizeof line, "aim %s", AS_STR(a[0])->s);
+    const char *r = ask(v, line);
+    if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return VM_ERROR; }
+    (void)n;
+    return wait_aimed(v, out);
+}
+
+/* aim_at(pitch, heading): degrees above the horizon, degrees from north */
+static VmStatus n_aim_at(VM *v, Value *a, int n, Value *out)
+{
+    char line[96];
+    line_of(line, sizeof line, "point", a, n);
+    const char *r = ask(v, line);
+    if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return VM_ERROR; }
+    return wait_aimed(v, out);
+}
+
+/* throttle(100): every engine, in percent (an engine's own: engine.throttle) */
+static VmStatus n_throttle_pct(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    double p = val_num(a[0]);
+    if (p < 0) p = 0;
+    if (p > 100) p = 100;
+    Value f = VAL_NUM(p / 100.0);
+    return quick(v, "throttle", &f, 1, out);
+}
+
+/* burn(120): this many m/s along the nose as it points; burn("prograde",
+ * 120) points it there first */
+static VmStatus n_burn_dv(VM *v, Value *a, int n, Value *out)
+{
+    char line[256];
+    if (n == 1) {
+        Value parts[2] = { str_newz("here"), a[0] };
+        line_of(line, sizeof line, "burn", parts, 2);
+        val_release(parts[0]);
+    } else {
+        line_of(line, sizeof line, "burn", a, n);
+    }
+    return program(v, line, out);
+}
+
+/* speed_needed(height): the speed of a circle that high (m/s) */
+static VmStatus n_speed_needed(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    bool ok = true;
+    double mu = obj_num(v, "body.mu", &ok), R = obj_num(v, "body.radius", &ok);
+    if (!ok) { vm_runtime_error(v, "speed_needed: there is no body here"); return VM_ERROR; }
+    *out = VAL_NUM(__builtin_sqrt(mu / (R + val_num(a[0]))));
+    return VM_OK;
+}
+
+/* speed_at(height): how fast this orbit goes when it is that high */
+static VmStatus n_speed_at(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    bool ok = true;
+    double mu = obj_num(v, "body.mu", &ok), R = obj_num(v, "body.radius", &ok);
+    double sma = obj_num(v, "orbit.semi_major_axis", &ok);
+    if (!ok) { vm_runtime_error(v, "speed_at: no orbit to work it out from"); return VM_ERROR; }
+    double r = R + val_num(a[0]), v2 = mu * (2.0 / r - 1.0 / sma);
+    if (v2 < 0) { vm_runtime_error(v, "speed_at: this orbit never gets %d m up", (int)val_num(a[0])); return VM_ERROR; }
+    *out = VAL_NUM(__builtin_sqrt(v2));
+    return VM_OK;
+}
+
+/* burn_time(dv): seconds at full thrust for that much, on the engines
+ * burning (or the next stage's), as the rocket equation has it */
+static VmStatus n_burn_time(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    double m = reading_num(v, "mass"), ve = reading_num(v, "exhaust_speed"), f = reading_num(v, "stage_thrust_kn") * 1000.0;
+    if (f <= 0 || ve <= 0) { vm_runtime_error(v, "burn_time: no engine to burn with (light one, or stage)"); return VM_ERROR; }
+    *out = VAL_NUM(m * ve / f * (1.0 - nom_math(MATH_EXP, -val_num(a[0]) / ve, 0)));
+    return VM_OK;
+}
+
+/* time_to("top"): seconds until it (top, bottom, apoapsis, periapsis), or
+ * until a game time */
+static VmStatus n_time_to(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    if (!IS_STR(a[0])) { *out = VAL_NUM(val_num(a[0]) - reading_num(v, "time")); return VM_OK; }
+    const char *w = AS_STR(a[0])->s;
+    const char *key = (!nom_strcmp(w, "top") || !nom_strcmp(w, "apoapsis")) ? "time_to_apoapsis"
+                    : (!nom_strcmp(w, "bottom") || !nom_strcmp(w, "periapsis")) ? "time_to_periapsis" : 0;
+    if (!key) { vm_runtime_error(v, "time_to(\"top\") or time_to(\"bottom\"), not '%s'", w); return VM_ERROR; }
+    *out = VAL_NUM(reading_num(v, key));
+    return VM_OK;
+}
+
+/* stopping_distance(): how far, flat out from the speed it is doing, it
+ * takes to stop against this gravity (m); huge if it can't */
+static VmStatus n_stopping(VM *v, Value *a, int n, Value *out)
+{
+    (void)a; (void)n;
+    double vs = reading_num(v, "surface_speed"), m = reading_num(v, "mass");
+    double f = reading_num(v, "stage_thrust_kn") * 1000.0, g = reading_num(v, "gravity");
+    double acc = m > 0 ? f / m - g : 0;
+    *out = VAL_NUM(acc > 0 ? vs * vs / (2 * acc) : 1e12);
+    return VM_OK;
+}
+
+/* A question the game works out (it takes the path, and a frame): the
+ * answer as a dict, or a runtime error with the game's reason. */
+static VmStatus ask_game(VM *v, const char *what, Value *out)
+{
+    static int count;
+    char id[24], line[256];
+    nom_snprintf(id, sizeof id, "%d_%d", (int)sysc(SYS_getpid, 0, 0, 0), ++count);
+    nom_snprintf(line, sizeof line, "ask %s %s", id, what);
+    const char *r = ask(v, line);
+    if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return VM_ERROR; }
+    if (!in_background()) {
+        vm_runtime_error(v, "the game works this out between frames: run the script in the background (ship run <script>)");
+        return VM_ERROR;
+    }
+    char path[64];
+    nom_snprintf(path, sizeof path, "answer.%s", id);
+    for (;;) {
+        if (!yield(v)) return VM_ERROR;
+        nom_snprintf(line, sizeof line, "obj dict %s", path);
+        const char *body = ask(v, line);
+        if (is_err(body) || !body[0]) continue;
+        Value d = dict_new();
+        char k[64], val[512];
+        for (const char *q = body; *q; ) {
+            size_t i = 0;
+            while (*q && *q != '\t' && *q != '\n' && i < sizeof k - 1) k[i++] = *q++;
+            k[i] = 0;
+            size_t j = 0;
+            if (*q == '\t') q++;
+            while (*q && *q != '\n' && j < sizeof val - 1) val[j++] = *q++;
+            val[j] = 0;
+            if (*q == '\n') q++;
+            if (nom_strcmp(k, "done")) dict_set(AS_DICT(d), str_newz(k), decode(val));
+        }
+        Value err, ek = str_newz("error");
+        if (dict_get(AS_DICT(d), ek, &err) && IS_STR(err)) {
+            vm_runtime_error(v, "%s", AS_STR(err)->s);
+            val_release(ek);
+            val_release(d);
+            return VM_ERROR;
+        }
+        val_release(ek);
+        *out = d;
+        return VM_OK;
+    }
+}
+
+/* when_to_leave("krill"): {wait, at, dv, travel, pass, body} -- worked out */
+static VmStatus n_when_to_leave(VM *v, Value *a, int n, Value *out)
+{
+    char line[160];
+    line_of(line, sizeof line, "leave", a, n);
+    return ask_game(v, line, out);
+}
+
+/* what_if(forward, sideways, outward, when): {top, bottom, meets, closest,
+ * arrive} -- the path as if that burn were made then; nothing is flown */
+static VmStatus n_what_if(VM *v, Value *a, int n, Value *out)
+{
+    char line[200];
+    line_of(line, sizeof line, "whatif", a, n);
+    return ask_game(v, line, out);
+}
+
+/* chart("height", ship.height): a point on the Flight app's graph */
+static VmStatus n_chart(VM *v, Value *a, int n, Value *out)
+{
+    char line[160];
+    line_of(line, sizeof line, "chart", a, n);
+    ask(v, line);
+    *out = VAL_NIL;
+    return VM_OK;
+}
+
+/* wait_user_trigger(): until the pilot presses space (the press is the
+ * script's, not a stage) */
+static VmStatus n_wait_space(VM *v, Value *a, int n, Value *out)
+{
+    (void)a; (void)n;
+    if (!in_background()) {
+        vm_runtime_error(v, "this waits for the pilot's space: run the script in the background (ship run <script>)");
+        return VM_ERROR;
+    }
+    double k0 = reading_num(v, "space_presses");
+    g_puts("waiting for you to press space...\n");
+    ask(v, "say Press space when ready");
+    for (;;) {
+        ask(v, "await_space");
+        if (!yield(v)) return VM_ERROR;
+        if (reading_num(v, "space_presses") != k0) break;
+    }
+    *out = VAL_NIL;
+    return VM_OK;
+}
+
+/* the ship itself, as `ship` (ship.orbit.top; ship() is still its json) */
+static VmStatus n_the_ship(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)a; (void)n;
+    *out = handle_new("", 0, "ship", 4);
+    return VM_OK;
+}
 
 /* countdown(5): T-5 ... T-1, a second each, then liftoff */
 static VmStatus n_countdown(VM *v, Value *a, int n, Value *out)
@@ -898,6 +1433,8 @@ static VmStatus n_countdown(VM *v, Value *a, int n, Value *out)
     *out = VAL_NIL;
     return VM_OK;
 }
+
+static VmStatus n_echo(VM *v, Value *a, int n, Value *out);
 
 static const Native NATIVES[] = {
     { "print", 0, 8, n_print },
@@ -950,7 +1487,7 @@ static const Native NATIVES[] = {
     /* the ship's programs: each waits until it is done */
     { "launch",       0, 1, n_launch      },
     { "circularize",  0, 1, n_circularize },
-    { "burn",         2, 2, n_burn        },
+    { "burn",         1, 2, n_burn_dv     },
     { "burn_until",   4, 4, n_burn_until  },
     { "until_orbit_crosses", 1, 1, n_until_crosses },
     { "transfer",     1, 2, n_transfer    },
@@ -961,7 +1498,7 @@ static const Native NATIVES[] = {
     { "hover",        1, 2, n_hover       },
     { "node",         0, 0, n_node        },
     /* and the quick ones */
-    { "throttle",  1, 1, n_throttle  },
+    { "throttle",  1, 1, n_throttle_pct },
     { "stage",     0, 0, n_stage     },
     { "sas",       1, 1, n_sas       },
     { "point",     2, 2, n_point     },
@@ -973,6 +1510,27 @@ static const Native NATIVES[] = {
     { "autostage", 1, 1, n_autostage },
     { "target",    1, 1, n_target    },
     { "countdown", 0, 1, n_countdown },
+    /* the dot, and f-strings */
+    { "_ship",     0, 0, n_the_ship  },
+    { "format",    1, 2, n_format    },
+    { "clamp",     3, 3, n_clamp     },
+    { "startswith", 2, 2, n_startswith },
+    { "endswith",  2, 2, n_endswith  },
+    /* aiming, burning, the maths of an orbit */
+    { "sleep",     1, 1, n_wait      },
+    { "aim",       1, 1, n_aim       },
+    { "aim_at",    2, 2, n_aim_at    },
+    { "speed_needed", 1, 1, n_speed_needed },
+    { "speed_at",  1, 1, n_speed_at  },
+    { "burn_time", 1, 1, n_burn_time },
+    { "time_to",   1, 1, n_time_to   },
+    { "stopping_distance", 0, 0, n_stopping },
+    { "when_to_leave", 1, 2, n_when_to_leave },
+    { "what_if",   4, 4, n_what_if   },
+    { "chart",     2, 2, n_chart     },
+    { "wait_user_trigger", 0, 0, n_wait_space },
+    { "wait_for_space", 0, 0, n_wait_space },
+    { "_echo",     1, 1, n_echo      },
 };
 
 const Native *native_table(int *count)
@@ -989,6 +1547,276 @@ int native_find(const char *name, int len)
         if (nom_strncmp(NATIVES[i].name, name, (size_t)len) == 0) return i;
     }
     return -1;
+}
+
+
+static void die(const char *what, const char *detail);
+
+/* TUX ROCKET SCIENCE: the constants, as lines ahead of every script (a
+ * syntax error's line number is told back without them) */
+static const char PRELUDE[] = "pi = 3.141592653589793\nkm = 1000\nship = _ship()\n";
+#define PRELUDE_LINES 3
+
+/* ============================================================ TUX ROCKET SCIENCE
+ * THE DEBUGGER. A script running in the background says what it is doing
+ * in /run/py/<pid>.vars -- the line it is on, and every variable it has,
+ * as print would show it -- whenever it waits for the ship and every so
+ * many instructions between: the Script Editor's watch, live. And it does
+ * what /run/py/<pid>.ctl says, which the editor writes whole each time:
+ *
+ *     break 12 30        stop before these lines run
+ *     mode run           or pause: done when it changes (it stops where it
+ *                        is, a wait for the ship included)
+ *     go 3               paused, a new number: go on (Continue)
+ *     step 7             paused, a new number: run one line, stop again
+ */
+static VM *g_vm;
+static int g_prelude_lines;
+static char g_script[128] = "";
+static char g_vars[48], g_ctl[48];
+static int g_bp[64], g_nbp;
+static bool g_paused;
+static int g_step_seen = -1, g_step_from = -1, g_go_seen = -1, g_mode_seen = -1;
+static char g_state[96] = "running";
+
+static void dbg_publish(VM *v, const char *state)
+{
+    if (!g_bg || !g_vars[0] || !v) return;
+    Buf b; buf_init(&b);
+    buf_printf(&b, "script %s\nline %d\nstate %s\n", g_script, v->line - g_prelude_lines, state);
+    Prog *pr = v->prog;
+    for (int g = 0; g < pr->nglobals; g++) {
+        if (!v->gdef[g]) continue;
+        const char *nm = pr->global[g];
+        if (!nom_strcmp(nm, "pi") || !nom_strcmp(nm, "km") || !nom_strcmp(nm, "ship")) continue;
+        Value x = v->global[g];
+        if (x.k == V_OBJ && (x.as.o->kind == O_FUNC || x.as.o->kind == O_NATIVE)) continue;
+        Buf r; buf_init(&r);
+        val_repr(&r, x);
+        buf_printf(&b, "%s\t", nm);
+        buf_put(&b, r.p ? r.p : "", r.len > 160 ? 160 : r.len);
+        if (r.len > 160) buf_puts(&b, "...");
+        buf_putc(&b, '\n');
+        buf_free(&r);
+    }
+    /* the function it is in, and its locals */
+    for (int k = v->nframes - 1; k >= 1; k--) {
+        struct Frame *fr = &v->frame[k];
+        const char *ln = fr->fn->locals ? fr->fn->locals : "";
+        int i = 0;
+        while (*ln) {
+            const char *e = ln;
+            while (*e && *e != ',') e++;
+            if (fr->base + i < v->sp) {
+                Buf r; buf_init(&r);
+                val_repr(&r, v->stack[fr->base + i]);
+                buf_printf(&b, "%s.", fr->fn->name);
+                buf_put(&b, ln, (size_t)(e - ln));
+                buf_putc(&b, '\t');
+                buf_put(&b, r.p ? r.p : "", r.len > 160 ? 160 : r.len);
+                buf_putc(&b, '\n');
+                buf_free(&r);
+            }
+            i++;
+            ln = *e ? e + 1 : e;
+        }
+        break;   /* (the innermost only) */
+    }
+    int fd = g_open(g_vars, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd >= 0) { g_write(fd, b.p ? b.p : "", b.len); g_close(fd); }
+    buf_free(&b);
+}
+
+static char g_ctlbuf[1024];
+static void dbg_read_ctl(void)
+{
+    if (!g_bg || !g_ctl[0]) return;
+    i64 n = g_slurp(g_ctl, g_ctlbuf, sizeof g_ctlbuf - 1);
+    if (n < 0) return;
+    g_ctlbuf[n] = 0;
+    g_nbp = 0;
+    for (const char *q = g_ctlbuf; *q; ) {
+        if (!nom_strncmp(q, "break", 5)) {
+            q += 5;
+            while (*q && *q != '\n') {
+                while (*q == ' ') q++;
+                int ln = 0, any = 0;
+                while (*q >= '0' && *q <= '9') { ln = ln * 10 + (*q++ - '0'); any = 1; }
+                if (any && g_nbp < 64) g_bp[g_nbp++] = ln;
+                if (!any && *q && *q != '\n') q++;
+            }
+        } else if (!nom_strncmp(q, "mode ", 5)) {
+            int m = !nom_strncmp(q + 5, "pause", 5);
+            if (m != g_mode_seen && g_mode_seen >= 0) {
+                if (m && !g_paused && g_step_from < 0) { g_paused = true; nom_snprintf(g_state, sizeof g_state, "paused"); }
+                if (!m && g_paused) { g_paused = false; g_step_from = -1; }
+            }
+            g_mode_seen = m;
+        } else if (!nom_strncmp(q, "go ", 3)) {
+            int k = (int)nom_strtoll(q + 3, 0, 10);
+            if (g_go_seen >= 0 && k != g_go_seen && g_paused) { g_paused = false; g_step_from = -1; }
+            g_go_seen = k;
+        } else if (!nom_strncmp(q, "step ", 5)) {
+            int k = (int)nom_strtoll(q + 5, 0, 10);
+            if (g_step_seen >= 0 && k != g_step_seen && g_paused && g_vm) {
+                g_paused = false;
+                g_step_from = g_vm->line;       /* run until the line changes */
+            }
+            g_step_seen = k;
+        }
+        while (*q && *q != '\n') q++;
+        if (*q) q++;
+    }
+}
+
+static bool dbg_break_at(int line)
+{
+    for (int i = 0; i < g_nbp; i++)
+        if (g_bp[i] == line) return true;
+    return false;
+}
+
+/* paused: the script waits right here (a wait for the ship included) */
+static void dbg_hold(VM *v)
+{
+    while (g_paused) {
+        dbg_publish(v, g_state);
+        if (sysc(SYS_yield, 0, 0, 0) != 1) { g_paused = false; break; }
+        dbg_read_ctl();
+    }
+}
+
+/* every time it gives the ship a frame */
+static void dbg_waiting(VM *v)
+{
+    if (!g_bg || !g_vars[0]) return;
+    dbg_read_ctl();
+    dbg_hold(v);
+    dbg_publish(v, "waiting for the ship");
+}
+
+/* runs the VM until it ends, with the debugger's stops: a line at a time
+ * while there are breakpoints or a step, else in long runs */
+static VmStatus dbg_run(VM *vm)
+{
+    VmStatus st;
+    int last = vm->line, k = 0;
+    for (;;) {
+        if (++k % 8 == 1) dbg_read_ctl();
+        dbg_hold(vm);
+        if (g_nbp > 0 || g_step_from >= 0) {
+            st = vm_run(vm, 1);
+            if (st != VM_YIELD) return st;
+            if (vm->line != last) {
+                last = vm->line;
+                int ln = vm->line - g_prelude_lines;
+                if (g_step_from >= 0 && vm->line != g_step_from) {
+                    g_step_from = -1;
+                    g_paused = true;
+                    nom_snprintf(g_state, sizeof g_state, "paused at line %d (a step)", ln);
+                } else if (dbg_break_at(ln)) {
+                    g_paused = true;
+                    nom_snprintf(g_state, sizeof g_state, "paused at line %d (a breakpoint)", ln);
+                }
+            }
+        } else {
+            st = vm_run(vm, 1000);
+            if (st != VM_YIELD) return st;
+            last = vm->line;
+            if (k % 4 == 0) dbg_publish(vm, "running");  /* (a few times a frame's CPU) */
+        }
+    }
+}
+
+static void dbg_begin(VM *vm, const char *name)
+{
+    g_vm = vm;
+    if (!in_background()) return;
+    nom_snprintf(g_script, sizeof g_script, "%s", name);
+    int pid = (int)sysc(SYS_getpid, 0, 0, 0);
+    g_mkdir("/run/py", 1);
+    nom_snprintf(g_vars, sizeof g_vars, "/run/py/%d.vars", pid);
+    nom_snprintf(g_ctl, sizeof g_ctl, "/run/py/%d.ctl", pid);
+    dbg_read_ctl();
+    dbg_publish(vm, "starting");
+}
+
+/* _echo(x): what the console prints for an expression on its own */
+static VmStatus n_echo(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)n;
+    *out = VAL_NIL;
+    if (a[0].k == V_NIL) return VM_OK;
+    Buf b; buf_init(&b);
+    val_repr(&b, a[0]);
+    buf_putc(&b, '\n');
+    g_write(1, b.p, b.len);
+    buf_free(&b);
+    return VM_OK;
+}
+
+/* py -i: THE CONSOLE. Runs in the background for as long as the game does,
+ * keeping its variables; takes what is written to /run/py/console.in (each
+ * piece ended by a line holding only \x1e) as a script does, a frame at a
+ * time, waits and all; prints what an expression on its own comes to. */
+static char g_in[16384];
+static void console(const char *prelude)
+{
+    char err[NOM_ERR_MAX] = "";
+    Prog *prog = prog_compile(prelude, "console", err, sizeof err);
+    if (!prog) die("console", err);
+    nom_meter_begin(512u * 1024u);
+    VM *vm = vm_new(prog, 0, 0);
+    if (!in_background()) die("console", "run it in the background: ship run -i");
+    while (vm_run(vm, 100000) == VM_YIELD) { }   /* (the constants) */
+    dbg_begin(vm, "console");
+    g_prelude_lines = 0;
+    i64 seen = 0;
+    g_puts("console ready: type python, it runs on the ship\n");
+    for (;;) {
+        dbg_publish(vm, "ready");
+        if (sysc(SYS_yield, 0, 0, 0) != 1) break;
+        dbg_read_ctl();
+        i64 n = g_slurp("/run/py/console.in", g_in, sizeof g_in - 1);
+        if (n < seen) seen = 0;           /* started again from empty */
+        if (n <= seen) continue;
+        g_in[n] = 0;
+        /* each piece up to a line of \x1e */
+        char *q = g_in + seen;
+        for (;;) {
+            char *end = q;
+            while (*end && !(end[0] == '\x1e' && (end == g_in || end[-1] == '\n'))) end++;
+            if (!*end) break;
+            *end = 0;
+            seen = (end - g_in) + 1;
+            if (g_in[seen] == '\n') seen++;
+            int fi = prog_compile_more(prog, q, true, err, sizeof err);
+            if (fi < 0) {
+                /* "parse error [line 1]: undefined name 'x'" -> "error: undefined name 'x'"
+                 * (a line number only when the piece had more than one) */
+                const char *msg = err;
+                int ln = 0;
+                if (!nom_strncmp(err, "parse error [line ", 18)) {
+                    ln = (int)nom_strtoll(err + 18, 0, 10);
+                    const char *c2 = err;
+                    while (*c2 && !(c2[0] == ']' && c2[1] == ':')) c2++;
+                    if (*c2) msg = c2 + 3;
+                }
+                bool many = false;
+                for (const char *z = q; *z; z++) if (*z == '\n' && z[1]) many = true;
+                char m2[NOM_ERR_MAX + 32];
+                if (many && ln) nom_snprintf(m2, sizeof m2, "error: line %d: %s\n", ln, msg);
+                else nom_snprintf(m2, sizeof m2, "error: %s\n", msg);
+                g_puts(m2);
+            } else {
+                vm_start_func(vm, fi);
+                VmStatus st = dbg_run(vm);
+                if (st == VM_ERROR) { g_puts("error: "); g_puts(vm_err(vm)); g_puts("\n"); }
+            }
+            q = g_in + seen;
+        }
+    }
+    g_exit(0);
 }
 
 /* ------------------------------------------------------------------ main */
@@ -1039,6 +1867,8 @@ void _start(void)
     }
 
     const char *text = argbuf;
+    if (argbuf[0] == '-' && argbuf[1] == 'i' && (argbuf[2] == 0 || argbuf[2] == ' '))
+        console(PRELUDE);
     if (argbuf[0] == '-' && argbuf[1] == 'c') {
         /* A NEWLINE ON THE END, and it is not cosmetic: this is an
          * indentation-sensitive language, and its lexer ends a statement at a
@@ -1072,7 +1902,6 @@ void _start(void)
 
     /* TUX ROCKET SCIENCE: the constants, as one line ahead of the script
      * (a syntax error's line number is told back without it) */
-    static const char PRELUDE[] = "pi = 3.141592653589793\n";
     size_t plen = sizeof PRELUDE - 1, tlen = nom_strlen(src);
     if (tlen + plen < sizeof src) {
         nom_memmove(src + plen, src, tlen + 1);
@@ -1092,7 +1921,7 @@ void _start(void)
                 at += 6;
                 int ln = 0;
                 while (*at >= '0' && *at <= '9') ln = ln * 10 + (*at++ - '0');
-                k += (size_t)nom_snprintf(fixed + k, sizeof fixed - k, "[line %d", ln - 1);
+                k += (size_t)nom_snprintf(fixed + k, sizeof fixed - k, "[line %d", ln - PRELUDE_LINES);
                 continue;
             }
             fixed[k++] = *at++;
@@ -1116,9 +1945,18 @@ void _start(void)
      * is a breath, not a limit. What bounds a script here is the machine
      * itself: it gets so many slices of the CPU a frame and no more. The
      * memory meter above still stops one that runs away with the heap. */
-    VmStatus st;
-    while ((st = vm_run(vm, 10000000)) == VM_YIELD) { }
-    if (st == VM_ERROR)    die("error", vm_err(vm));
+    g_prelude_lines = PRELUDE_LINES;
+    dbg_begin(vm, argbuf[0] == '-' ? "py -c" : argbuf);
+    VmStatus st = dbg_run(vm);
+    if (st == VM_ERROR) {
+        /* where it went wrong, in the script's own line numbers */
+        char at[NOM_ERR_MAX + 32];
+        nom_snprintf(at, sizeof at, "line %d: %s", vm->line - PRELUDE_LINES, vm_err(vm));
+        nom_snprintf(g_state, sizeof g_state, "stopped: %s", at);
+        dbg_publish(vm, g_state);
+        die("error", at);
+    }
+    dbg_publish(vm, "finished");
 
     int code = 0;
     vm_free(vm);

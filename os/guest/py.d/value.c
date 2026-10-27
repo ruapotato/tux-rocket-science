@@ -95,6 +95,20 @@ bool dict_get(Dict *d, Value key, Value *out)
     return false;
 }
 
+Value handle_new(const char *path, size_t plen, const char *label, size_t llen)
+{
+    Handle *h = nom_alloc(sizeof(Handle));
+    h->o.kind = O_HANDLE;
+    h->o.rc = 1;
+    if (plen > sizeof h->path - 1) plen = sizeof h->path - 1;
+    if (llen > sizeof h->label - 1) llen = sizeof h->label - 1;
+    memcpy(h->path, path, plen);
+    h->path[plen] = 0;
+    memcpy(h->label, label, llen);
+    h->label[llen] = 0;
+    return VAL_OBJ(h);
+}
+
 Value func_obj_new(int index, bool native)
 {
     RefObj *r = nom_alloc(sizeof(RefObj));
@@ -169,6 +183,8 @@ bool val_equal(Value a, Value b)
                 if (!val_equal(x->v[i], y->v[i])) return false;
             return true;
         }
+        if (a.as.o->kind == O_HANDLE)
+            return strcmp(AS_HANDLE(a)->path, AS_HANDLE(b)->path) == 0;
         return a.as.o == b.as.o;
     }
     if (a.k == V_OBJ || b.k == V_OBJ) return false;
@@ -242,6 +258,13 @@ static void emit(Buf *b, Value v, bool quoted)
             emit(b, d->v[i], true);
         }
         buf_putc(b, '}');
+        return;
+    }
+    case O_HANDLE: {
+        Handle *h = AS_HANDLE(v);
+        if (quoted) buf_putc(b, '<');
+        buf_puts(b, h->label[0] ? h->label : h->path[0] ? h->path : "ship");
+        if (quoted) buf_putc(b, '>');
         return;
     }
     default:

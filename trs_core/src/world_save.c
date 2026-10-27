@@ -127,6 +127,7 @@ static trs_json *craft_json(const trs_craft *c) {
 		PUT_D(pj, p, ore);
 		PUT_I(pj, p, running);
 		PUT_D(pj, p, limit);
+		PUT_D(pj, p, throttle);
 		PUT_I(pj, p, engine_on);
 		PUT_I(pj, p, chute);
 		PUT_I(pj, p, legs_deployed);
@@ -172,6 +173,8 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 		GET_D(pj, p, ore);
 		GET_I(pj, p, running);
 		GET_D(pj, p, limit);
+		if (trs_json_get(pj, "throttle"))
+			GET_D(pj, p, throttle); /* older saves: following the ship's */
 		GET_I(pj, p, engine_on);
 		GET_I(pj, p, chute);
 		GET_I(pj, p, legs_deployed);

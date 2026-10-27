@@ -44,6 +44,12 @@ void computer_free(Computer *c);
 void computer_sh(Computer *c, const char *line, Buf *out);
 /* The ship as it is now: "key\tvalue\n" lines (replaces the table). */
 void computer_set_state(Computer *c, const char *tsv);
+/* The things aboard, for a script's dot (engine.throttle): "path\tvalue\tflags"
+ * lines (replaces the table). A value is a number or a word, "@path:label"
+ * (another thing), "@[path:label|...]" (a list of them) or "@call" (a thing
+ * it does, ship.obj call queues "call <path> <args>"); flags "w": a script may
+ * set it (queues "set <path> <value>"). */
+void computer_set_objects(Computer *c, const char *tsv);
 /* The verbs: "name\targs\thelp\n" lines; args is a string of kinds, one per
  * argument: n a number, w a word, t the rest of the line; a trailing ? makes
  * the last optional. */

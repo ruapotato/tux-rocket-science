@@ -54,6 +54,7 @@ typedef struct {
     char     *err;
     size_t    errsz;
     bool      failed;
+    bool      echo;         /* TUX ROCKET SCIENCE: the REPL prints a lone expression */
 } P;
 
 static void expression(P *p);
@@ -238,6 +239,74 @@ static int arg_list(P *p, TokType closer)
     return n;
 }
 
+/* TUX ROCKET SCIENCE: f"{needed:.0f} m/s, {name}" -- each {...} is an
+ * expression, compiled from its own tokens, and format(value, spec)ed;
+ * {{ and }} are braces. The pieces are added up into one string. */
+static void fstring(P *p, Token *t)
+{
+    const char *s = t->sval;
+    int n = t->len, line = t->line;
+    emit_const(p, str_new("", 0));
+    int fmt = native_find("format", 6);
+    Buf lit;
+    buf_init(&lit);
+    for (int i = 0; i <= n && !p->failed; ) {
+        if (i < n && s[i] == '{' && i + 1 < n && s[i + 1] == '{') { buf_putc(&lit, '{'); i += 2; continue; }
+        if (i < n && s[i] == '}' && i + 1 < n && s[i + 1] == '}') { buf_putc(&lit, '}'); i += 2; continue; }
+        if (i < n && s[i] != '{') { buf_putc(&lit, s[i]); i++; continue; }
+        if (lit.len) {
+            emit_const(p, str_new(lit.p, lit.len));
+            emit(p, OP_ADD);
+            buf_clear(&lit);
+        }
+        if (i >= n) break;
+        /* the expression runs to the matching }, and a : outside any
+         * brackets or quotes starts the format */
+        int j = i + 1, depth = 0, colon = -1;
+        char quote = 0;
+        for (; j < n; j++) {
+            char c = s[j];
+            if (quote) { if (c == quote) quote = 0; continue; }
+            if (c == '"' || c == '\'') quote = c;
+            else if (c == '(' || c == '[' || c == '{') depth++;
+            else if ((c == ')' || c == ']' || c == '}') && depth) depth--;
+            else if (c == '}') break;
+            else if (c == ':' && !depth && colon < 0) colon = j;
+        }
+        if (j >= n) { perr(p, "f-string: a '{' with no '}'"); break; }
+        int e1 = colon >= 0 ? colon : j;
+        char *src = nom_alloc((size_t)(e1 - i) + 2);
+        memcpy(src, s + i + 1, (size_t)(e1 - i - 1));
+        src[e1 - i - 1] = '\n';
+        src[e1 - i] = 0;
+        TokenList tl;
+        char lerr[NOM_ERR_MAX];
+        if (!lex_source(src, &tl, lerr, sizeof lerr)) {
+            perr(p, "f-string: %s", lerr);
+            nom_free(src);
+            break;
+        }
+        for (int k = 0; k < tl.ntok; k++) tl.tok[k].line = line;
+        if (fmt >= 0) emit2(p, OP_GETNATIVE, (uint8_t)fmt);
+        P sub = *p;
+        sub.tl = tl;
+        sub.cur = 0;
+        expression(&sub);
+        if (!sub.failed && !check(&sub, T_NEWLINE) && !check(&sub, T_EOF))
+            perr(&sub, "f-string: more than one expression in {...}");
+        p->failed = sub.failed;
+        lex_free(&tl);
+        nom_free(src);
+        if (p->failed) break;
+        if (colon >= 0) emit_const(p, str_new(s + colon + 1, (size_t)(j - colon - 1)));
+        else emit_const(p, str_new("", 0));
+        if (fmt >= 0) emit2(p, OP_CALL, 2);
+        emit(p, OP_ADD);
+        i = j + 1;
+    }
+    buf_free(&lit);
+}
+
 static void primary(P *p)
 {
     Token *t = advance(p);
@@ -245,6 +314,7 @@ static void primary(P *p)
     case T_INT:   emit_const(p, VAL_INT(t->ival)); return;
     case T_NUM:   emit_const(p, VAL_NUM(t->dval)); return;
     case T_STR:   emit_const(p, str_new(t->sval, (size_t)t->len)); return;
+    case T_FSTR:  fstring(p, t); return;
     case T_TRUE:  emit(p, OP_TRUE);  return;
     case T_FALSE: emit(p, OP_FALSE); return;
     case T_NIL:   emit(p, OP_NIL);   return;
@@ -304,6 +374,21 @@ static void postfix(P *p)
             expression(p);
             expect(p, T_RBRACKET, "']'");
             emit(p, OP_INDEX);
+        } else if (match(p, T_DOT)) {
+            /* TUX ROCKET SCIENCE: engine.throttle, ship.orbit.top,
+             * booster.decouple() */
+            if (!check(p, T_IDENT)) { perr(p, "expected a name after '.'"); return; }
+            Token *nt = advance(p);
+            int k = add_const(p, str_new(nt->start, (size_t)nt->len));
+            if (match(p, T_LPAREN)) {
+                int n = arg_list(p, T_RPAREN);
+                emit(p, OP_CALLMETHOD);
+                emit_u16(p, k);
+                emit(p, (uint8_t)n);
+            } else {
+                emit(p, OP_GETATTR);
+                emit_u16(p, k);
+            }
         } else {
             return;
         }
@@ -560,6 +645,13 @@ static void def_stmt(P *p)
     emit(p, OP_NIL);
     emit(p, OP_RET);
     p->comp = c.enclosing;
+    /* the names of its locals, for the debugger's watch */
+    {
+        Buf nb; buf_init(&nb);
+        for (int i = 0; i < c.nlocals; i++) { if (i) buf_putc(&nb, ','); buf_puts(&nb, c.local[i]); }
+        buf_putc(&nb, 0);
+        fn->locals = nb.p;
+    }
 
     emit2(p, OP_GETFUNC, (uint8_t)fi);
     emit(p, OP_SETGLOBAL);
@@ -577,9 +669,10 @@ static bool looks_like_assignment(P *p)
         int depth = 0;
         for (;;) {
             TokType t = peek(p)->type;
-            if (t == T_LBRACKET) { depth++; p->cur++; continue; }
+            if (t == T_LBRACKET || t == T_LPAREN) { depth++; p->cur++; continue; }
+            if (depth == 0 && t == T_DOT && p->tl.tok[p->cur + 1].type == T_IDENT) { p->cur += 2; continue; }
             if (depth > 0) {
-                if (t == T_RBRACKET) depth--;
+                if (t == T_RBRACKET || t == T_RPAREN) depth--;
                 else if (t == T_NEWLINE || t == T_EOF) break;
                 p->cur++;
                 continue;
@@ -596,18 +689,60 @@ static bool looks_like_assignment(P *p)
 static void assignment(P *p)
 {
     Token nameTok = *advance(p);
-    bool indexed = check(p, T_LBRACKET);
 
-    if (indexed) {
-        /* NAME[expr] = value — plain assignment only */
+    if (check(p, T_LBRACKET) || check(p, T_DOT) || check(p, T_LPAREN)) {
+        /* NAME[k].b[j] = value: everything up to the last [..] or .name is
+         * read, the last one is written. TUX ROCKET SCIENCE: the .name ones
+         * (engine.throttle = 100), and += on either. */
         emit_name_load(p, nameTok.start, nameTok.len);
-        advance(p);                      /* '[' */
+        int attr = -1;          /* the last is .name (its constant), or [k] */
+        for (;;) {
+            if (match(p, T_DOT)) {
+                Token *nt = advance(p);
+                int k = add_const(p, str_new(nt->start, (size_t)nt->len));
+                if (match(p, T_LPAREN)) {           /* ship.part("x").throttle = 1 */
+                    int n = arg_list(p, T_RPAREN);
+                    emit(p, OP_CALLMETHOD);
+                    emit_u16(p, k);
+                    emit(p, (uint8_t)n);
+                    continue;
+                }
+                if (check(p, T_DOT) || check(p, T_LBRACKET)) { emit(p, OP_GETATTR); emit_u16(p, k); continue; }
+                attr = k;
+                break;
+            }
+            if (match(p, T_LPAREN)) {
+                int n = arg_list(p, T_RPAREN);
+                emit2(p, OP_CALL, (uint8_t)n);
+                continue;
+            }
+            if (match(p, T_LBRACKET)) {
+                expression(p);
+                expect(p, T_RBRACKET, "']'");
+                if (check(p, T_DOT) || check(p, T_LBRACKET)) { emit(p, OP_INDEX); continue; }
+                break;
+            }
+            perr(p, "expected '=' after the name");
+            return;
+        }
+        if (p->failed) return;
+        TokType op = advance(p)->type;
+        if (op != T_ASSIGN) {
+            /* the current value, from a second copy of the box (and key) */
+            if (attr >= 0) { emit(p, OP_DUP); emit(p, OP_GETATTR); emit_u16(p, attr); }
+            else { emit(p, OP_DUP2); emit(p, OP_INDEX); }
+        }
         expression(p);
-        expect(p, T_RBRACKET, "']'");
-        if (check(p, T_LBRACKET)) { perr(p, "chained index assignment is not supported"); return; }
-        if (!match(p, T_ASSIGN)) { perr(p, "augmented assignment to an element is not supported"); return; }
-        expression(p);
-        emit(p, OP_SETINDEX);
+        switch (op) {
+        case T_ASSIGN:  break;
+        case T_PLUSEQ:  emit(p, OP_ADD); break;
+        case T_MINUSEQ: emit(p, OP_SUB); break;
+        case T_STAREQ:  emit(p, OP_MUL); break;
+        case T_SLASHEQ: emit(p, OP_DIV); break;
+        default: perr(p, "bad assignment operator"); return;
+        }
+        if (attr >= 0) { emit(p, OP_SETATTR); emit_u16(p, attr); }
+        else emit(p, OP_SETINDEX);
         return;
     }
 
@@ -634,6 +769,7 @@ static void statement(P *p)
      * one that terminates an enclosing indented block. */
     while (check(p, T_NEWLINE)) advance(p);
     if (check(p, T_EOF) || check(p, T_RBRACE) || check(p, T_DEDENT)) return;
+    if (check(p, T_INDENT)) { perr(p, "unexpected indent: this line is further in than the one above it"); return; }
 
     if (match(p, T_IF))    { if_stmt(p);    return; }
     if (match(p, T_WHILE)) { while_stmt(p); return; }
@@ -660,6 +796,16 @@ static void statement(P *p)
 
     if (looks_like_assignment(p)) { assignment(p); return; }
 
+    if (p->echo && p->comp->toplevel && !p->loop) {
+        int k = native_find("_echo", 5);
+        if (k >= 0) {
+            emit2(p, OP_GETNATIVE, (uint8_t)k);
+            expression(p);
+            emit2(p, OP_CALL, 1);
+            emit(p, OP_POP);
+            return;
+        }
+    }
     expression(p);
     emit(p, OP_POP);
 }
@@ -699,12 +845,47 @@ Prog *prog_compile(const char *src, const char *name, char *err, size_t errsz)
     return pr;
 }
 
+int prog_compile_more(Prog *pr, const char *src, bool echo, char *err, size_t errsz)
+{
+    P p;
+    memset(&p, 0, sizeof p);
+    p.err = err;
+    p.errsz = errsz;
+    p.echo = echo;
+    if (err) err[0] = 0;
+    if (pr->nfuncs >= NOM_FUNCS_MAX) {
+        snprintf(err, errsz, "the console is full (%d chunks): start it again", NOM_FUNCS_MAX);
+        return -1;
+    }
+    if (!lex_source(src, &p.tl, err, errsz)) return -1;
+    int fi = pr->nfuncs++;
+    Func *fn = &pr->func[fi];
+    memset(fn, 0, sizeof *fn);
+    snprintf(fn->name, NOM_NAME_MAX, "%s", "<console>");
+    p.prog = pr;
+    Compiler c;
+    memset(&c, 0, sizeof c);
+    c.fn = fn;
+    c.toplevel = true;
+    p.comp = &c;
+    skip_seps(&p);
+    while (!check(&p, T_EOF) && !p.failed) {
+        statement(&p);
+        skip_seps(&p);
+    }
+    emit(&p, OP_HALT);
+    lex_free(&p.tl);
+    if (p.failed) return -1;     /* (the chunk stays, unrun: names it bound stay unassigned) */
+    return fi;
+}
+
 void prog_free(Prog *p)
 {
     if (!p) return;
     for (int i = 0; i < p->nfuncs; i++) {
         nom_free(p->func[i].chunk.code);
         nom_free(p->func[i].chunk.line);
+        nom_free(p->func[i].locals);
     }
     for (int i = 0; i < p->nconsts; i++) val_release(p->consts[i]);
     nom_free(p);

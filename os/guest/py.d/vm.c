@@ -69,6 +69,17 @@ void vm_free(VM *v)
 
 void vm_set_ship(VM *v, Ship *ship) { v->ship = ship; }
 
+void vm_start_func(VM *v, int fi)
+{
+    while (v->sp > 0) val_release(v->stack[--v->sp]);
+    v->nframes = 1;
+    v->frame[0].fn = &v->prog->func[fi];
+    v->frame[0].ip = 0;
+    v->frame[0].base = 0;
+    v->done = false;
+    v->err[0] = 0;
+}
+
 const char *vm_err(VM *v)        { return v->err; }
 uint64_t    vm_steps(VM *v)      { return v->steps; }
 uint64_t    vm_wake_tick(VM *v)  { return v->wake_tick; }
@@ -103,6 +114,7 @@ static const char *type_name(Value v)
         case O_STR:  return "str";
         case O_LIST: return "list";
         case O_DICT: return "dict";
+        case O_HANDLE: return "ship's part";
         default:     return "function";
         }
     }
@@ -488,6 +500,18 @@ VmStatus vm_run(VM *v, int budget)
         case OP_CALL: {
             int nargs = READ_BYTE();
             Value callee = v->stack[v->sp - nargs - 1];
+            /* TUX ROCKET SCIENCE: ship() is the ship, and still the old call */
+            if (callee.k == V_OBJ && callee.as.o->kind == O_HANDLE) {
+                Value r = VAL_NIL;
+                VmStatus st = host_callmethod(v, callee, NULL, &v->stack[v->sp - nargs], nargs, &r);
+                if (st == VM_BLOCKED || st == VM_SLEEP) { f->ip = call_site; return st; }
+                if (st == VM_ERROR) return VM_ERROR;
+                for (int i = 0; i < nargs; i++) val_release(v->stack[v->sp - 1 - i]);
+                v->sp -= nargs;
+                val_release(pop(v));
+                if (!push(v, r)) return VM_ERROR;
+                break;
+            }
             if (callee.k != V_OBJ ||
                 (callee.as.o->kind != O_NATIVE && callee.as.o->kind != O_FUNC)) {
                 vm_runtime_error(v, "cannot call a %s", type_name(callee));
@@ -553,6 +577,44 @@ VmStatus vm_run(VM *v, int budget)
             if (!push(v, r)) return VM_ERROR;
             break;
         }
+        /* TUX ROCKET SCIENCE: the dot */
+        case OP_GETATTR: {
+            int k = READ_U16();
+            Value obj = pop(v), r = VAL_NIL;
+            bool ok = host_getattr(v, obj, AS_STR(v->prog->consts[k]), &r);
+            val_release(obj);
+            if (!ok) return VM_ERROR;
+            if (!push(v, r)) return VM_ERROR;
+            break;
+        }
+        case OP_SETATTR: {
+            int k = READ_U16();
+            Value val = pop(v), obj = pop(v);
+            bool ok = host_setattr(v, obj, AS_STR(v->prog->consts[k]), val);
+            val_release(val); val_release(obj);
+            if (!ok) return VM_ERROR;
+            break;
+        }
+        case OP_CALLMETHOD: {
+            int k = READ_U16();
+            int nargs = READ_BYTE();
+            Value obj = v->stack[v->sp - nargs - 1], r = VAL_NIL;
+            VmStatus st = host_callmethod(v, obj, AS_STR(v->prog->consts[k]), &v->stack[v->sp - nargs], nargs, &r);
+            if (st == VM_BLOCKED || st == VM_SLEEP) { f->ip = call_site; return st; }
+            if (st == VM_ERROR) return VM_ERROR;
+            for (int i = 0; i < nargs; i++) val_release(v->stack[v->sp - 1 - i]);
+            v->sp -= nargs;
+            val_release(pop(v));                /* the thing */
+            if (!push(v, r)) return VM_ERROR;
+            break;
+        }
+        case OP_DUP2: {
+            Value a = peek(v, 1), b = peek(v, 0);
+            if (!push(v, val_retain(a))) return VM_ERROR;
+            if (!push(v, val_retain(b))) return VM_ERROR;
+            break;
+        }
+
         case OP_HALT:
             v->done = true;
             return VM_OK;

@@ -38,7 +38,7 @@ typedef enum {
     T_DEF, T_RETURN, T_AND, T_OR, T_NOT, T_TRUE, T_FALSE, T_NIL, T_PASS,
     /* punctuation */
     T_LPAREN, T_RPAREN, T_LBRACKET, T_RBRACKET, T_LBRACE, T_RBRACE,
-    T_COMMA, T_COLON,
+    T_COMMA, T_COLON, T_DOT, T_FSTR,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_DSLASH, T_PERCENT, T_DSTAR,
     T_ASSIGN, T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE,
     T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ
@@ -57,6 +57,7 @@ typedef struct {
 typedef struct {
     Token *tok;
     int    ntok;
+    int    cap;    /* TUX ROCKET SCIENCE: sized to the source, not TOK_MAX */
 } TokenList;
 
 bool lex_source(const char *src, TokenList *out, char *err, size_t errsz);
@@ -77,6 +78,9 @@ typedef enum {
     OP_LIST, OP_DICT,
     OP_INDEX, OP_SETINDEX,
     OP_FORPREP, OP_FORNEXT,
+    /* TUX ROCKET SCIENCE: a.b, a.b = v, a.b(...) (the ship and its parts
+     * are things with names), and the [k] += v that needs two copies */
+    OP_GETATTR, OP_SETATTR, OP_CALLMETHOD, OP_DUP2,
     OP_HALT
 } OpCode;
 
@@ -91,6 +95,7 @@ struct Func {
     int    arity;
     int    nlocals;
     Chunk  chunk;
+    char  *locals;      /* TUX ROCKET SCIENCE: its locals' names, "a,b,c" (the debugger's watch) */
 };
 
 struct Prog {
@@ -114,6 +119,13 @@ typedef struct {
 
 const Native *native_table(int *count);
 int           native_find(const char *name, int len);
+
+/* TUX ROCKET SCIENCE: what a.b means, for the host program (py.c) to say:
+ * a dict's key, or a thing aboard the ship asked for one of its readings.
+ * Each returns false with vm_runtime_error set. */
+bool          host_getattr(VM *v, Value obj, Str *name, Value *out);
+bool          host_setattr(VM *v, Value obj, Str *name, Value val);
+VmStatus      host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value *out);
 
 /* Objects for callables (defined in value.c). */
 Value func_obj_new(int index, bool native);
@@ -179,5 +191,13 @@ struct VM {
 };
 
 void vm_runtime_error(VM *v, const char *fmt, ...);
+
+/* TUX ROCKET SCIENCE: the REPL. More source compiled into the same program
+ * (its globals, its functions), as one more top-level chunk: its function
+ * index, or -1 with err set. echo: an expression on its own line prints
+ * what it comes to (via the native _echo), as Python's prompt does. */
+int  prog_compile_more(Prog *pr, const char *src, bool echo, char *err, size_t errsz);
+/* run that chunk next, on the VM's globals as they are */
+void vm_start_func(VM *v, int fi);
 
 #endif /* NOM_LANG_H */

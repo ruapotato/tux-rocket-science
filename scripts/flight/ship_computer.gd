@@ -49,6 +49,11 @@ const VERBS := [
 	["autostage", "w", "on: the programs stage when a stage is spent (the default); off: never"],
 	["target", "t", "picks a vessel to target, by name (none: no target)"],
 	["abort", "", "stops the program running and closes the throttle"],
+	["aim", "w", "points the nose along a direction and holds it: prograde, retrograde, normal, radial_out, up..."],
+	["chart", "wn", "a point on the Flight app's graph: chart height 1200"],
+	["ask", "t", "(scripts) a question the game works out: when_to_leave(), what_if()"],
+	["await_space", "", "(scripts) waiting for the pilot's space: wait_user_trigger()"],
+	["wake", "n", "(scripts) asleep until this game time: sleep() (time warp eases off before it)"],
 	# the programs: started here, flown a frame at a time by the game (FlightPrograms)
 	["launch", "n?", "PROGRAM: off the ground to an orbit with this apoapsis (m; 80 km on Floe)"],
 	["circularize", "w?", "PROGRAM: rounds the orbit off at the apoapsis (or: periapsis)"],
@@ -74,6 +79,16 @@ var _frame := 0
 var programs := FlightPrograms.new()
 var _enc := {}     # the path ahead, looked at now and then: encounter, encounter_pe, time_to_soi
 var _enc_t := -1e9
+# the things aboard, as a script's dot sees them (engine.throttle): see objects()
+var _parts: Array = []        # this frame's core.vessel_part_states
+var _names := {}              # part uid -> its name aboard ("Swivel 2")
+var _answers := {}            # ask id -> [frame asked, {key: value}]: when_to_leave(), what_if()
+var _await_space := -100      # the frame a script last waited for space (wait_user_trigger)
+var space_presses := 0        # spaces a waiting script has had
+var charts := {}              # chart(name, value): name -> [[t, value], ...]
+var aim_word := ""            # what aim() last pointed at (a direction's name)
+var aim_vec := Vector3.ZERO   # or aim_at() (a direction)
+var _wake := [-100, 0.0]      # [frame said, game time] a sleeping script wakes at
 
 
 static func get_shared() -> ShipComputer:
@@ -197,9 +212,16 @@ func update(scene: Node, t: Dictionary) -> void:
 	_frame += 1
 	r["frame"] = _frame  # which update this is: a script can tell a fresh reading from one it already acted on
 	r["time"] = _n(t.get("t", 0.0))
+	_parts = JSON.parse_string(scene.session.core.vessel_part_states(scene.session.active))
+	if not _parts is Array:
+		_parts = []
+	r.merge(_aim_readings(t), true)
+	r.merge(_stage_readings(t), true)
+	r["space_presses"] = str(space_presses)
 	for k in r:
 		rows.append("%s\t%s" % [k, str(r[k])])
 	machine.set_state("\n".join(rows) + "\n")
+	machine.set_objects(objects(t, r, scene.session.core))
 	machine.tick(SLICES)
 	var said: String = machine.take_output()
 	for line in said.split("\n", false):
@@ -215,6 +237,195 @@ func update(scene: Node, t: Dictionary) -> void:
 	programs.said.clear()
 	if was == "running" and not programs.running():
 		_note("%s %s: %s" % [programs.name, programs.status, programs.note])
+
+
+## Is a script waiting for the pilot's space (wait_user_trigger)? Then the
+## press is the script's, not a stage.
+func wants_space() -> bool:
+	return _frame - _await_space <= 2
+
+
+## The game time a sleeping script wakes at (-1: none is asleep).
+func wake_at() -> float:
+	return float(_wake[1]) if _frame - int(_wake[0]) <= 2 else -1.0
+
+
+func take_space() -> void:
+	space_presses += 1
+	_await_space = -100
+	_note("space: the script goes on")
+
+
+## How far the nose is from where aim()/aim_at() pointed it, and how fast
+## the ship is turning (degrees, degrees a second).
+func _aim_readings(t: Dictionary) -> Dictionary:
+	var want := aim_vec
+	if aim_word != "":
+		want = FlightPrograms.dir_of(t, aim_word)
+	var nose := FlightPrograms.v3(t.get("nose"))
+	var err := rad_to_deg(nose.angle_to(want)) if want != Vector3.ZERO and nose != Vector3.ZERO else 180.0
+	return {"aim_error": _n(err), "turn_rate": _n(rad_to_deg(float(t.get("spin", 0.0))))}
+
+
+## The engines burning (or, between stages, the ones the next lights): their
+## thrust together now (kN) and the speed their exhaust leaves at (m/s),
+## for burn_time() and stopping_distance().
+func _stage_readings(t: Dictionary) -> Dictionary:
+	var f := 0.0
+	var mdot := 0.0
+	var next := int(t.get("next_stage", -1))
+	var any_lit := false
+	for p in _parts:
+		any_lit = any_lit or bool(p.get("lit", false))
+	for p in _parts:
+		if not p.has("thrust_max"):
+			continue
+		if (any_lit and not p.get("lit", false)) or (not any_lit and int(p.stage) != next):
+			continue
+		var fm := float(p.thrust_max)
+		f += fm
+		if float(p.isp) > 0.0:
+			mdot += fm / (float(p.isp) * 9.80665)
+	var ve := f / mdot if mdot > 0.0 else 0.0
+	return {"stage_thrust_kn": _n(f / 1000.0), "exhaust_speed": _n(ve), "dv_expended": _n(t.get("dv_expended", 0.0))}
+
+
+## THE THINGS ABOARD, as a script's dot sees them: "path\tvalue\tflags"
+## rows (see os/core/computer.h). ship.orbit.top is "orbit.top", an engine
+## "part.<uid>" (engine.throttle is "part.12.throttle", writable), a list
+## of them "@[part.12:Swivel|...]". Numbers are in the units the HUD
+## speaks: m, s, m/s, kN, kg and percent.
+func objects(t: Dictionary, r: Dictionary, core: Object) -> String:
+	var rows := PackedStringArray()
+	var o: Dictionary = t.get("orbit", {})
+	# the ship's own, in plain words (ship.altitude and the rest of
+	# `ship status` come from the readings)
+	rows.append("height\t%s\t" % r.altitude_terrain)
+	rows.append("speed\t%s\t" % r.surface_speed)
+	rows.append("falling_speed\t%s\t" % _n(-float(t.get("vertical_speed", 0.0))))
+	rows.append("delta_v\t%s\t" % r.dv_left)
+	rows.append("thrust\t%s\t" % r.thrust_kn)
+	rows.append("max_thrust\t%s\t" % r.max_thrust_kn)
+	rows.append("throttle\t%s\tw" % r.throttle_pct)
+	rows.append("stage\t%s\t" % r.next_stage)
+	var sl := float(t.get("stage_liquid_capacity", 0.0)) + float(t.get("stage_solid_capacity", 0.0))
+	rows.append("fuel\t%s\t" % _n(100.0 * (float(t.get("stage_liquid", 0.0)) + float(t.get("stage_solid", 0.0))) / sl if sl > 0.0 else 0.0))
+	rows.append("landed\t%s\t" % ("true" if t.get("landed", false) else "false"))
+	# its orbit: top and bottom are heights above the ground's mean (sea) level
+	rows.append("orbit\t@orbit:orbit\t")
+	var ap: String = r.apoapsis
+	var pe: String = r.periapsis
+	for k in [["top", ap], ["apoapsis", ap], ["bottom", pe], ["periapsis", pe], ["time_to_top", r.time_to_apoapsis],
+			["time_to_apoapsis", r.time_to_apoapsis], ["time_to_bottom", r.time_to_periapsis],
+			["time_to_periapsis", r.time_to_periapsis], ["period", r.period], ["eccentricity", r.eccentricity],
+			["inclination", r.inclination], ["speed", r.orbital_speed], ["body", r.body]]:
+		rows.append("orbit.%s\t%s\t" % k)
+	rows.append("orbit.name\torbit\t")
+	if o.has("sma"):
+		rows.append("orbit.semi_major_axis\t%s\t" % _n(o.sma))
+	# the body it is at
+	var b: Dictionary = {}
+	var bj = JSON.parse_string(core.body_info(int(t.get("body_index", -1))))
+	if bj is Dictionary:
+		b = bj
+	if not b.is_empty():
+		rows.append("body\t@body:%s\t" % b.name)
+		rows.append("body.name\t%s\t" % b.name)
+		for k in [["radius", b.radius], ["mu", b.mu], ["gravity", b.surface_gravity], ["atmosphere", b.atmosphere_height],
+				["sphere", b.soi], ["day", b.rotation_period]]:
+			rows.append("body.%s\t%s\t" % [k[0], _n(k[1])])
+		rows.append("body.has_air\t%s\t" % ("true" if float(b.atmosphere_height) > 0.0 else "false"))
+	# the parts, each by a name that is its own ("Swivel 2" when there are two)
+	_names = part_names(_parts)
+	var lists := {"parts": [], "engines": [], "boosters": [], "tanks": [], "decouplers": [], "parachutes": [], "legs": [], "pods": []}
+	var by_kind := {"engine": "engines", "booster": "boosters", "tank": "tanks", "decoupler": "decouplers",
+		"parachute": "parachutes", "leg": "legs", "pod": "pods"}
+	var ship_thr := float(t.get("throttle", 0.0))
+	for p in _order(_parts):
+		var pre := "part.%d" % int(p.uid)
+		var nm: String = _names.get(int(p.uid), str(p.name))
+		var item := "%s:%s" % [pre, nm]
+		lists.parts.append(item)
+		var kind := str(p.kind)
+		if by_kind.has(kind):
+			lists[by_kind[kind]].append(item)
+		rows.append("%s.name\t%s\t" % [pre, nm])
+		rows.append("%s.kind\t%s\t" % [pre, kind])
+		rows.append("%s.part\t%s\t" % [pre, p.part])
+		rows.append("%s.stage\t%d\t" % [pre, int(p.stage)])
+		rows.append("%s.temp\t%s\t" % [pre, _n(p.temp)])
+		rows.append("%s.heat\t%s\t" % [pre, _n(100.0 * float(p.temp) / maxf(float(p.max_temp), 1.0))])
+		if p.has("fuel_capacity") and not p.has("feed"):
+			rows.append("%s.fuel\t%s\t" % [pre, _n(100.0 * float(p.fuel) / maxf(float(p.fuel_capacity), 1e-9))])
+			rows.append("%s.fuel_kg\t%s\t" % [pre, _n(p.fuel)])
+			rows.append("%s.capacity_kg\t%s\t" % [pre, _n(p.fuel_capacity)])
+		if p.has("feed"):
+			# an engine: the fuel is what is left in the tanks that feed it
+			rows.append("%s.fuel\t%s\t" % [pre, _n(p.feed)])
+			rows.append("%s.fuel_kg\t%s\t" % [pre, _n(p.feed_kg)])
+			rows.append("%s.lit\t%s\t" % [pre, "true" if p.lit else "false"])
+			var own := float(p.throttle)
+			rows.append("%s.throttle\t%s\t%s" % [pre, _n(100.0 * (own if own >= 0.0 else ship_thr)), "w" if kind == "engine" else ""])
+			rows.append("%s.thrust\t%s\t" % [pre, _n(float(p.thrust) / 1000.0)])
+			rows.append("%s.max_thrust\t%s\t" % [pre, _n(float(p.thrust_max) / 1000.0)])
+			rows.append("%s.isp\t%s\t" % [pre, _n(p.isp)])
+			rows.append("%s.ignite\t@call\t" % pre)
+			if kind == "engine":
+				rows.append("%s.shutdown\t@call\t" % pre)
+		if p.has("fired"):
+			rows.append("%s.fired\t%s\t" % [pre, "true" if p.fired else "false"])
+			rows.append("%s.decouple\t@call\t" % pre)
+		if p.has("chute"):
+			rows.append("%s.state\t%s\t" % [pre, p.chute])
+			rows.append("%s.deploy\t@call\t" % pre)
+			rows.append("%s.cut\t@call\t" % pre)
+		if p.has("legs"):
+			rows.append("%s.deployed\t%s\t" % [pre, "true" if p.legs else "false"])
+			rows.append("%s.deploy\t@call\t" % pre)
+			rows.append("%s.retract\t@call\t" % pre)
+	for k in lists:
+		rows.append("%s\t@[%s]\t" % [k, "|".join(lists[k])])
+	# what the game has worked out for a script that asked (when_to_leave...)
+	for id in _answers.keys():
+		if _frame - int(_answers[id][0]) > 600:
+			_answers.erase(id)
+			continue
+		var ans: Dictionary = _answers[id][1]
+		for k in ans:
+			rows.append("answer.%s.%s\t%s\t" % [id, k, str(ans[k])])
+	return "\n".join(rows) + "\n"
+
+
+## The parts in the order they go: the next stage's first, then the one
+## after (the order the stage list reads), then the rest as built.
+static func _order(parts: Array) -> Array:
+	var out := parts.duplicate()
+	var at := {}
+	for i in out.size():
+		at[int(out[i].uid)] = i
+	out.sort_custom(func(a, b):
+		if int(a.stage) != int(b.stage):
+			return int(a.stage) > int(b.stage)
+		return at[int(a.uid)] < at[int(b.uid)])
+	return out
+
+
+## Each part's name aboard: its catalog name, numbered in stage order when
+## the ship has more than one of them ("Swivel 1", "Swivel 2").
+static func part_names(parts: Array) -> Dictionary:
+	var count := {}
+	for p in parts:
+		count[str(p.name)] = int(count.get(str(p.name), 0)) + 1
+	var seen := {}
+	var out := {}
+	for p in _order(parts):
+		var n := str(p.name)
+		if int(count[n]) > 1:
+			seen[n] = int(seen.get(n, 0)) + 1
+			out[int(p.uid)] = "%s %d" % [n, int(seen[n])]
+		else:
+			out[int(p.uid)] = n
+	return out
 
 
 ## Runs one line on the machine's shell, as a person at a terminal would.
@@ -249,6 +460,36 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 		"throttle":
 			scene._throttle = clampf(float(arg), 0.0, 1.0)
 			s.set_throttle(scene._throttle)
+			engines_follow(s)
+		"set":
+			_set_reading(scene, t, w)
+		"call":
+			_call_part(scene, t, w)
+		"ask":
+			_ask(scene, t, w)
+		"await_space":
+			_await_space = _frame
+			return  # (said every frame it waits: not one for the log)
+		"wake":
+			_wake = [_frame, float(arg)]
+			return
+		"chart":
+			if w.size() >= 3 and w[2].is_valid_float():
+				var c: Array = charts.get(w[1], [])
+				c.append([float(t.get("t", 0.0)), float(w[2])])
+				if c.size() > 600:
+					c = c.slice(c.size() - 600)
+				charts[w[1]] = c
+			return
+		"aim":
+			aim_word = arg
+			aim_vec = Vector3.ZERO
+			scene._sas_follow = ""
+			if arg in ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in"]:
+				s.set_sas(arg)
+			else:
+				var d := FlightPrograms.dir_of(t, arg)
+				s.set_sas("target", PackedFloat64Array([d.x, d.y, d.z]))
 		"stage":
 			scene._stage()
 		"sas":
@@ -266,6 +507,8 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 				d.append(float(up[k]) * sin(p) + (float(north[k]) * cos(h) + float(east[k]) * sin(h)) * cos(p))
 			scene._sas_follow = ""
 			s.set_sas("target", d)
+			aim_word = ""
+			aim_vec = Vector3(d[0], d[1], d[2])
 		"rcs":
 			if _on(arg) != bool(t.get("rcs", false)):
 				scene._toggle_rcs()
@@ -302,6 +545,80 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 		_ when w[0] in PROGRAMS:
 			programs.start(scene, w, t)
 	_note("> " + line)
+
+
+## Every engine back on the ship's throttle (the keys, a program, throttle()).
+static func engines_follow(s: FlightSession) -> void:
+	for p in get_shared()._parts:
+		if p.has("throttle") and float(p.throttle) >= 0.0 and str(p.kind) == "engine":
+			s.core.part_action(s.active, int(p.uid), "throttle", -1.0)
+			p.throttle = -1.0
+
+
+## `set part.12.throttle 100`: a script set one of a thing's readings.
+func _set_reading(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
+	if w.size() < 3:
+		return
+	var s: FlightSession = scene.session
+	var path := w[1].split(".")
+	var v := float(w[2])
+	if path.size() == 1 and path[0] == "throttle":
+		scene._throttle = clampf(v / 100.0, 0.0, 1.0)
+		s.set_throttle(scene._throttle)
+		engines_follow(s)
+	elif path.size() == 3 and path[0] == "part" and path[2] == "throttle":
+		var thr := clampf(v / 100.0, 0.0, 1.0)
+		var was := int(t.get("engines_lit", 0))
+		JSON.parse_string(s.core.part_action(s.active, int(path[1]), "throttle", thr))
+		if int(s.telemetry().get("engines_lit", 0)) > was:
+			Sfx.play("ignite")
+	s._telemetry_tick = -1
+
+
+## `call part.12.decouple`: a script told a part to do something.
+func _call_part(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
+	var s: FlightSession = scene.session
+	var path := w[1].split(".") if w.size() > 1 else PackedStringArray()
+	if path.size() != 3 or path[0] != "part":
+		return
+	var what := path[2]
+	var value := 0.0
+	match what:
+		"retract": what = "deploy"
+		"deploy": value = 1.0
+	var was := int(t.get("engines_lit", 0))
+	var r = JSON.parse_string(s.core.part_action(s.active, int(path[1]), what, value))
+	s._telemetry_tick = -1
+	if r is Dictionary and r.get("ok", false):
+		if not (r.get("new", []) as Array).is_empty():
+			Sfx.play("stage")
+		elif int(s.telemetry().get("engines_lit", 0)) > was:
+			Sfx.play("ignite")
+		else:
+			Sfx.play("click")
+	else:
+		_note("%s: it can't %s now" % [_names.get(int(path[1]), "that part"), path[2]])
+
+
+## `ask <id> leave krill` / `ask <id> whatif <pro> <nrm> <rad> <at>`: worked
+## out now, the answer left in the table as answer.<id>.* for the script.
+func _ask(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
+	if w.size() < 3:
+		return
+	var ans := {}
+	match w[2]:
+		"leave":
+			ans = programs.plan_leave(scene, t, w[3] if w.size() > 3 else "", float(w[4]) if w.size() > 4 else -1.0)
+		"whatif":
+			if w.size() >= 7:
+				ans = programs.what_if(scene, t, [float(w[6]), float(w[3]), float(w[4]), float(w[5])])
+	for k in ans.keys():
+		if ans[k] is float or ans[k] is int:
+			ans[k] = _n(ans[k])
+		else:
+			ans[k] = str(ans[k]).replace("\t", " ").replace("\n", " ")
+	ans["done"] = "true"
+	_answers[w[1]] = [_frame, ans]
 
 
 ## Your scripts and notes, kept between runs of the game.

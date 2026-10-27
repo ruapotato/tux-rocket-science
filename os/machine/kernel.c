@@ -887,6 +887,20 @@ static int64_t kernel_syscall(Cpu *c, int64_t n, int64_t a0, int64_t a1,
         for (int i = 0; i < p->m->ndaemon; i++) {
             if (!ds[i].running) continue;
             if (ds[i].proc.info && ds[i].proc.info->pid == (int)a0) {
+                /* TUX ROCKET SCIENCE: a ship's script told to stop stops, there
+                 * and then (it is not running while this runs; a flight
+                 * script never looks for its signals, and `kill` in the
+                 * Script Editor is its Stop button) */
+                if (a1 != SIG_HUP && !strncmp(ds[i].name, "script", 6) && &ds[i].proc != p) {
+                    cpu_free(&ds[i].cpu);
+                    ds[i].running = false;
+                    ds[i].pending_sig = 0;
+                    ds[i].exit_code = 128 + (int)a1;
+                    snprintf(ds[i].died, sizeof ds[i].died, "stopped (signal %d)", (int)a1);
+                    ds[i].proc.info->alive = false;
+                    ds[i].proc.info->exit_code = ds[i].exit_code;
+                    return 0;
+                }
                 ds[i].pending_sig = (int)a1;
                 return 0;
             }
@@ -1776,7 +1790,7 @@ int64_t kernel_run(Machine *m, const char *line, Buf *console)
  * nothing else forever. */
 #define RESPAWN_LIMIT 5
 
-#define DAEMON_MAX 16
+#define DAEMON_MAX 24   /* TUX ROCKET SCIENCE: 16, and room for the ship's scripts side by side */
 
 static struct Daemon *daemons(Machine *m)
 {
@@ -2105,7 +2119,12 @@ void kernel_tick_some(Machine *m, int slices, Buf *console, const char *name, in
     for (int s = 0; s < slices; s++) {
         for (int i = 0; i < m->ndaemon; i++) {
             if (!d[i].running) continue;
-            if (name && (strcmp(d[i].name, name) == 0) != (want != 0)) continue;
+            /* (TUX ROCKET SCIENCE: "script" is every "script:<n>" too) */
+            if (name) {
+                size_t nl = strlen(name);
+                int is = strncmp(d[i].name, name, nl) == 0 && (d[i].name[nl] == 0 || d[i].name[nl] == ':');
+                if (is != (want != 0)) continue;
+            }
             d[i].proc.console = console;
             CpuTrap t = cpu_run(&d[i].cpu, DAEMON_TICK_BUDGET);
             if (d[i].proc.info) d[i].proc.info->icount = d[i].cpu.icount;

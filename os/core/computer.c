@@ -26,6 +26,7 @@
 #include "nom.h"
 #include "machine.h"
 #include "kernel.h"
+#include "abi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,15 @@ typedef struct {
 	char key[48];
 	char val[96];
 } entry;
+
+/* a thing aboard, by its path: part.12.fuel, orbit.top. Its value is a
+ * number or a word, "@path:label" (another thing), "@[a:x|b:y]" (a list of
+ * them) or "@call" (something it does); flags "w" if a script may set it */
+typedef struct {
+	char *path;
+	char *val;
+	char flags[4];
+} object;
 
 typedef struct {
 	char name[24];
@@ -58,6 +68,8 @@ struct Computer {
 	int verb_dev[MAX_VERBS];
 	unsigned ticks;
 	Buf boot_out; /* what the system's own services say (not the scripts') */
+	object *objs;
+	int nobj, capobj;
 };
 
 /* THE BRIDGE IS ONE POINTER (kernel.c's rb_api_hook, lifted unchanged), so
@@ -78,6 +90,197 @@ static const char *state_get(Computer *c, const char *key) {
 		if (!strcmp(c->state[i].key, key))
 			return c->state[i].val;
 	return NULL;
+}
+
+static void ok_body(Buf *out, const char *what);
+static void end_body(Buf *out);
+
+static object *obj_find(Computer *c, const char *path) {
+	for (int i = 0; i < c->nobj; i++)
+		if (!strcmp(c->objs[i].path, path))
+			return &c->objs[i];
+	return NULL;
+}
+
+/* any thing under this path (part.12 has part.12.fuel...) */
+static int obj_has_children(Computer *c, const char *path) {
+	size_t n = strlen(path);
+	for (int i = 0; i < c->nobj; i++)
+		if (!strncmp(c->objs[i].path, path, n) && c->objs[i].path[n] == '.')
+			return 1;
+	return 0;
+}
+
+static void obj_put(Computer *c, const char *path, const char *val, const char *flags) {
+	object *o = obj_find(c, path);
+	if (!o) {
+		if (c->nobj == c->capobj) {
+			c->capobj = c->capobj ? c->capobj * 2 : 256;
+			c->objs = realloc(c->objs, sizeof(object) * (size_t)c->capobj);
+		}
+		o = &c->objs[c->nobj++];
+		o->path = strdup(path);
+		o->val = NULL;
+	}
+	free(o->val);
+	o->val = strdup(val);
+	snprintf(o->flags, sizeof o->flags, "%s", flags ? flags : "");
+}
+
+static void obj_clear(Computer *c) {
+	for (int i = 0; i < c->nobj; i++) {
+		free(c->objs[i].path);
+		free(c->objs[i].val);
+	}
+	c->nobj = 0;
+}
+
+static int lower(int ch) {
+	return ch >= 'A' && ch <= 'Z' ? ch + 32 : ch;
+}
+
+/* "Walrus" is the Walrus LE-215 Lifter Engine, and "Swivel" both Swivel 1
+ * and Swivel 2: the name's first words (2 an exact match, 1 its first words) */
+static int name_is(const char *have, const char *want) {
+	size_t hl = strlen(have), wl = strlen(want);
+	if (hl < wl || !wl)
+		return 0;
+	for (size_t i = 0; i < wl; i++)
+		if (lower(have[i]) != lower(want[i]))
+			return 0;
+	return hl == wl ? 2 : have[wl] == ' ' ? 1 : 0;
+}
+
+/* `ship obj get|set|call|find|dict ...`: the things aboard, for the
+ * language's dot (py.c). */
+static void obj_api(Computer *c, const char *rest, Buf *out) {
+	char verb[8] = "", path[96] = "";
+	int n = 0;
+	sscanf(rest, "%7s %95s %n", verb, path, &n);
+	const char *arg = n ? rest + n : "";
+	if (!strcmp(verb, "get")) {
+		object *o = obj_find(c, path);
+		if (o) {
+			if (!strcmp(o->val, "@call")) {
+				const char *nm = strrchr(path, '.');
+				buf_printf(out, "-ERR %s is something it does: %s()\n", nm ? nm + 1 : path, nm ? nm + 1 : path);
+				return;
+			}
+			ok_body(out, o->val);
+			return;
+		}
+		if (!strchr(path, '.')) {
+			const char *v = state_get(c, path);
+			if (v) {
+				ok_body(out, v);
+				return;
+			}
+		}
+		if (obj_has_children(c, path)) {
+			char nm[128];
+			snprintf(nm, sizeof nm, "%s.name", path);
+			object *l = obj_find(c, nm);
+			char said[200];
+			snprintf(said, sizeof said, "@%s:%s", path, l ? l->val : path);
+			ok_body(out, said);
+			return;
+		}
+		const char *dot = strrchr(path, '.');
+		if (!strncmp(path, "part.", 5) && dot) {
+			char whole[96];
+			snprintf(whole, sizeof whole, "%.*s", (int)(dot - path), path);
+			if (!obj_has_children(c, whole)) {
+				buf_puts(out, "-ERR not aboard\n"); /* (py.c says which, by its name) */
+				return;
+			}
+		}
+		buf_printf(out, "-ERR %s has no '%s'\n", dot ? "it" : "the ship", dot ? dot + 1 : path);
+		return;
+	}
+	if (!strcmp(verb, "set") || !strcmp(verb, "call")) {
+		object *o = obj_find(c, path);
+		int call = verb[0] == 'c';
+		const char *dot = strrchr(path, '.');
+		if (!o || (call ? strcmp(o->val, "@call") != 0 : !strchr(o->flags, 'w'))) {
+			char whole[96];
+			snprintf(whole, sizeof whole, "%.*s", dot ? (int)(dot - path) : 0, path);
+			if (!o && !strncmp(path, "part.", 5) && !obj_has_children(c, whole))
+				buf_puts(out, "-ERR not aboard\n");
+			else if (!o)
+				buf_printf(out, "-ERR it has no '%s'\n", dot ? dot + 1 : path);
+			else if (call)
+				buf_printf(out, "-ERR %s is a reading, not something it does (no ())\n", dot ? dot + 1 : path);
+			else if (!strcmp(o->val, "@call"))
+				buf_printf(out, "-ERR %s is something it does: %s()\n", dot ? dot + 1 : path, dot ? dot + 1 : path);
+			else
+				buf_printf(out, "-ERR %s can only be read\n", dot ? dot + 1 : path);
+			return;
+		}
+		if (!call && *arg) {
+			char *end;
+			strtod(arg, &end);
+			if (*end && (strcmp(arg, "true") && strcmp(arg, "false"))) {
+				buf_printf(out, "-ERR %s wants a number, not '%s'\n", dot ? dot + 1 : path, arg);
+				return;
+			}
+		}
+		char line[256];
+		snprintf(line, sizeof line, "%s %s%s%s", verb, path, *arg ? " " : "", arg);
+		/* once a frame: the same set said again replaces the first */
+		int again = 0;
+		size_t sl = strlen(line);
+		for (const char *q = c->actions.p; q && q < c->actions.p + c->actions.len;) {
+			const char *e = memchr(q, '\n', (size_t)(c->actions.p + c->actions.len - q));
+			size_t ql = e ? (size_t)(e - q) : (size_t)(c->actions.p + c->actions.len - q);
+			again |= ql == sl && !memcmp(q, line, sl);
+			q = e ? e + 1 : c->actions.p + c->actions.len;
+		}
+		if (!again)
+			buf_printf(&c->actions, "%s\n", line);
+		if (!call) {
+			char fl[4];
+			snprintf(fl, sizeof fl, "%s", o->flags);
+			obj_put(c, path, arg, fl); /* what it reads back until the game says otherwise */
+		}
+		ok_body(out, call ? "ok" : arg);
+		return;
+	}
+	if (!strcmp(verb, "find")) {
+		/* the parts called that: "find - Swivel" (path unused) */
+		Buf b;
+		buf_init(&b);
+		buf_puts(&b, "@[");
+		int k = 0, exact = 0;
+		for (int i = 0; i < c->nobj; i++)
+			if (!strncmp(c->objs[i].path, "part.", 5) && name_is(c->objs[i].val, arg) == 2)
+				exact = 1;
+		for (int i = 0; i < c->nobj; i++) {
+			const char *p = c->objs[i].path;
+			size_t pl = strlen(p);
+			if (strncmp(p, "part.", 5) || pl < 10 || strcmp(p + pl - 5, ".name") || name_is(c->objs[i].val, arg) < 1 + exact)
+				continue;
+			buf_printf(&b, "%s%.*s:%s", k++ ? "|" : "", (int)(pl - 5), p, c->objs[i].val);
+		}
+		buf_puts(&b, "]");
+		buf_putc(&b, 0);
+		ok_body(out, b.p);
+		buf_free(&b);
+		return;
+	}
+	if (!strcmp(verb, "dict")) {
+		/* its readings, one "key\tvalue" a line */
+		ok_body(out, path);
+		size_t pl = strlen(path);
+		for (int i = 0; i < c->nobj; i++) {
+			const char *p = c->objs[i].path;
+			if (strncmp(p, path, pl) || p[pl] != '.' || strchr(p + pl + 1, '.') || !strcmp(c->objs[i].val, "@call"))
+				continue;
+			buf_printf(out, "%s\t%s\n", p + pl + 1, c->objs[i].val);
+		}
+		end_body(out);
+		return;
+	}
+	buf_puts(out, "-ERR obj get|set|call|find|dict\n");
 }
 
 static int is_number(const char *s) {
@@ -142,6 +345,10 @@ void computer_api(Computer *c, const char *line, Buf *out) {
 		for (int i = 0; i < c->nstate; i++)
 			buf_printf(out, "%-20s %s\n", c->state[i].key, c->state[i].val);
 		end_body(out);
+		return;
+	}
+	if (!strcmp(word, "obj")) {
+		obj_api(c, rest, out);
 		return;
 	}
 	if (!strcmp(word, "get")) {
@@ -360,6 +567,8 @@ void computer_free(Computer *c) {
 	if (g_comp == c)
 		g_comp = NULL;
 	machine_free(&c->m);
+	obj_clear(c);
+	free(c->objs);
 	buf_free(&c->actions);
 	buf_free(&c->script_out);
 	buf_free(&c->boot_out);
@@ -408,6 +617,25 @@ void computer_set_state(Computer *c, const char *tsv) {
 	mount(c);
 }
 
+void computer_set_objects(Computer *c, const char *tsv) {
+	obj_clear(c);
+	const char *s = tsv;
+	while (*s) {
+		const char *e = strchr(s, '\n');
+		size_t n = e ? (size_t)(e - s) : strlen(s);
+		char line[2048];
+		if (n >= sizeof line)
+			n = sizeof line - 1;
+		memcpy(line, s, n);
+		line[n] = 0;
+		char *f[3];
+		split_tsv(line, f, 3);
+		if (f[0][0])
+			obj_put(c, f[0], f[1], f[2]);
+		s = e ? e + 1 : s + n;
+	}
+}
+
 void computer_set_verbs(Computer *c, const char *tsv) {
 	c->nverbs = 0;
 	const char *s = tsv;
@@ -442,7 +670,20 @@ int computer_start(Computer *c, const char *path, char *err, size_t errcap) {
 	size_t plen = strlen(path);
 	const char *interp = (plen > 3 && !strcmp(path + plen - 3, ".sh")) ? "/bin/sh" : "/bin/py";
 	size_t before = c->script_out.len;
-	int64_t rc = kernel_start_daemon(&c->m, interp, path, "script", 0, &c->script_out, NULL);
+	/* each script its own daemon (the console and a flight script side by
+	 * side): script:1, script:2..., a finished one's record used again */
+	int64_t rc = -1;
+	for (int k = 1; k <= 8; k++) {
+		char nm[16];
+		snprintf(nm, sizeof nm, "script:%d", k);
+		rc = kernel_start_daemon(&c->m, interp, path, nm, 0, &c->script_out, NULL);
+		if (rc != SPAWN_EBUSY)
+			break;
+	}
+	if (rc == SPAWN_EBUSY || rc == SPAWN_EDEPTH) {
+		snprintf(err, errcap, "the computer is running all the scripts it can at once: kill one first (ps lists them)");
+		return 0;
+	}
 	if (rc < 0) {
 		const char *why = c->script_out.len > before ? c->script_out.p + before : NULL;
 		snprintf(err, errcap, "%s", why && *why ? why : "the computer would not start it");

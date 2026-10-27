@@ -898,6 +898,17 @@ func _process(delta: float) -> void:
 	else:
 		session.set_input(0.0, 0.0, 0.0)  # (typing at the computer is not flying)
 		session.set_translate(0.0, 0.0, 0.0)
+	# a script asleep until a moment: time warp eases off before it, so the
+	# moment isn't warped past (one frame at 1000x is a quarter of a minute)
+	if computer != null and session.warp_kind == "rails" and session.warp_index > 0:
+		var wake := computer.wake_at()
+		if wake > 0.0:
+			var left := wake - session.time()
+			var k := session.warp_index
+			while k > 0 and FlightSession.RAILS_WARP[k] * delta > maxf(left * 0.5, 0.0):
+				k -= 1
+			if k < session.warp_index:
+				session.set_warp("rails", k)
 	session.advance(delta)
 	if computer == null:
 		computer = ShipComputer.get_shared()

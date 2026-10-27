@@ -86,6 +86,7 @@ func start(scene: Node, words: PackedStringArray, t: Dictionary) -> void:
 	_ascent = null
 	_last_t = float(t.get("t", 0.0))
 	_scene._sas_follow = ""
+	ShipComputer.engines_follow(_s)  # a program flies the ship's throttle: every engine follows it
 	var why := ""
 	match name:
 		"launch": why = _begin_launch(words, t)
@@ -100,6 +101,70 @@ func start(scene: Node, words: PackedStringArray, t: Dictionary) -> void:
 		_: why = "no such program: " + name
 	if why != "":
 		_end("failed", why)
+
+
+## WORKED OUT, NOT FLOWN: what a script's when_to_leave("krill") asks. The
+## burn to that body from this orbit: {wait (s until it), at (when), dv,
+## prograde, normal, radial (m/s), travel (s from the burn into its
+## sphere), pass (m up, as planned), body}, or {error}.
+func plan_leave(scene: Node, t: Dictionary, body: String, want := -1.0) -> Dictionary:
+	_scene = scene
+	_s = scene.session
+	var to := _body_named(body)
+	if to < 0:
+		return {"error": "no body called '%s'" % body}
+	var here := int(t.get("body_index", -1))
+	var info: Dictionary = JSON.parse_string(_s.core.body_info(to))
+	if to == here:
+		return {"error": "the ship is already at %s" % info.name}
+	var o: Dictionary = t.get("orbit", {})
+	if t.get("landed", false) or o.get("ap_alt") == null:
+		return {"error": "a transfer starts from a closed orbit (get into one first)"}
+	if want < 0.0:
+		want = float(info.atmosphere_height) + 40000.0 if float(info.get("atmosphere_height", 0.0)) > 0.0 else maxf(20000.0, float(info.radius) * 0.15)
+	var moon := int(info.parent) == here
+	var node := []
+	if moon:
+		node = _plan_moon(t, str(info.id), want)
+	else:
+		var r: PackedFloat64Array = _s.core.plan_transfer(_s.active, to, want, false)
+		if r.size() >= 6 and r[4] > 0.5:
+			node = [r[0], r[1], r[2], r[3]]
+	if node.is_empty():
+		return {"error": "no way to %s found from this orbit" % info.name}
+	var pp := _patch_in(node, str(info.id), 6.0e5 if moon else 1.0e8)
+	return {"body": str(info.name), "wait": float(node[0]) - float(t.t), "at": float(node[0]),
+		"dv": Vector3(node[1], node[2], node[3]).length(), "prograde": node[1], "normal": node[2], "radial": node[3],
+		"travel": float(pp.get("t_start", node[0])) - float(node[0]), "pass": float(pp.get("pe_alt", -1.0))}
+
+
+## WORKED OUT, NOT FLOWN: what_if(prograde, normal, radial, at). The path as
+## if that burn were made then: {top, bottom (m, the orbit after it; top
+## -1 when it escapes), meets (the next body whose sphere it enters, or
+## none), closest (m up at that body), arrive (s from now into its sphere)}.
+func what_if(scene: Node, t: Dictionary, node: Array) -> Dictionary:
+	_scene = scene
+	_s = scene.session
+	var out := {"top": -1.0, "bottom": -1.0, "meets": "none", "closest": -1.0, "arrive": -1.0}
+	var patches: Array = _s.trajectory([node], 6, 6.0e6)
+	var after := -1
+	for i in patches.size():
+		if float(patches[i].t_end) > float(node[0]) + 0.5:
+			after = i
+			break
+	if after < 0:
+		return out
+	var p0: Dictionary = patches[after]
+	out.top = float(p0.ap_alt) if p0.get("ap_alt") != null else -1.0
+	out.bottom = float(p0.pe_alt)
+	for i in range(after + 1, patches.size()):
+		if str(patches[i - 1].get("end", "")) == "soi_enter":
+			var b: Dictionary = JSON.parse_string(_s.core.body_info(int(patches[i].body_index)))
+			out.meets = str(b.get("name", patches[i].body))
+			out.closest = float(patches[i].pe_alt)
+			out.arrive = float(patches[i].t_start) - float(t.t)
+			break
+	return out
 
 
 ## Stops what is running (the throttle closed): `abort`, or a hand on the keys.
@@ -218,11 +283,12 @@ static func dir_of(t: Dictionary, word: String) -> Vector3:
 		"surface_prograde": return sv.normalized()
 		"surface_retrograde": return -sv.normalized()
 		"up": return up
+		"here": return v3(t.nose)
 	return Vector3.ZERO
 
 
 const DIRS := ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in", "surface_prograde",
-	"surface_retrograde", "up"]
+	"surface_retrograde", "up", "here"]
 
 
 ## The stage being burned is spent: drop it and light the next, but never
@@ -503,7 +569,9 @@ func _met(t: Dictionary) -> bool:
 
 func _burn(t: Dictionary, dt: float) -> void:
 	var d := dir_of(t, _a.dir)
-	if _a.dir in ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in"]:
+	if _a.dir == "here":
+		pass  # where the script pointed it (aim, aim_at), held as it was
+	elif _a.dir in ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in"]:
 		_sas(_a.dir)
 	else:
 		_point(d)

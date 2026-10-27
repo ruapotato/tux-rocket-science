@@ -106,6 +106,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	p->mono = c->cat->defs[def].fuel_mono;
 	p->ec = c->cat->defs[def].ec_capacity;
 	p->limit = 1;
+	p->throttle = -1;
 	p->temp = TRS_T_AMBIENT;
 	return c->count++;
 }

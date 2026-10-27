@@ -87,6 +87,12 @@ static void m_set_state(void *self, const trs_val *a, trs_val *r) {
 		computer_set_state(C(self), a[0].s);
 }
 
+static void m_set_objects(void *self, const trs_val *a, trs_val *r) {
+	(void)r;
+	if (C(self))
+		computer_set_objects(C(self), a[0].s);
+}
+
 static void m_set_verbs(void *self, const trs_val *a, trs_val *r) {
 	(void)r;
 	if (C(self))
@@ -204,6 +210,7 @@ const trs_method_def TRS_COMPUTER_METHODS[] = {
 	{ "sh_on", m_sh_on, S, 2, { I, S }, { "which", "line" } },
 	{ "set_state", m_set_state, V, 1, { S }, { "tsv" } },
 	{ "set_verbs", m_set_verbs, V, 1, { S }, { "tsv" } },
+	{ "set_objects", m_set_objects, V, 1, { S }, { "tsv" } },
 	{ "take_actions", m_take_actions, S, 0, { 0 }, { 0 } },
 	{ "api", m_api, S, 1, { S }, { "line" } },
 	{ "start", m_start, S, 1, { S }, { "path" } },

@@ -57,6 +57,7 @@ typedef struct {
 	double ore;           /* ore in the bin, kg */
 	int running;          /* drills and refineries: switched on */
 	double limit;         /* engines: thrust limit, fraction of full (set in the hangar) */
+	double throttle;      /* engines: its own throttle (the ship's computer sets it), -1 = follows the ship's */
 	int engine_on;
 	int chute;
 	int legs_deployed;
@@ -108,6 +109,14 @@ static inline const trs_part_def *trs_craft_def(const trs_craft *c, int i) {
 /* Resizes part i (clamped to what it allows); its propellant, batteries
  * and ore go to full at the new size. */
 void trs_craft_set_size(trs_craft *c, int i, trs_v3 size);
+
+/* The throttle an engine runs at: a solid's is always full, a liquid's is
+ * its own when the computer has set one, else the ship's. */
+static inline double trs_part_throttle(const trs_part *p, const trs_part_def *d, double ship) {
+	if (d->propellant == TRS_PROP_SOLID)
+		return 1.0;
+	return p->throttle >= 0 ? p->throttle : ship;
+}
 
 /* Engine part i's propellant flow at full throttle, after its thrust limit. */
 double trs_part_mdot(const trs_craft *c, int i);

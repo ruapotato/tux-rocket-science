@@ -187,7 +187,7 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (!p->engine_on || d->propellant == TRS_PROP_NONE || !trs_craft_engine_fed(c, &vs->fuel, i))
 			continue;
-		double thr = d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle;
+		double thr = trs_part_throttle(p, d, vs->throttle);
 		if (thr <= 0)
 			continue;
 		double air = trs_engine_air_factor(d, vs->density, vs->air_speed);
@@ -1321,8 +1321,9 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	for (int i = 0; i < vs->craft->count; i++) {
 		const trs_part *p = &vs->craft->parts[i];
 		const trs_part_def *d = trs_craft_def(vs->craft, i);
-		if (d->engine_kw > 0 && p->engine_on && vs->throttle > 0 && trs_craft_engine_fed(vs->craft, &vs->fuel, i))
-			engine_need += d->engine_kw * vs->throttle * p->limit;
+		double thr = trs_part_throttle(p, d, vs->throttle);
+		if (d->engine_kw > 0 && p->engine_on && thr > 0 && trs_craft_engine_fed(vs->craft, &vs->fuel, i))
+			engine_need += d->engine_kw * thr * p->limit;
 	}
 	vs->engine_power = 1, vs->engine_kw = 0;
 	if (engine_need > 0) {
@@ -1482,43 +1483,20 @@ static trs_v3 world_point(const trs_vessel *vs, trs_v3 local) {
 	return v3_add(vs->r, quat_rotate(vs->q, v3_sub(local, vs->cm)));
 }
 
-int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
+/* Fires the decouplers of stage `s` (uid < 0), or the one decoupler with
+ * that uid: each splits off its piece with its ejection push. Returns how
+ * many pieces it made; their ids go to new_ids (up to max) and pieces. */
+static int fire_decouplers(trs_world *w, int id, int s, int uid, int *new_ids, int max, int *pieces,
+		unsigned char *radial_piece) {
 	trs_vessel *vs = &w->vessels[id];
-	if (!vs->craft || vs->next_stage < 0)
-		return 0;
-	if (vs->mode != TRS_MODE_PHYSICS)
-		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
-	int s = vs->next_stage--;
-	trs_craft *c = vs->craft;
-	/* the launch clamps let go on the first stage that lights an engine; a
-	 * stage that only decouples leaves the rest held on the pad */
-	int lights = 0;
-	for (int i = 0; i < c->count; i++)
-		lights |= c->parts[i].stage == s && trs_craft_def(c, i)->propellant != TRS_PROP_NONE;
-	int keep_clamped = vs->clamped && !lights;
-	int pieces[256];
-	unsigned char radial_piece[256];
-	if (vs->clamped && lights) {
-		vs->clamped = 0;
-		vs->lifted = 1;
-		vs->liftoff_t = w->t;
-		vs->sas_hold = vs->q;
-	}
-	for (int i = 0; i < c->count; i++) {
-		if (c->parts[i].stage != s)
-			continue;
-		const trs_part_def *d = trs_craft_def(c, i);
-		if (d->propellant != TRS_PROP_NONE)
-			c->parts[i].engine_on = 1;
-		if (d->is_leg)
-			c->parts[i].legs_deployed = 1;
-	}
+	trs_craft *c;
 	int made = 0;
 	for (int guard = 0; guard < 256; guard++) {
 		c = w->vessels[id].craft;
 		int dec = -1;
 		for (int i = 0; i < c->count; i++)
-			if (c->parts[i].stage == s && trs_craft_def(c, i)->decoupler && !c->parts[i].fired) {
+			if ((uid < 0 ? c->parts[i].stage == s : c->parts[i].uid == uid) && trs_craft_def(c, i)->decoupler &&
+					!c->parts[i].fired) {
 				dec = i;
 				break;
 			}
@@ -1614,6 +1592,41 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 			pieces[made] = nid;
 		made++;
 	}
+	return made;
+}
+
+int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
+	trs_vessel *vs = &w->vessels[id];
+	if (!vs->craft || vs->next_stage < 0)
+		return 0;
+	if (vs->mode != TRS_MODE_PHYSICS)
+		trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+	int s = vs->next_stage--;
+	trs_craft *c = vs->craft;
+	/* the launch clamps let go on the first stage that lights an engine; a
+	 * stage that only decouples leaves the rest held on the pad */
+	int lights = 0;
+	for (int i = 0; i < c->count; i++)
+		lights |= c->parts[i].stage == s && trs_craft_def(c, i)->propellant != TRS_PROP_NONE;
+	int keep_clamped = vs->clamped && !lights;
+	int pieces[256];
+	unsigned char radial_piece[256];
+	if (vs->clamped && lights) {
+		vs->clamped = 0;
+		vs->lifted = 1;
+		vs->liftoff_t = w->t;
+		vs->sas_hold = vs->q;
+	}
+	for (int i = 0; i < c->count; i++) {
+		if (c->parts[i].stage != s)
+			continue;
+		const trs_part_def *d = trs_craft_def(c, i);
+		if (d->propellant != TRS_PROP_NONE)
+			c->parts[i].engine_on = 1;
+		if (d->is_leg)
+			c->parts[i].legs_deployed = 1;
+	}
+	int made = fire_decouplers(w, id, s, -1, new_ids, max, pieces, radial_piece);
 	if (keep_clamped) {
 		/* the piece standing lowest on the pad is the one the clamps hold */
 		int best = id;
@@ -1639,6 +1652,105 @@ int trs_world_stage(trs_world *w, int id, int *new_ids, int max) {
 		held->clamped = 1;
 	}
 	return made < max ? made : max;
+}
+
+/* After parts were told one at a time: the next stage is the highest one
+ * still with something to do (an engine to light, a decoupler to fire, a
+ * chute to arm, legs to put out), so Space goes on from there. */
+static void stage_catch_up(trs_world *w, int id) {
+	trs_vessel *vs = &w->vessels[id];
+	trs_craft *c = vs->craft;
+	int top = -1;
+	for (int i = 0; c && i < c->count; i++) {
+		const trs_part *p = &c->parts[i];
+		const trs_part_def *d = trs_craft_def(c, i);
+		int pending = (d->propellant != TRS_PROP_NONE && !p->engine_on) || (d->decoupler && !p->fired) ||
+				(d->is_parachute && p->chute == TRS_CHUTE_STOWED) || (d->is_leg && !p->legs_deployed);
+		if (pending && p->stage > top)
+			top = p->stage;
+	}
+	if (top < vs->next_stage)
+		vs->next_stage = top;
+}
+
+static int part_action(trs_world *w, int id, int uid, trs_part_action act, double value, int *new_ids, int max);
+
+int trs_world_part_action(trs_world *w, int id, int uid, trs_part_action act, double value, int *new_ids, int max) {
+	int r = part_action(w, id, uid, act, value, new_ids, max);
+	if (r >= 0)
+		stage_catch_up(w, id);
+	return r;
+}
+
+static int part_action(trs_world *w, int id, int uid, trs_part_action act, double value, int *new_ids, int max) {
+	trs_vessel *vs = &w->vessels[id];
+	trs_craft *c = vs->craft;
+	int i = -1;
+	for (int k = 0; c && k < c->count; k++)
+		if (c->parts[k].uid == uid)
+			i = k;
+	if (i < 0)
+		return -1;
+	trs_part *p = &c->parts[i];
+	const trs_part_def *d = trs_craft_def(c, i);
+	switch (act) {
+	case TRS_PART_THROTTLE:
+		if (d->propellant == TRS_PROP_NONE || d->propellant == TRS_PROP_SOLID)
+			return -1;
+		p->throttle = value < 0 ? -1 : fmin(1, value);
+		if (value > 0 && !p->engine_on)
+			return part_action(w, id, uid, TRS_PART_IGNITE, 0, new_ids, max);
+		return 0;
+	case TRS_PART_IGNITE:
+		if (d->propellant == TRS_PROP_NONE)
+			return -1;
+		if (vs->mode != TRS_MODE_PHYSICS)
+			trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+		vs = &w->vessels[id];
+		p = &vs->craft->parts[i];
+		p->engine_on = 1;
+		if (vs->clamped) { /* the clamps let go as an engine lights */
+			vs->clamped = 0;
+			vs->lifted = 1;
+			vs->liftoff_t = w->t;
+			vs->sas_hold = vs->q;
+		}
+		return 0;
+	case TRS_PART_SHUTDOWN:
+		if (d->propellant == TRS_PROP_NONE || d->propellant == TRS_PROP_SOLID)
+			return -1; /* a solid, once lit, can't be put out */
+		p->engine_on = 0;
+		return 0;
+	case TRS_PART_DECOUPLE: {
+		if (!d->decoupler || p->fired)
+			return -1;
+		if (vs->mode != TRS_MODE_PHYSICS)
+			trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+		int pieces[256];
+		unsigned char radial[256];
+		int made = fire_decouplers(w, id, w->vessels[id].next_stage + 1, uid, new_ids, max, pieces, radial);
+		return made < max ? made : max;
+	}
+	case TRS_PART_DEPLOY:
+		if (d->is_parachute) {
+			if (p->chute != TRS_CHUTE_STOWED)
+				return -1;
+			p->chute = TRS_CHUTE_ARMED;
+			return 0;
+		}
+		if (d->is_leg) {
+			p->legs_deployed = value != 0;
+			vs->dirty = 1;
+			return 0;
+		}
+		return -1;
+	case TRS_PART_CUT:
+		if (!d->is_parachute || p->chute == TRS_CHUTE_STOWED || p->chute == TRS_CHUTE_CUT)
+			return -1;
+		p->chute = TRS_CHUTE_CUT;
+		return 0;
+	}
+	return -1;
 }
 
 int trs_world_action_group(trs_world *w, int id, int g) {

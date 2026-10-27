@@ -135,6 +135,7 @@ const NOT_ABOARD := ["browser", "music"]
 
 const SHIP_APPS := [
 	["Flight", "flight", "nav"],
+	["Script Editor", "code", "editor"],
 ]
 
 const TITLES := {"term": "terminal - your", "files": "files",
@@ -146,7 +147,7 @@ const TITLES := {"term": "terminal - your", "files": "files",
 	"duview": "disk usage", "charmap": "character map", "search": "search",
 	"calc": "calculator", "sysmon": "system monitor",
 	"pkgman": "package manager", "svcman": "service manager",
-	"flight": "flight"}
+	"flight": "flight", "code": "script editor"}
 
 
 func _ready() -> void:
@@ -1131,6 +1132,14 @@ func _launch(kind0: String) -> void:
 			fl.machine = machine
 			fl.ship = ship
 			_win("flight", _cascade_at(860, 700), fl)
+		# write a flight script, run it, watch its variables, and try
+		# things at the console (Tux Rocket Science)
+		"code":
+			var ed := preload("res://scripts/os/codeapp.gd").new()
+			ed.mono = mono
+			ed.machine = machine
+			ed.ship = ship
+			_win("script editor", _cascade_at(1020, 720), ed)
 
 
 # ENERGISE USED TO LIVE HERE, and it does not any more.

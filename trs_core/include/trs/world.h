@@ -291,6 +291,20 @@ int trs_world_undock(trs_world *w, int id, int port);
  * lights), parachutes arm, legs toggle, wheels toggle the brakes, a docked
  * port lets go. Returns how many things happened. */
 int trs_world_action_group(trs_world *w, int id, int g);
+/* One part, told one thing (by the ship's computer): an engine's own
+ * throttle (value 0..1, < 0 = follow the ship's; > 0 lights it), lighting
+ * or stopping it, one decoupler fired (its pieces' ids into new_ids), a
+ * chute armed or cut, legs out (value 1) or in (0). Returns -1 when the part
+ * can't do that (or there is none with that uid), else the pieces made. */
+typedef enum {
+	TRS_PART_THROTTLE,
+	TRS_PART_IGNITE,
+	TRS_PART_SHUTDOWN,
+	TRS_PART_DECOUPLE,
+	TRS_PART_DEPLOY,
+	TRS_PART_CUT,
+} trs_part_action;
+int trs_world_part_action(trs_world *w, int id, int uid, trs_part_action act, double value, int *new_ids, int max);
 /* A craft on wheels on the runway east of the launch site at (lat, lon):
  * nose east, wheels down, brakes on. Returns the vessel id. */
 int trs_world_launch_runway(trs_world *w, const trs_craft *c, int body, double lat, double lon);

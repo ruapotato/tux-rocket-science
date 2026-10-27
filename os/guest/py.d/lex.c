@@ -59,7 +59,7 @@ static void lx_err(Lexer *lx, const char *fmt, ...)
 static Token *push(Lexer *lx, TokType t)
 {
     TokenList *tl = lx->out;
-    if (tl->ntok >= NOM_TOK_MAX) { lx_err(lx, "script too long (TOK_MAX)"); return NULL; }
+    if (tl->ntok >= tl->cap) { lx_err(lx, "script too long (TOK_MAX)"); return NULL; }
     Token *tk = &tl->tok[tl->ntok++];
     memset(tk, 0, sizeof *tk);
     tk->type = t;
@@ -203,7 +203,11 @@ bool lex_source(const char *src, TokenList *out, char *err, size_t errsz)
     lx.err = err;
     lx.errsz = errsz;
 
-    out->tok = nom_alloc(sizeof(Token) * NOM_TOK_MAX);
+    /* never more tokens than characters, and the closing DEDENTs, NEWLINE
+     * and EOF on top: a short f-string expression doesn't take the heap */
+    size_t slen = strlen(src);
+    out->cap = slen + 40 < NOM_TOK_MAX ? (int)slen + 40 : NOM_TOK_MAX;
+    out->tok = nom_alloc(sizeof(Token) * (size_t)out->cap);
     out->ntok = 0;
 
     while (*lx.p && !lx.failed) {
@@ -236,6 +240,16 @@ bool lex_source(const char *src, TokenList *out, char *err, size_t errsz)
 
         if (is_digit(c)) { lex_number(&lx); continue; }
         if (c == '"' || c == '\'') { lx.p++; lex_string(&lx, c); continue; }
+        /* TUX ROCKET SCIENCE: f"..." -- the {...} in it are filled in
+         * (compile.c splits it); kept raw here, escapes and all */
+        if ((c == 'f' || c == 'F') && (lx.p[1] == '"' || lx.p[1] == '\'')) {
+            char q = lx.p[1];
+            lx.p += 2;
+            int before = out->ntok;
+            lex_string(&lx, q);
+            if (out->ntok > before) out->tok[out->ntok - 1].type = T_FSTR;
+            continue;
+        }
         if (is_ident_start(c)) {
             const char *start = lx.p;
             while (is_ident(*lx.p)) lx.p++;
@@ -256,6 +270,7 @@ bool lex_source(const char *src, TokenList *out, char *err, size_t errsz)
         case '}': t = T_RBRACE;   break;
         case ',': t = T_COMMA;  break;
         case ':': t = T_COLON;  break;
+        case '.': t = T_DOT;    break;
         case '%': t = T_PERCENT; break;
         case '+': t = (*lx.p == '=') ? (lx.p++, T_PLUSEQ)  : T_PLUS;  break;
         case '-': t = (*lx.p == '=') ? (lx.p++, T_MINUSEQ) : T_MINUS; break;
@@ -299,7 +314,7 @@ void lex_free(TokenList *tl)
 {
     if (!tl->tok) return;
     for (int i = 0; i < tl->ntok; i++)
-        if (tl->tok[i].type == T_STR) nom_free(tl->tok[i].sval);
+        if (tl->tok[i].type == T_STR || tl->tok[i].type == T_FSTR) nom_free(tl->tok[i].sval);
     nom_free(tl->tok);
     tl->tok = NULL;
     tl->ntok = 0;

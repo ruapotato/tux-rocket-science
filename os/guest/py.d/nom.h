@@ -71,10 +71,10 @@ typedef int _lang_bool;
 #define NOM_STACK_MAX     256
 #define NOM_FRAMES_MAX    32
 #define NOM_LOCALS_MAX    64
-#define NOM_GLOBALS_MAX   128
-#define NOM_CONSTS_MAX    512
+#define NOM_GLOBALS_MAX   256
+#define NOM_CONSTS_MAX    1024
 #define NOM_CODE_MAX      16384
-#define NOM_FUNCS_MAX     32
+#define NOM_FUNCS_MAX     128
 #define NOM_ARGS_MAX      8
 #define NOM_LIST_MAX      4096
 #define NOM_SRC_MAX       32768
@@ -197,7 +197,7 @@ typedef struct Sim    Sim;
 typedef struct Ship   Ship;
 
 typedef enum { V_NIL, V_BOOL, V_INT, V_NUM, V_OBJ } VKind;
-typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE } OKind;
+typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE } OKind;
 
 typedef struct {
     uint8_t k;
@@ -215,6 +215,14 @@ typedef struct { Obj o; uint32_t len, cap; Value *k; Value *v; } Dict;
 #define VAL_INT(n)   ((Value){ .k = V_INT,  .as.i = (n) })
 #define VAL_NUM(x)   ((Value){ .k = V_NUM,  .as.d = (double)(x) })
 #define VAL_OBJ(p)   ((Value){ .k = V_OBJ,  .as.o = (Obj *)(p) })
+
+/* TUX ROCKET SCIENCE: a thing aboard the ship (the ship itself, a part, its
+ * orbit), by its path in the game's table: "" is the ship, "part.12" one
+ * part, "orbit" its orbit. Its label is what it prints as. */
+typedef struct { Obj o; char path[48]; char label[48]; } Handle;
+#define IS_HANDLE(v) ((v).k == V_OBJ && (v).as.o->kind == O_HANDLE)
+#define AS_HANDLE(v) ((Handle *)(v).as.o)
+Value  handle_new(const char *path, size_t plen, const char *label, size_t llen);
 
 #define IS_STR(v)   ((v).k == V_OBJ && (v).as.o->kind == O_STR)
 #define IS_LIST(v)  ((v).k == V_OBJ && (v).as.o->kind == O_LIST)

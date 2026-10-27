@@ -674,7 +674,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			double full = trs_part_mdot(c, i) * trs_engine_isp(d, p) * TRS_G0 * trs_engine_air_factor(d, vs->density, vs->air_speed);
 			trs_v3 ax = quat_rotate(c->parts[i].rot, v3(0, 1, 0));
 			tmv = v3_add(tmv, v3_scale(ax, full));
-			tv = v3_add(tv, v3_scale(ax, full * (d->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle)));
+			tv = v3_add(tv, v3_scale(ax, full * trs_part_throttle(&c->parts[i], d, vs->throttle)));
 		}
 		double thrust = v3_len(tv), thrust_max = v3_len(tmv);
 		/* jets: how many, the fuel they burn now, kg/s */
@@ -686,7 +686,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 				continue;
 			jets++;
 			if (c->parts[i].engine_on && trs_craft_engine_fed(c, &vs->fuel, i))
-				jet_flow += trs_part_mdot(c, i) * vs->throttle * trs_engine_air_factor(d, vs->density, vs->air_speed);
+				jet_flow += trs_part_mdot(c, i) * trs_part_throttle(&c->parts[i], d, vs->throttle) * trs_engine_air_factor(d, vs->density, vs->air_speed);
 		}
 		trs_json_set(j, "jets", trs_json_new_num(jets));
 		trs_json_set(j, "jet_flow", trs_json_new_num(jet_flow));
@@ -895,7 +895,7 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 		trs_quat wq = quat_mul(q, p->rot);
 		double thr = 0;
 		if (p->engine_on && def->propellant != TRS_PROP_NONE && trs_craft_engine_fed(c, &vs->fuel, i))
-			thr = (def->propellant == TRS_PROP_SOLID ? 1.0 : vs->throttle) * p->limit;
+			thr = trs_part_throttle(p, def, vs->throttle) * p->limit;
 		double *o = d + (size_t)i * RPP;
 		o[0] = p->uid;
 		o[1] = wp.x, o[2] = wp.y, o[3] = wp.z;
@@ -959,6 +959,106 @@ static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
 		}
 	}
 	ret_json(r, arr);
+}
+
+/* vessel_part_states(id) -> JSON [{uid, part, name, kind, stage, lit,
+ * throttle (its own, -1 = the ship's), limit, fuel, fuel_capacity (its own
+ * tank, kg), feed (an engine: % of propellant left in what can reach it),
+ * thrust, thrust_max (N, now), isp, temp, max_temp, chute, legs, fired}]:
+ * what the ship's computer sees of each part */
+static void m_vessel_part_states(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *arr = trs_json_new(TRS_JSON_ARRAY);
+	if (!ok_vessel(h, a[0].i) || !h->world->vessels[a[0].i].craft) {
+		ret_json(r, arr);
+		return;
+	}
+	trs_world *w = h->world;
+	trs_vessel *vs = &w->vessels[a[0].i];
+	if (vs->dirty)
+		trs_vessel_refresh(w, (int)a[0].i);
+	trs_craft *c = vs->craft;
+	static const char *CHUTE[] = { "stowed", "armed", "opening", "open", "cut" };
+	for (int i = 0; i < c->count; i++) {
+		const trs_part *p = &c->parts[i];
+		const trs_part_def *d = trs_craft_def(c, i);
+		const char *kind = d->propellant == TRS_PROP_SOLID ? "booster"
+				: d->propellant != TRS_PROP_NONE ? "engine"
+				: d->decoupler ? "decoupler"
+				: d->is_parachute ? "parachute"
+				: d->is_leg ? "leg"
+				: d->fuel_liquid > 0 ? "tank"
+				: d->crew > 0 ? "pod"
+				: d->category[0] ? d->category : "part";
+		trs_json *pj = trs_json_new(TRS_JSON_OBJECT);
+		trs_json_set(pj, "uid", trs_json_new_num(p->uid));
+		trs_json_set(pj, "part", trs_json_new_str(d->id));
+		trs_json_set(pj, "name", trs_json_new_str(d->name));
+		trs_json_set(pj, "kind", trs_json_new_str(kind));
+		trs_json_set(pj, "stage", trs_json_new_num(p->stage));
+		trs_json_set(pj, "temp", trs_json_new_num(p->temp));
+		trs_json_set(pj, "max_temp", trs_json_new_num(d->max_temp));
+		double cap = d->fuel_liquid + d->fuel_solid;
+		if (cap > 0) {
+			trs_json_set(pj, "fuel", trs_json_new_num(p->fuel));
+			trs_json_set(pj, "fuel_capacity", trs_json_new_num(cap));
+		}
+		if (d->propellant != TRS_PROP_NONE) {
+			int fed = trs_craft_engine_fed(c, &vs->fuel, i);
+			double thr = trs_part_throttle(p, d, vs->throttle);
+			double full = trs_part_mdot(c, i) * trs_engine_isp(d, vs->pressure) * TRS_G0 *
+					trs_engine_air_factor(d, vs->density, vs->air_speed);
+			double have = 0, room = 0;
+			if (d->propellant == TRS_PROP_SOLID)
+				have = p->fuel, room = d->fuel_solid;
+			else
+				for (int k = 0; k < c->count; k++)
+					if (trs_craft_def(c, k)->fuel_liquid > 0 && trs_fuel_reaches(&vs->fuel, vs->fuel.group[k], vs->fuel.group[i]))
+						have += c->parts[k].fuel, room += trs_craft_def(c, k)->fuel_liquid;
+			trs_json_set(pj, "lit", trs_json_new_bool(p->engine_on));
+			trs_json_set(pj, "throttle", trs_json_new_num(d->propellant == TRS_PROP_SOLID ? 1.0 : p->throttle));
+			trs_json_set(pj, "throttle_now", trs_json_new_num(p->engine_on ? thr : 0.0));
+			trs_json_set(pj, "limit", trs_json_new_num(p->limit));
+			trs_json_set(pj, "feed", trs_json_new_num(room > 0 ? 100.0 * have / room : 0.0));
+			trs_json_set(pj, "feed_kg", trs_json_new_num(have));
+			trs_json_set(pj, "thrust", trs_json_new_num(p->engine_on && fed ? full * thr : 0.0));
+			trs_json_set(pj, "thrust_max", trs_json_new_num(full));
+			trs_json_set(pj, "isp", trs_json_new_num(trs_engine_isp(d, vs->pressure)));
+		}
+		if (d->is_parachute)
+			trs_json_set(pj, "chute", trs_json_new_str(CHUTE[p->chute < 5 ? p->chute : 0]));
+		if (d->is_leg)
+			trs_json_set(pj, "legs", trs_json_new_bool(p->legs_deployed));
+		if (d->decoupler)
+			trs_json_set(pj, "fired", trs_json_new_bool(p->fired));
+		trs_json_push(arr, pj);
+	}
+	ret_json(r, arr);
+}
+
+/* part_action(id, uid, what, value) -> JSON {ok, new: [vessel ids]}:
+ * what is throttle (value 0..1, < 0 follows the ship's), ignite, shutdown,
+ * decouple, deploy (chutes; legs out with 1, in with 0) or cut */
+static void m_part_action(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
+	trs_json *arr = trs_json_new(TRS_JSON_ARRAY);
+	int made = -1;
+	if (ok_vessel(h, a[0].i) && h->world->vessels[a[0].i].craft) {
+		static const char *ACTS[] = { "throttle", "ignite", "shutdown", "decouple", "deploy", "cut" };
+		for (int k = 0; k < 6; k++)
+			if (!strcmp(a[2].s, ACTS[k])) {
+				int ids[32];
+				made = trs_world_part_action(h->world, (int)a[0].i, (int)a[1].i, (trs_part_action)k, a[3].f, ids, 32);
+				for (int q = 0; q < made; q++)
+					trs_json_push(arr, trs_json_new_num(ids[q]));
+				if (h->world->vessels[a[0].i].dirty)
+					trs_vessel_refresh(h->world, (int)a[0].i);
+			}
+	}
+	trs_json_set(j, "ok", trs_json_new_bool(made >= 0));
+	trs_json_set(j, "new", arr);
+	ret_json(r, j);
 }
 
 /* body_render(origin_id) -> per body: pos(3) rel. origin CoM, rotation, radius */
@@ -1737,6 +1837,8 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "telemetry", m_telemetry, S, 1, { I }, { "id" } },
 	{ "vessel_render", m_vessel_render, A, 2, { I, I }, { "id", "origin" } },
 	{ "vessel_parts", m_vessel_parts, S, 1, { I }, { "id" } },
+	{ "vessel_part_states", m_vessel_part_states, S, 1, { I }, { "id" } },
+	{ "part_action", m_part_action, S, 4, { I, I, S, F }, { "id", "uid", "what", "value" } },
 	{ "vessel_frame", m_vessel_frame, A, 2, { I, I }, { "id", "origin" } },
 	{ "body_render", m_body_render, A, 1, { I }, { "origin" } },
 	{ "vessel_list", m_vessel_list, S, 0, { 0 }, { 0 } },
