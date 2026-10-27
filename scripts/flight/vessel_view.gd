@@ -57,11 +57,11 @@ func _make_part(uid: int, part_id: String, opts: Dictionary) -> Dictionary:
 	var jets := []
 	if d.has("rcs"):
 		for k in d.rcs.get("nozzles", []).size():
-			jets.append(v.get_node("Jet%d" % k))
+			jets.append(v.find_child("Jet%d" % k, true, false))
 	entry["jets"] = jets
-	entry["flap"] = v.get_node_or_null("Flap")
+	entry["flap"] = v.find_child("Flap", true, false)
 	entry["tux"] = null
-	var facing := v.get_node_or_null("Facing")
+	var facing := v.find_child("Facing", true, false)
 	if facing:
 		var anim := TuxAnimator.new()
 		anim.setup(facing)
@@ -314,7 +314,8 @@ func refresh(origin_id: int, pressure: float, flicker: float, dt := 1.0 / 60.0) 
 				_parts[uid].node.queue_free()
 				_parts.erase(uid)
 		if not _parts.has(uid):
-			_parts[uid] = _make_part(uid, parts_json[k].part, {"shroud": _shrouds.get(k, 0.0), "legs": feed[o + 10]})
+			_parts[uid] = _make_part(uid, parts_json[k].part, {"shroud": _shrouds.get(k, 0.0), "legs": feed[o + 10],
+				"size": parts_json[k].get("size", [1.0, 1.0, 1.0])})
 		var e: Dictionary = _parts[uid]
 		var node: Node3D = e.node
 		node.transform = Transform3D(Frame.local_basis(feed, o + 4), Frame.vec(feed, o + 1))

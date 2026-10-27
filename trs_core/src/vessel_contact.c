@@ -91,23 +91,15 @@ static int inside(const body_state *b, trs_v3 p, trs_v3 na1, trs_v3 na2, trs_v3 
 	trs_v3 nl = v3(0, 0, 0), nl_any = v3(0, 0, 0);
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
-		if (d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05)
+		if (!trs_hull_solid(d))
 			continue;
 		const trs_part *pt = &c->parts[i];
 		trs_v3 lp = quat_rotate(quat_conj(pt->rot), v3_sub(lv, pt->pos));
-		double hh = d->height * 0.5, rho = sqrt(lp.x * lp.x + lp.z * lp.z);
-		double dy = hh - fabs(lp.y), dr = radius_at(d, lp.y) - rho;
-		if (dy <= 0 || dr <= 0)
-			continue;
 		trs_v3 faces[2];
 		double depths[2];
 		int nf = 0;
-		faces[nf] = v3(0, lp.y >= 0 ? 1 : -1, 0);
-		depths[nf++] = dy;
-		if (rho > 1e-9) {
-			faces[nf] = v3(lp.x / rho, 0, lp.z / rho);
-			depths[nf++] = dr;
-		}
+		if (!trs_hull_inside(d, lp, faces, depths, &nf))
+			continue;
 		for (int f = 0; f < nf; f++) {
 			trs_v3 fw = quat_rotate(b->q, quat_rotate(pt->rot, faces[f]));
 			if (depths[f] < any) {
@@ -153,11 +145,32 @@ static void queue_crash(trs_vessel *vs, int part, double speed) {
  * each end and at the middle, and the two end centres. Inset a hair so two
  * parts with flush ends still register. */
 static int part_points(const trs_part_def *d, trs_v3 *out, trs_v3 *n1, trs_v3 *n2) {
-	if (d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05)
+	if (!trs_hull_solid(d))
 		return 0;
 	int m = 0;
 	double hh = d->height * 0.5;
 	double ys[3] = { -hh * 0.98, 0, hh * 0.98 };
+	if (d->box) {
+		/* round each of three levels: the corners and the middle of each side */
+		for (int j = 0; j < 3; j++) {
+			double hx, hz;
+			trs_hull_half(d, ys[j], &hx, &hz);
+			hx *= 0.999, hz *= 0.999;
+			trs_v3 end = j == 1 ? v3(0, 0, 0) : v3(0, j == 0 ? -1 : 1, 0);
+			for (int k = 0; k < 8; k++) {
+				double sx = k == 0 || k == 1 || k == 7 ? 1 : k >= 3 && k <= 5 ? -1 : 0;
+				double sz = k >= 1 && k <= 3 ? 1 : k >= 5 ? -1 : 0;
+				out[m] = v3(sx * hx, ys[j], sz * hz);
+				n1[m] = v3_norm(v3(sx, 0, sz));
+				n2[m++] = end;
+			}
+		}
+		n1[m] = v3(0, -1, 0), n2[m] = v3(0, 0, 0);
+		out[m++] = v3(0, -hh, 0);
+		n1[m] = v3(0, 1, 0), n2[m] = v3(0, 0, 0);
+		out[m++] = v3(0, hh, 0);
+		return m;
+	}
 	for (int j = 0; j < 3; j++) {
 		double r = radius_at(d, ys[j]) * 0.999;
 		if (r < 0.02)

@@ -29,6 +29,10 @@ from the hull it's on.
 
 ### `shape`
 
+Shape `box` (and `wedge`, `slab`) makes a flat-sided hull: `width` (X), `depth` (Z) and `height`
+(Y), with `width_top` / `depth_top` narrowing it toward the top (a wedge). Mass properties,
+ground and vessel contacts and surface attachment all use the box.
+
 `type` picks the model: `adapter`, `antenna`, `booster`, `capsule`, `cone`,
 `cylinder`, `dock`, `engine`, `fin`, `hose`, `instrument`, `jet`, `lab`,
 `leg`, `mount`, `panel`, `penguin`, `probe`, `pylon`, `rcs`, `shield`,
@@ -80,6 +84,8 @@ tapering leading end takes less heating than a flat one (see
 | `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
 | `scanner` | `range_km`: a Signal Scanner hears a relic in sight of it this far away (with the power on) |
+| `resize` | `kind` (`round`: X and Z together, or `box`), `min`, `max` ([x, y, z] multipliers): the hangar resizes it in that range; mass, propellant, batteries, ore and crew scale with the volume, nodes, rooms and areas with the size |
+| `engine.kw` | an engine that runs on electricity (the Hearth Torch): what it draws at full thrust; short of it, it gives what the power pays for |
 | `interior` | rooms a penguin can walk about in: `volumes: [...]`, part-local, each a `cylinder` (`radius`, `y0`, `y1` along +Y), an `annulus` (`r0`, `r1`: a spin ring's deck is its outer wall), a `box` (`min`, `max`, `yaw_deg`) or `spokes` (`count` boxes `width` square from `r0` out to `r1`, between `y0` and `y1`), with optional `windows: [{at, count, size}]` (a row round a cylinder's wall at height `at`, or round an annulus's side walls at radius `at`). Rooms that touch or overlap are one space: make them reach the part's ends so they meet the next part's. `spin_rpm` is the rate the spin hold turns a craft with this part at. |
 
 After changing parts, run `./build/linux/trs_tests --data data --all`: the

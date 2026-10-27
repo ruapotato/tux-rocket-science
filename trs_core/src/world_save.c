@@ -116,6 +116,8 @@ static trs_json *craft_json(const trs_craft *c) {
 		trs_json_set(pj, "node", trs_json_new_str(p->node));
 		trs_json_set(pj, "parent_node", trs_json_new_str(p->parent_node));
 		PUT_V(pj, p, pos);
+		if (p->size.x != 1 || p->size.y != 1 || p->size.z != 1)
+			PUT_V(pj, p, size);
 		PUT_Q(pj, p, rot);
 		PUT_I(pj, p, stage);
 		PUT_I(pj, p, sym);
@@ -159,6 +161,8 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 				trs_json_str(pj, "parent_node", ""), get_v3(pj, "pos"), get_q(pj, "rot"), (int)trs_json_num(pj, "stage", -1),
 				(int)trs_json_num(pj, "sym", 0));
 		trs_part *p = &c->parts[k];
+		if (trs_json_get(pj, "size"))
+			GET_V(pj, p, size);
 		GET_I(pj, p, uid);
 		GET_I(pj, p, groups);
 		GET_D(pj, p, fuel);

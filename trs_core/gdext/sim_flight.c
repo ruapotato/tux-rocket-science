@@ -602,6 +602,10 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		}
 		int lit;
 		trs_json_set(j, "ec", trs_json_new_num(ec));
+		if (vs->engine_kw > 0 || vs->engine_power < 1) {
+			trs_json_set(j, "engine_kw", trs_json_new_num(vs->engine_kw));
+			trs_json_set(j, "engine_power", trs_json_new_num(vs->engine_power));
+		}
 		trs_json_set(j, "ec_capacity", trs_json_new_num(ec_cap));
 		trs_json_set(j, "ec_gen", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_gen : trs_vessel_solar(w, vs, &lit)));
 		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS || vs->mode == TRS_MODE_INTERSTELLAR ? vs->ec_use : vs->isru_kw)); /* idle: only mining runs */
@@ -942,6 +946,8 @@ static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(pj, "node", trs_json_new_str(c->parts[i].node));
 			trs_json_set(pj, "parent_node", trs_json_new_str(c->parts[i].parent_node));
 			trs_json_set(pj, "pos", v3_json(c->parts[i].pos));
+			if (c->parts[i].size.x != 1 || c->parts[i].size.y != 1 || c->parts[i].size.z != 1)
+				trs_json_set(pj, "size", v3_json(c->parts[i].size));
 			trs_quat q = c->parts[i].rot;
 			trs_json *qa = trs_json_new(TRS_JSON_ARRAY);
 			trs_json_push(qa, trs_json_new_num(q.x));

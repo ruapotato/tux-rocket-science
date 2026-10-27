@@ -34,6 +34,11 @@ void trs_craft_free(trs_craft *c) {
 	free(c->parts);
 	c->parts = NULL;
 	c->count = c->cap = 0;
+	for (int i = 0; i < c->nsized; i++)
+		free(c->sized[i]);
+	free(c->sized);
+	c->sized = NULL;
+	c->nsized = 0;
 }
 
 void trs_craft_copy(trs_craft *dst, const trs_craft *src) {
@@ -41,6 +46,38 @@ void trs_craft_copy(trs_craft *dst, const trs_craft *src) {
 	dst->cap = src->count ? src->count : 1;
 	dst->parts = malloc(sizeof(trs_part) * (size_t)dst->cap);
 	memcpy(dst->parts, src->parts, sizeof(trs_part) * (size_t)src->count);
+	dst->sized = NULL; /* rebuilt as needed */
+	dst->nsized = 0;
+}
+
+const trs_part_def *trs_craft_sized_def(const trs_craft *c, int i) {
+	trs_craft *m = (trs_craft *)c; /* the cache is not the craft's state */
+	if (i >= m->nsized) {
+		int n = c->count > i + 1 ? c->count : i + 1;
+		m->sized = realloc(m->sized, sizeof(trs_sized_def *) * (size_t)n);
+		for (int k = m->nsized; k < n; k++)
+			m->sized[k] = NULL;
+		m->nsized = n;
+	}
+	const trs_part *p = &c->parts[i];
+	trs_sized_def *e = m->sized[i];
+	if (!e || e->def != p->def || e->size.x != p->size.x || e->size.y != p->size.y || e->size.z != p->size.z) {
+		if (!e)
+			e = m->sized[i] = malloc(sizeof(trs_sized_def));
+		e->def = p->def;
+		e->size = p->size;
+		trs_part_def_scaled(&c->cat->defs[p->def], p->size, &e->d);
+	}
+	return &e->d;
+}
+
+void trs_craft_set_size(trs_craft *c, int i, trs_v3 size) {
+	trs_part *p = &c->parts[i];
+	p->size = trs_part_clamp_size(&c->cat->defs[p->def], size);
+	const trs_part_def *d = trs_craft_def(c, i);
+	p->fuel = d->fuel_liquid > 0 ? d->fuel_liquid : d->fuel_solid;
+	p->mono = d->fuel_mono;
+	p->ec = d->ec_capacity;
 }
 
 static double fuel_capacity(const trs_part_def *d) {
@@ -62,6 +99,7 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 	snprintf(p->parent_node, sizeof p->parent_node, "%s", parent_node ? parent_node : "");
 	p->pos = pos;
 	p->rot = rot;
+	p->size = v3(1, 1, 1);
 	p->stage = stage;
 	p->sym = sym;
 	p->fuel = fuel_capacity(&c->cat->defs[def]);
@@ -119,6 +157,9 @@ int trs_craft_from_json(trs_craft *c, const trs_part_catalog *cat, const trs_jso
 		trs_quat q = { rot[0], rot[1], rot[2], rot[3] };
 		int k = trs_craft_add(c, def, parent, trs_json_str(pj, "node", ""), trs_json_str(pj, "parent_node", ""),
 				v3(pos[0], pos[1], pos[2]), q, (int)trs_json_num(pj, "stage", -1), (int)trs_json_num(pj, "sym", 0));
+		double sz[3];
+		if (read_vec(trs_json_get(pj, "size"), sz, 3))
+			trs_craft_set_size(c, k, v3(sz[0], sz[1], sz[2]));
 		const trs_json *f = trs_json_get(pj, "fuel");
 		if (f && f->type == TRS_JSON_NUMBER)
 			c->parts[k].fuel = f->num;
@@ -164,6 +205,10 @@ trs_json *trs_craft_to_json(const trs_craft *c) {
 		trs_json_set(pj, "rot", num_array(rot, 4));
 		trs_json_set(pj, "stage", trs_json_new_num(p->stage));
 		trs_json_set(pj, "sym", trs_json_new_num(p->sym));
+		if (p->size.x != 1 || p->size.y != 1 || p->size.z != 1) {
+			double sz[3] = { p->size.x, p->size.y, p->size.z };
+			trs_json_set(pj, "size", num_array(sz, 3));
+		}
 		if (p->fuel != fuel_capacity(d))
 			trs_json_set(pj, "fuel", trs_json_new_num(p->fuel));
 		if (p->limit != 1)
@@ -268,10 +313,18 @@ void trs_craft_mass_props(const trs_craft *c, double *mass, trs_v3 *cm, trs_m3 *
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		double mi = trs_craft_part_mass(c, i), r = d->radius, h = d->height;
-		/* solid cylinder about its own axis (local Y) */
 		trs_m3 local = m3_zero();
-		local.m[0][0] = local.m[2][2] = mi * (3 * r * r + h * h) / 12.0;
-		local.m[1][1] = 0.5 * mi * r * r;
+		if (d->box) {
+			/* solid box (a wedge as the box of its mean width and depth) */
+			double w = 0.5 * (d->width_bottom + d->width_top), dd = 0.5 * (d->depth_bottom + d->depth_top);
+			local.m[0][0] = mi * (h * h + dd * dd) / 12.0;
+			local.m[1][1] = mi * (w * w + dd * dd) / 12.0;
+			local.m[2][2] = mi * (w * w + h * h) / 12.0;
+		} else {
+			/* solid cylinder about its own axis (local Y) */
+			local.m[0][0] = local.m[2][2] = mi * (3 * r * r + h * h) / 12.0;
+			local.m[1][1] = 0.5 * mi * r * r;
+		}
 		trs_m3 rl = m3_rotate_tensor(c->parts[i].rot, &local);
 		trs_v3 dv = v3_sub(c->parts[i].pos, com);
 		double dd[3] = { dv.x, dv.y, dv.z }, d2 = v3_len2(dv);
@@ -350,15 +403,13 @@ void trs_craft_group_draw(trs_craft *c, const int *group, int g, double amount) 
 
 static int point_in_part(const trs_craft *c, int j, trs_v3 p) {
 	const trs_part_def *d = trs_craft_def(c, j);
-	if (d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05)
+	if (!trs_hull_solid(d))
 		return 0;
 	trs_v3 lp = quat_rotate(quat_conj(c->parts[j].rot), v3_sub(p, c->parts[j].pos));
-	double hh = d->height * 0.5;
-	if (fabs(lp.y) >= hh)
-		return 0;
-	double f = d->height > 0 ? (lp.y + hh) / d->height : 0.5;
-	double r = d->radius_bottom + (d->radius_top - d->radius_bottom) * f;
-	return lp.x * lp.x + lp.z * lp.z < r * r;
+	trs_v3 nn[2];
+	double dd[2];
+	int nf;
+	return trs_hull_inside(d, lp, nn, dd, &nf);
 }
 
 int trs_craft_feed_target(const trs_craft *c, const int *group, int i, double *dist) {

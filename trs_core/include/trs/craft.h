@@ -47,6 +47,7 @@ typedef struct {
 	char parent_node[16]; /* parent's node ("" = surface) */
 	trs_v3 pos;           /* vessel-local position of the part origin */
 	trs_quat rot;         /* vessel-local orientation */
+	trs_v3 size;          /* resized: multipliers along its local X, Y, Z (1, 1, 1 = as listed) */
 	int stage;            /* activation stage, -1 = none */
 	int sym;              /* symmetry group (0 = none), editor metadata */
 	int groups;           /* action groups it belongs to: bit g-1 for group g (1..9) */
@@ -68,6 +69,14 @@ typedef struct {
 	int dock_wait_uid;  /* docking ports: won't latch onto this port again until clear of it */
 } trs_part;
 
+/* A resized part's def, built from the catalog's at its size (cached
+ * per craft, by part index, checked against the part each time). */
+typedef struct {
+	int def;
+	trs_v3 size;
+	trs_part_def d;
+} trs_sized_def;
+
 typedef struct {
 	char name[64];
 	char description[256];
@@ -75,6 +84,8 @@ typedef struct {
 	trs_part *parts;
 	int count, cap;
 	int next_uid;
+	trs_sized_def **sized; /* cache, nsized entries (NULL where unused) */
+	int nsized;
 } trs_craft;
 
 void trs_craft_init(trs_craft *c, const trs_part_catalog *cat);
@@ -86,9 +97,17 @@ int trs_craft_add(trs_craft *c, int def, int parent, const char *node, const cha
 int trs_craft_from_json(trs_craft *c, const trs_part_catalog *cat, const trs_json *j, char *err, size_t errlen);
 trs_json *trs_craft_to_json(const trs_craft *c);
 
+const trs_part_def *trs_craft_sized_def(const trs_craft *c, int i);
+/* Part i's def: the catalog's, or (resized) its own scaled copy. */
 static inline const trs_part_def *trs_craft_def(const trs_craft *c, int i) {
-	return &c->cat->defs[c->parts[i].def];
+	const trs_part *p = &c->parts[i];
+	if (p->size.x == 1 && p->size.y == 1 && p->size.z == 1)
+		return &c->cat->defs[p->def];
+	return trs_craft_sized_def(c, i);
 }
+/* Resizes part i (clamped to what it allows); its propellant, batteries
+ * and ore go to full at the new size. */
+void trs_craft_set_size(trs_craft *c, int i, trs_v3 size);
 
 /* Engine part i's propellant flow at full throttle, after its thrust limit. */
 double trs_part_mdot(const trs_craft *c, int i);

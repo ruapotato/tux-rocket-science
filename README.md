@@ -194,6 +194,18 @@ a deck 16 m out). Ships that big are built in orbit: the hangar's **From: Orbita
 craft in a 250 km circular orbit of Floe (a career opens it with Orbital Shipyard in R&D). The
 stock **Waddle Ark** has all of it.
 
+**Building past tubes**: the hangar resizes parts. Hover one (or hold it) and **[ ]** change its
+length, **; '** its width, **, .** its depth (Shift for fine steps); what hangs on it moves out
+with its faces, and its propellant, mass, batteries, crew and rooms go with its volume. The
+**Icebox Stretch Tank** runs from a stub to 8 m by 5 m; the **Floe-Block Hull**, **Square Icebox
+Tank**, **Prow Wedge** and **Igloo Box Hab** are flat-sided boxes with a node on every face, and
+anything sticks to their sides square to the face it lands on; wings resize too. **X** cycles
+radial symmetry and now **mirror**: a wing on one side gets its mirror image on the other. And
+the alien tech: the **Hearth Torch** (800 kN at an exhaust speed fifteen times a rocket's, on the
+Hearth Core's 40 MW: it gives what the power pays for) and **Glasswing** hulls and prows, a third
+the weight and good to 4000 K. The stock **Skua** is a single-stage spaceship on them: from the
+pad to orbit, to Krill and on, its thrust weight in the cabin.
+
 **Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
 wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and
 puffins wheel over the Puffin Spires; Kelp has meadows of grass and glowing puffballs under

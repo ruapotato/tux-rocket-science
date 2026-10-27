@@ -71,6 +71,18 @@ static void build_contacts(trs_vessel *vs) {
 			local[m++] = v3(0, d->height * 0.5, 0);
 			local[m++] = v3(0, -d->height * 0.5, 0);
 			local[m++] = v3(0, -d->height * 0.5, d->fin_span);
+		} else if (d->box) {
+			/* a box hull: its corners, and the middle of each bottom edge */
+			double h = d->height * 0.5;
+			for (int k = 0; k < 8; k++) {
+				double hx, hz, y = k & 4 ? h : -h;
+				trs_hull_half(d, y, &hx, &hz);
+				local[m++] = v3(k & 1 ? hx : -hx, y, k & 2 ? hz : -hz);
+			}
+			double hx, hz;
+			trs_hull_half(d, -h, &hx, &hz);
+			local[m++] = v3(hx, -h, 0), local[m++] = v3(-hx, -h, 0);
+			local[m++] = v3(0, -h, hz), local[m++] = v3(0, -h, -hz);
 		} else {
 			double r = d->radius, h = d->height * 0.5;
 			for (int k = 0; k < 8; k++) {
@@ -181,6 +193,10 @@ static void gather_engines(const trs_vessel *vs, double pressure, engine_set *es
 		double air = trs_engine_air_factor(d, vs->density, vs->air_speed);
 		if (air <= 0)
 			continue; /* a jet in vacuum, or past its top speed */
+		if (d->engine_kw > 0)
+			air *= vs->engine_power; /* short of power: what it pays for */
+		if (air <= 0)
+			continue;
 		int k = es->n++;
 		es->idx[k] = i;
 		es->mdot[k] = trs_part_mdot(c, i) * thr * air;
@@ -1293,9 +1309,6 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	vs->air_speed = v3_len(v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r)));
 	update_chutes(w, vs, t, h);
 
-	engine_set es;
-	gather_engines(vs, vs->pressure, &es);
-
 	/* electricity: the sun on the panels now, and whether there is power
 	 * to run the wheels and the probe this tick */
 	double base_draw = 0, cap_ec;
@@ -1303,6 +1316,23 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	for (int i = 0; i < vs->craft->count; i++)
 		base_draw += trs_craft_def(vs->craft, i)->ec_draw;
 	vs->powered = trs_craft_ec(vs->craft, &cap_ec) > 1e-9 || vs->ec_gen >= base_draw + 1e-12;
+	/* engines that run on electricity get what is left after the rest */
+	double engine_need = 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part *p = &vs->craft->parts[i];
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->engine_kw > 0 && p->engine_on && vs->throttle > 0 && trs_craft_engine_fed(vs->craft, &vs->fuel, i))
+			engine_need += d->engine_kw * vs->throttle * p->limit;
+	}
+	vs->engine_power = 1, vs->engine_kw = 0;
+	if (engine_need > 0) {
+		double have = fmax(0, trs_craft_ec(vs->craft, NULL) / h + vs->ec_gen - base_draw);
+		vs->engine_power = fmin(1, have / engine_need);
+		vs->engine_kw = engine_need * vs->engine_power;
+	}
+
+	engine_set es;
+	gather_engines(vs, vs->pressure, &es);
 
 	/* attitude once per tick from start-of-tick torques */
 	trs_v3 fa, aero_torque;
@@ -1334,7 +1364,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 			const trs_part_def *d = trs_craft_def(vs->craft, i);
 			wheel_kw += d->torque_kw_per_knm * d->torque / 1000.0;
 		}
-	vs->ec_use = (vs->powered ? base_draw : 0) + wheel_kw * vs->wheel_load;
+	vs->ec_use = (vs->powered ? base_draw : 0) + wheel_kw * vs->wheel_load + vs->engine_kw;
 	trs_craft_ec_add(vs->craft, (vs->ec_gen - vs->ec_use) * h);
 	trs_vessel_isru(w, vs, h);
 	vs->ec_use += vs->isru_kw;

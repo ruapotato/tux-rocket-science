@@ -280,7 +280,8 @@ func _windward_fronts(flow: Vector3) -> Dictionary:
 		for d in ids:
 			var sh: Dictionary = Sim.part(d.part).get("shape", {})
 			var rad: float = sh.get("radius", sh.get("radius_bottom", 0.5 if sh.get("type", "") != "fin" else 0.05))
-			_front_ids.append([rad, CraftModel.part_height(d.part) * 0.5])
+			var sz: Array = d.get("size", [1.0, 1.0, 1.0])
+			_front_ids.append([rad * (float(sz[0]) + float(sz[2])) * 0.5, CraftModel.part_height(d.part, sz) * 0.5])
 	var into := -flow
 	var pos := []
 	var reach := []

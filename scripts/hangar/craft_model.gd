@@ -27,6 +27,7 @@ signal changed
 
 const UNDO_LIMIT := 200
 const UP := [0.0, 1.0, 0.0]
+const MIRROR := 0  # a "symmetry" of one copy and its mirror image across x = 0
 
 var craft_name := "Untitled"
 var description := ""
@@ -44,7 +45,7 @@ var _redo: Array[Dictionary] = []
 # trs_core owns the file format; see Sim.encode/decode for why numbers never
 # pass through text on this side.
 
-const FLOATS_PER_PART := 9
+const FLOATS_PER_PART := 12  # pos 3, rot 4, fuel, limit, size 3
 
 
 func to_meta() -> Dictionary:
@@ -76,6 +77,9 @@ func to_floats() -> PackedFloat64Array:
 			f[o + 3 + k] = rot[k]
 		f[o + 7] = p.get("fuel", -1.0)
 		f[o + 8] = p.get("limit", 1.0)
+		var sz: Array = p.get("size", [1.0, 1.0, 1.0])
+		for k in 3:
+			f[o + 9 + k] = sz[k]
 	return f
 
 
@@ -103,6 +107,8 @@ func load_bin(meta: Dictionary, floats: PackedFloat64Array) -> void:
 			q["fuel"] = floats[o + 7]
 		if floats[o + 8] != 1.0:
 			q["limit"] = floats[o + 8]
+		if floats[o + 9] != 1.0 or floats[o + 10] != 1.0 or floats[o + 11] != 1.0:
+			q["size"] = [floats[o + 9], floats[o + 10], floats[o + 11]]
 		parts.append(q)
 	changed.emit()
 
@@ -241,9 +247,56 @@ func node_world(i: int, node_name: String) -> Dictionary:
 		return {}
 	var p: Dictionary = parts[i]
 	return {
-		"pos": DMath.add(p.pos, DMath.q_rotate(p.rot, _floats(n.pos))),
+		"pos": DMath.add(p.pos, DMath.q_rotate(p.rot, sized(_floats(n.pos), size_of(p)))),
 		"dir": DMath.q_rotate(p.rot, _floats(n.dir)),
 	}
+
+
+## A part's (or a held part's) size: [x, y, z] multipliers, 1 if it has none.
+static func size_of(p: Dictionary) -> Array:
+	return p.get("size", [1.0, 1.0, 1.0])
+
+
+static func sized(v: Array, s: Array) -> Array:
+	return [float(v[0]) * float(s[0]), float(v[1]) * float(s[1]), float(v[2]) * float(s[2])]
+
+
+## The size part `part_id` may take nearest `want` (its limits; round parts
+## keep X = Z; parts that don't resize stay 1, 1, 1).
+static func clamp_size(part_id: String, want: Array) -> Array:
+	var rz: Dictionary = Sim.part(part_id).get("resize", {})
+	if rz.is_empty():
+		return [1.0, 1.0, 1.0]
+	var lo: Array = rz.get("min", [0.5, 0.5, 0.5])
+	var hi: Array = rz.get("max", [2.0, 2.0, 2.0])
+	var out := []
+	for k in 3:
+		out.append(clampf(float(want[k]), float(lo[k]), float(hi[k])))
+	if rz.get("kind", "round") == "round":
+		out[2] = out[0]
+	return out
+
+
+## The hull of part p at local angle (about its Y, 0 = +Z) and height y:
+## [local point, local outward normal]. Round parts: the radius there;
+## boxes and wedges: the face that angle's ray from the axis meets.
+static func hull_point(p: Dictionary, angle: float, y: float) -> Array:
+	var sh: Dictionary = Sim.part(p.part).get("shape", {})
+	var s := size_of(p)
+	if sh.get("type", "") in ["box", "wedge"]:
+		var h: float = float(sh.get("height", 2.5)) * float(s[1])
+		var t := clampf((y + h * 0.5) / h, 0.0, 1.0)
+		var hx := lerpf(float(sh.get("width", 2.5)), float(sh.get("width_top", sh.get("width", 2.5))), t) * 0.5 * float(s[0])
+		var hz := lerpf(float(sh.get("depth", 2.5)), float(sh.get("depth_top", sh.get("depth", 2.5))), t) * 0.5 * float(s[2])
+		var dx := sin(angle)
+		var dz := cos(angle)
+		var kx := hx / absf(dx) if absf(dx) > 1e-9 else INF
+		var kz := hz / absf(dz) if absf(dz) > 1e-9 else INF
+		if kx < kz:
+			return [[dx * kx, y, dz * kx], [signf(dx), 0.0, 0.0]]
+		return [[dx * kz, y, dz * kz], [0.0, 0.0, signf(dz)]]
+	var r := radius_at(p.part, y / float(s[1])) * (float(s[0]) + float(s[2])) * 0.5
+	return [[r * sin(angle), y, r * cos(angle)], [sin(angle), 0.0, cos(angle)]]
 
 
 func node_occupied(i: int, node_name: String) -> bool:
@@ -266,15 +319,17 @@ func free_nodes() -> Array:
 	return out
 
 
-static func surface_offset(part_id: String) -> float:
+static func surface_offset(part_id: String, size: Array = [1.0, 1.0, 1.0]) -> float:
 	var sh: Dictionary = Sim.part(part_id).get("shape", {})
 	match sh.get("type", ""):
 		"fin", "leg", "hose":
 			return 0.0
 		"pylon":
 			return sh.get("depth", 0.3) * 0.5
+		"box", "wedge":
+			return float(sh.get("depth", 2.5)) * 0.5 * float(size[2])
 		_:
-			return sh.get("radius", sh.get("radius_bottom", 0.5))
+			return sh.get("radius", sh.get("radius_bottom", 0.5)) * (float(size[0]) + float(size[2])) * 0.5
 
 
 ## Radius of a part's body at local height y (for surface attachment).
@@ -287,9 +342,9 @@ static func radius_at(part_id: String, y: float) -> float:
 	return sh.get("radius", 0.5)
 
 
-static func part_height(part_id: String) -> float:
+static func part_height(part_id: String, size: Array = [1.0, 1.0, 1.0]) -> float:
 	var sh: Dictionary = Sim.part(part_id).get("shape", {})
-	return sh.get("height", sh.get("length", sh.get("root", 1.0)))
+	return float(sh.get("height", sh.get("length", sh.get("root", 1.0)))) * float(size[1])
 
 
 # ---- held assemblies -------------------------------------------------------------
@@ -339,6 +394,8 @@ func _extract(i: int) -> Dictionary:
 			out[-1]["limit"] = p.limit
 		if p.has("groups"):
 			out[-1]["groups"] = p.groups
+		if p.has("size"):
+			out[-1]["size"] = p.size.duplicate()
 	return {"parts": out, "root_node": parts[i].node}
 
 
@@ -431,6 +488,8 @@ func _append_held(held: Dictionary, parent: int, node: String, parent_node: Stri
 			parts[-1]["limit"] = h.limit
 		if h.has("groups"):
 			parts[-1]["groups"] = h.groups
+		if h.has("size"):
+			parts[-1]["size"] = h.size.duplicate()
 	return base
 
 
@@ -470,7 +529,7 @@ func _stack_fit(held: Dictionary, target_dir: Array) -> Dictionary:
 	if best.is_empty():
 		return {}
 	var rot := DMath.q_from_to(_floats(best.dir), want)
-	return {"node": best.name, "rot": rot, "node_pos": _floats(best.pos)}
+	return {"node": best.name, "rot": rot, "node_pos": sized(_floats(best.pos), size_of(held.parts[0]))}
 
 
 ## Where a stack attachment of `held` at (target, target_node) would put each
@@ -510,7 +569,7 @@ func stack_placements(held: Dictionary, target: int, target_node: String, spin :
 func _side_placements(held: Dictionary, target: int, target_node: String, spin: float) -> Array:
 	var out := []
 	var root_part: String = held.parts[0].part
-	var gap := radius_at(root_part, 0.0)
+	var gap := surface_offset(root_part, size_of(held.parts[0]))
 	var local := DMath.q_identity() if spin == 0.0 else DMath.q_axis_angle(UP, spin)
 	for t in counterparts(target):
 		if node_occupied(t, target_node):
@@ -608,9 +667,9 @@ func attach_stack(held: Dictionary, target: int, target_node: String, spin := 0.
 ## 0 = local +Z) and local height y: {pos, normal, axis} in vessel space.
 func surface_frame(target: int, angle: float, y: float) -> Dictionary:
 	var p: Dictionary = parts[target]
-	var r := radius_at(p.part, y)
-	var n_local := [sin(angle), 0.0, cos(angle)]
-	var local := [r * n_local[0], y, r * n_local[2]]
+	var hp := hull_point(p, angle, y)
+	var local: Array = hp[0]
+	var n_local: Array = hp[1]
 	return {
 		"pos": DMath.add(p.pos, DMath.q_rotate(p.rot, local)),
 		"normal": DMath.q_rotate(p.rot, n_local),
@@ -629,8 +688,9 @@ func surface_placements(held: Dictionary, target: int, angle: float, y: float, c
 	var root_part: String = held.parts[0].part
 	if not Sim.part(root_part).get("surface_attach", false):
 		return out
-	count = maxi(1, count)
-	var off := surface_offset(root_part)
+	var mirror := count == MIRROR
+	count = 1 if mirror else maxi(1, count)
+	var off := surface_offset(root_part, size_of(held.parts[0]))
 	# on a part with symmetric copies, every copy gets the same attachment
 	var on: Array = []
 	for t in counterparts(target):
@@ -646,7 +706,70 @@ func surface_placements(held: Dictionary, target: int, angle: float, y: float, c
 			rot = DMath.q_normalized(DMath.q_mul(rot, extra))
 		var pos := DMath.add(f.pos, DMath.scale(z, off))
 		out.append({"parent": tk[0], "node": "", "parent_node": "", "pos": pos, "rot": rot})
+	if mirror:
+		# its mirror image across the craft's middle (the plane x = 0),
+		# on the part that sits there (or the same one, if it spans it)
+		var first: Dictionary = out[0]
+		var mp := [-float(first.pos[0]), float(first.pos[1]), float(first.pos[2])]
+		var mr := DMath.q_normalized([float(first.rot[0]), -float(first.rot[1]), -float(first.rot[2]), float(first.rot[3])])
+		if absf(float(first.pos[0])) > 0.01:
+			out.append({"parent": mirror_of(target), "node": "", "parent_node": "", "pos": mp, "rot": mr})
 	return out
+
+
+## The part at the mirror image of part i across x = 0 (i itself if it
+## is on the middle, or there is nothing there).
+func mirror_of(i: int) -> int:
+	var p: Dictionary = parts[i]
+	var want := [-float(p.pos[0]), float(p.pos[1]), float(p.pos[2])]
+	for k in parts.size():
+		if parts[k].part == p.part and DMath.length(DMath.sub(parts[k].pos, want)) < 0.01:
+			return k
+	return i
+
+
+## Resizes part i (and its symmetric copies) to `want` (clamped to what
+## it allows), keeping it on the node it hangs from and moving what hangs
+## on it out with its faces. One undo step.
+func set_size(i: int, want: Array) -> void:
+	if i < 0 or i >= parts.size():
+		return
+	var s := clamp_size(parts[i].part, want)
+	if s == size_of(parts[i]):
+		return
+	checkpoint()
+	for c in counterparts(i):
+		var p: Dictionary = parts[c]
+		var old := size_of(p)
+		var ratio := [s[0] / float(old[0]), s[1] / float(old[1]), s[2] / float(old[2])]
+		# hanging from a node of its own: keep that node where it is
+		var pos0: Array = p.pos.duplicate()
+		if p.node != "" and int(p.parent) >= 0:
+			var n := Sim.node_of(p.part, p.node)
+			if not n.is_empty():
+				var was := sized(_floats(n.pos), old)
+				var now := sized(_floats(n.pos), s)
+				p.pos = DMath.add(p.pos, DMath.q_rotate(p.rot, DMath.sub(was, now)))
+		# what hangs on it moves out with the face it is on
+		for k in children_of(c):
+			var ch: Dictionary = parts[k]
+			var d: Array
+			if ch.parent_node != "":
+				var n := Sim.node_of(p.part, ch.parent_node)
+				d = DMath.sub(sized(_floats(n.pos), s), sized(_floats(n.pos), old))
+			else:
+				var lp := DMath.q_rotate(DMath.q_conj(p.rot), DMath.sub(ch.pos, p.pos))
+				d = DMath.sub(sized(lp, ratio), lp)
+			var dw := DMath.add(DMath.sub(p.pos, pos0), DMath.q_rotate(p.rot, d))
+			for m in subtree(k):
+				parts[m].pos = DMath.add(parts[m].pos, dw)
+		if s == [1.0, 1.0, 1.0]:
+			p.erase("size")
+		else:
+			p["size"] = s.duplicate()
+		if p.has("fuel"):
+			p.erase("fuel")  # full at the new size
+	changed.emit()
 
 
 ## Surface-attaches `count` symmetric copies of `held` around `target`.

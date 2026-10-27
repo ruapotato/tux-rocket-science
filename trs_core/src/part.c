@@ -62,6 +62,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->isp_sl = trs_json_num(e, "isp_sl", d->isp_vac);
 		d->gimbal = trs_json_num(e, "gimbal_deg", 0) * TRS_PI / 180.0;
 		d->air_breathing = trs_json_bool(e, "air_breathing", 0);
+		d->engine_kw = trs_json_num(e, "kw", 0);
 		d->jet_v_max = trs_json_num(e, "v_max", 600);
 		d->jet_rho_ref = trs_json_num(e, "rho_ref", 1.225);
 		if (d->thrust_vac <= 0 || d->isp_vac <= 0) {
@@ -243,6 +244,29 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	d->fin_span = trs_json_num(sh, "span", 0.8);
 	d->radius_top = trs_json_num(sh, "radius_top", d->radius);
 	d->radius_bottom = trs_json_num(sh, "radius_bottom", d->radius);
+	const char *stype = trs_json_str(sh, "type", "");
+	if (!strcmp(stype, "box") || !strcmp(stype, "wedge") || !strcmp(stype, "slab")) {
+		d->box = 1;
+		d->width_bottom = trs_json_num(sh, "width", 2.5);
+		d->depth_bottom = trs_json_num(sh, "depth", d->width_bottom);
+		d->width_top = trs_json_num(sh, "width_top", d->width_bottom);
+		d->depth_top = trs_json_num(sh, "depth_top", d->depth_bottom);
+		d->radius_bottom = 0.5 * fmax(d->width_bottom, d->depth_bottom);
+		d->radius_top = 0.5 * fmax(d->width_top, d->depth_top);
+		d->radius = fmax(d->radius_bottom, d->radius_top);
+		double wm = 0.5 * (d->width_bottom + d->width_top), dm = 0.5 * (d->depth_bottom + d->depth_top);
+		if (!trs_json_get(aero, "area_axial"))
+			d->area_axial = fmax(d->width_bottom * d->depth_bottom, d->width_top * d->depth_top);
+		if (!trs_json_get(aero, "area_side"))
+			d->area_side = d->height * fmax(wm, dm);
+	}
+	const trs_json *rz = trs_json_get(j, "resize");
+	d->size_min = d->size_max = v3(1, 1, 1);
+	if (rz) {
+		d->resize = !strcmp(trs_json_str(rz, "kind", d->box ? "box" : "round"), "box") ? 2 : 1;
+		d->size_min = json_v3(trs_json_get(rz, "min"), v3(0.5, 0.5, 0.5));
+		d->size_max = json_v3(trs_json_get(rz, "max"), v3(2, 2, 2));
+	}
 	const trs_json *th = trs_json_get(j, "thermal");
 	d->max_temp = trs_json_num(th, "max_temp", 1500);
 	d->skin_heat = trs_json_num(th, "skin_heat", 8000);
@@ -258,6 +282,98 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		an->radius = trs_json_num(n, "radius", d->radius);
 	}
 	d->surface_attach = trs_json_bool(j, "surface_attach", 1);
+	return 1;
+}
+
+trs_v3 trs_part_clamp_size(const trs_part_def *d, trs_v3 s) {
+	if (!d->resize)
+		return v3(1, 1, 1);
+	if (d->resize == 1)
+		s.z = s.x;
+	s.x = fmin(fmax(s.x, d->size_min.x), d->size_max.x);
+	s.y = fmin(fmax(s.y, d->size_min.y), d->size_max.y);
+	s.z = d->resize == 1 ? s.x : fmin(fmax(s.z, d->size_min.z), d->size_max.z);
+	return s;
+}
+
+static trs_v3 mulv(trs_v3 a, trs_v3 s) {
+	return v3(a.x * s.x, a.y * s.y, a.z * s.z);
+}
+
+void trs_part_def_scaled(const trs_part_def *b, trs_v3 s, trs_part_def *d) {
+	*d = *b;
+	double vol = s.x * s.y * s.z, lat = 0.5 * (s.x + s.z);
+	d->mass *= vol;
+	d->fuel_liquid *= vol, d->fuel_solid *= vol, d->fuel_mono *= vol;
+	d->ec_capacity *= vol, d->ore_capacity *= vol;
+	if (b->crew > 0)
+		d->crew = (int)fmax(1, floor(b->crew * vol + 0.5));
+	d->height *= s.y;
+	d->radius *= lat, d->radius_top *= lat, d->radius_bottom *= lat;
+	d->width_bottom *= s.x, d->width_top *= s.x, d->depth_bottom *= s.z, d->depth_top *= s.z;
+	if (b->box) {
+		d->radius_bottom = 0.5 * fmax(d->width_bottom, d->depth_bottom);
+		d->radius_top = 0.5 * fmax(d->width_top, d->depth_top);
+		d->radius = fmax(d->radius_bottom, d->radius_top);
+	}
+	d->area_axial *= s.x * s.z;
+	d->area_side *= b->plate ? s.y * s.z : s.y * fmax(s.x, s.z);
+	d->fin_span *= s.z;
+	for (int k = 0; k < d->nnodes; k++) {
+		d->nodes[k].pos = mulv(b->nodes[k].pos, s);
+		d->nodes[k].radius *= fmin(s.x, s.z);
+	}
+	for (int k = 0; k < d->rcs_n; k++)
+		d->rcs_pos[k] = mulv(b->rcs_pos[k], s);
+	for (int k = 0; k < d->nvolumes; k++) {
+		trs_volume *v = &d->volumes[k];
+		v->r0 *= lat, v->r1 *= lat, v->y0 *= s.y, v->y1 *= s.y;
+		if (v->kind == TRS_VOL_BOX && v->yaw == 0)
+			v->lo = mulv(v->lo, s), v->hi = mulv(v->hi, s);
+		else if (v->kind == TRS_VOL_BOX)
+			v->lo = mulv(v->lo, v3(lat, s.y, lat)), v->hi = mulv(v->hi, v3(lat, s.y, lat));
+		for (int w = 0; w < v->nwindows; w++)
+			v->windows[w].at *= v->kind == TRS_VOL_ANNULUS ? lat : s.y;
+	}
+}
+
+void trs_hull_half(const trs_part_def *d, double y, double *hx, double *hz) {
+	double f = d->height > 0 ? fmin(1, fmax(0, (y + d->height * 0.5) / d->height)) : 0.5;
+	if (d->box) {
+		*hx = 0.5 * (d->width_bottom + (d->width_top - d->width_bottom) * f);
+		*hz = 0.5 * (d->depth_bottom + (d->depth_top - d->depth_bottom) * f);
+	} else {
+		*hx = *hz = d->radius_bottom + (d->radius_top - d->radius_bottom) * f;
+	}
+}
+
+int trs_hull_solid(const trs_part_def *d) {
+	return !(d->is_leg || d->is_parachute || d->plate || d->radius <= 0.05);
+}
+
+int trs_hull_inside(const trs_part_def *d, trs_v3 p, trs_v3 *normals, double *depths, int *nfaces) {
+	double hh = d->height * 0.5, hx, hz;
+	trs_hull_half(d, p.y, &hx, &hz);
+	double dy = hh - fabs(p.y);
+	int nf = 0;
+	if (d->box) {
+		double dx = hx - fabs(p.x), dz = hz - fabs(p.z);
+		if (dy <= 0 || dx <= 0 || dz <= 0)
+			return 0;
+		normals[nf] = v3(0, p.y >= 0 ? 1 : -1, 0), depths[nf++] = dy;
+		if (dx < dz)
+			normals[nf] = v3(p.x >= 0 ? 1 : -1, 0, 0), depths[nf++] = dx;
+		else
+			normals[nf] = v3(0, 0, p.z >= 0 ? 1 : -1), depths[nf++] = dz;
+	} else {
+		double rho = sqrt(p.x * p.x + p.z * p.z), dr = hx - rho;
+		if (dy <= 0 || dr <= 0)
+			return 0;
+		normals[nf] = v3(0, p.y >= 0 ? 1 : -1, 0), depths[nf++] = dy;
+		if (rho > 1e-9)
+			normals[nf] = v3(p.x / rho, 0, p.z / rho), depths[nf++] = dr;
+	}
+	*nfaces = nf;
 	return 1;
 }
 

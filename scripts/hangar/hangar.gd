@@ -19,7 +19,7 @@
 ## CraftModel; all numbers shown come from trs_core via CraftModel.stats().
 extends Node3D
 
-const SYMMETRY_STEPS := [1, 2, 3, 4, 5, 6, 8]
+const SYMMETRY_STEPS := [1, 2, 3, 4, 5, 6, 8, CraftModel.MIRROR]
 const SNAP_PX := 60.0
 ## The craft hangs in the assembly frame at a working height, so there is
 ## always room to build downward from the pod; it only rises when the stack
@@ -204,12 +204,12 @@ func _rebuild_craft() -> void:
 	var shrouds := PartVisual.shroud_heights(model.parts)
 	for i in model.parts.size():
 		var p: Dictionary = model.parts[i]
-		var v := PartVisual.build(p.part, true, {"shroud": shrouds.get(i, 0.0), "legs": 0.0})
+		var v := PartVisual.build(p.part, true, {"shroud": shrouds.get(i, 0.0), "legs": 0.0, "size": CraftModel.size_of(p)})
 		v.transform = PartVisual.xform(p.pos, p.rot)
 		v.get_node("Pick").set_meta("part_index", i)
 		_craft_root.add_child(v)
 		_part_nodes.append(v)
-		var h := CraftModel.part_height(p.part)
+		var h := CraftModel.part_height(p.part, CraftModel.size_of(p))
 		min_y = minf(min_y, p.pos[1] - h * 0.5 - (0.6 if Sim.part(p.part).get("shape", {}).get("type", "") in ["booster", "engine"] else 0.0))
 	# hang the craft at the working height (raising it only when it must),
 	# and move the camera with it so nothing jumps under the cursor
@@ -258,7 +258,7 @@ func _build_ui() -> void:
 	_redo_button = _button("Redo", func(): model.redo(), "Ctrl+Y")
 	bar.add_child(_undo_button)
 	bar.add_child(_redo_button)
-	_sym_button = _button("Symmetry: 1x", func(): _cycle_symmetry(1), "Radial symmetry (X / Shift+X)")
+	_sym_button = _button("Symmetry: 1x", func(): _cycle_symmetry(1), "Radial or mirror symmetry (X / Shift+X)")
 	bar.add_child(_sym_button)
 	bar.add_child(_button("Reset staging", func(): model.reset_staging(), "Rebuild the staging sequence automatically"))
 	_crew_button = _button("Crew: —", _cycle_crew, "Who flies: click to swap in the next available penguin")
@@ -560,6 +560,16 @@ func craft_warnings() -> Array:
 			fins += 1
 		if d.has("parachute"):
 			chutes += 1
+	# engines that run on electricity against what makes it aboard
+	var need_kw := 0.0
+	var gen_kw := 0.0
+	for p in model.parts:
+		var d := Sim.part(p.part)
+		need_kw += float(d.get("engine", {}).get("kw", 0.0))
+		gen_kw += float(d.get("power", {}).get("generator_kw", 0.0))
+	if need_kw > 0.0 and gen_kw < need_kw:
+		out.append({"bad": true, "text": "NO POWER FOR THE TORCH: its %.0f MW %s. Put a Hearth Core aboard; batteries alone run it for a breath." % [
+			need_kw / 1000.0, "has nothing to make it" if gen_kw <= 0.0 else "is more than the %.0f MW made aboard: it will push only %d%%" % [gen_kw / 1000.0, roundi(gen_kw / need_kw * 100.0)]]})
 	var unfed: Array = _stats.get("unfed_engines", [])
 	if not unfed.is_empty():
 		var one := unfed.size() == 1
@@ -901,10 +911,73 @@ func _cycle_crew() -> void:
 	_refresh_crew()
 
 
+func sym_label() -> String:
+	return "Symmetry: mirror" if symmetry == CraftModel.MIRROR else "Symmetry: %dx" % symmetry
+
+
+## Resizing with the keys: [ ] length, ; ' width, , . depth (Shift: fine),
+## on the part under the cursor, or the part in hand. True if it applied.
+func _resize_input(k: InputEventKey) -> bool:
+	var axis := 1
+	var grow := 1.0
+	match k.keycode:
+		KEY_BRACKETLEFT: grow = -1.0
+		KEY_BRACKETRIGHT: grow = 1.0
+		KEY_SEMICOLON: axis = 0; grow = -1.0
+		KEY_APOSTROPHE: axis = 0; grow = 1.0
+		KEY_COMMA: axis = 2; grow = -1.0
+		KEY_PERIOD: axis = 2; grow = 1.0
+	var f := pow(1.025 if k.shift_pressed else 1.1, grow)
+	var part_id := ""
+	var now: Array
+	if not _held.is_empty() and _held.parts.size() == 1:
+		part_id = _held.parts[0].part
+		now = CraftModel.size_of(_held.parts[0])
+	elif _held.is_empty() and _hover >= 0:
+		part_id = model.parts[_hover].part
+		now = CraftModel.size_of(model.parts[_hover])
+	if part_id == "" or not Sim.part(part_id).has("resize"):
+		return false
+	var want: Array = now.duplicate()
+	want[axis] = float(want[axis]) * f
+	if Sim.part(part_id).resize.get("kind", "round") == "round" and axis != 1:
+		want[0] = float(now[0]) * f
+		want[2] = want[0]
+	var s := CraftModel.clamp_size(part_id, want)
+	if not _held.is_empty():
+		_held.parts[0]["size"] = s
+		_clear_ghosts()
+	else:
+		model.set_size(_hover, s)
+	toast(size_text(part_id, s))
+	return true
+
+
+## "2.50 m wide, 4.00 m long, 3.10 m deep: 17060 kg propellant" for a part at a size.
+static func size_text(part_id: String, s: Array) -> String:
+	var d := Sim.part(part_id)
+	var sh: Dictionary = d.get("shape", {})
+	var vol := float(s[0]) * float(s[1]) * float(s[2])
+	var dims := ""
+	if sh.get("type", "") in ["box", "wedge"]:
+		dims = "%.2f m wide, %.2f m long, %.2f m deep" % [float(sh.get("width", 2.5)) * float(s[0]), float(sh.get("height", 2.5)) * float(s[1]),
+			float(sh.get("depth", 2.5)) * float(s[2])]
+	elif sh.get("type", "") == "fin":
+		dims = "%.2f m root, %.2f m span" % [float(sh.get("root", 1.0)) * float(s[1]), float(sh.get("span", 1.0)) * float(s[2])]
+	else:
+		dims = "%.2f m across, %.2f m long" % [2.0 * float(sh.get("radius", 0.5)) * float(s[0]), float(sh.get("height", 1.0)) * float(s[1])]
+	var what := ""
+	if float(d.get("fuel_liquid", 0.0)) > 0.0:
+		what = ", %.0f kg of propellant" % (float(d.fuel_liquid) * vol)
+	elif int(d.get("crew", 0)) > 0:
+		what = ", %d crew" % maxi(1, roundi(int(d.crew) * vol))
+	return "%s: %s%s, %.0f kg dry  ([ ] length · ; ' width · , . depth · Shift fine)" % [d.get("name", part_id), dims, what, float(d.get("mass", 0.0)) * vol]
+
+
 func _cycle_symmetry(dir: int) -> void:
 	var k := SYMMETRY_STEPS.find(symmetry)
 	symmetry = SYMMETRY_STEPS[(k + dir + SYMMETRY_STEPS.size()) % SYMMETRY_STEPS.size()]
-	_sym_button.text = "Symmetry: %dx" % symmetry
+	_sym_button.text = sym_label()
 
 
 # ---- 3D interaction --------------------------------------------------------------
@@ -991,7 +1064,11 @@ func _key(k: InputEventKey) -> void:
 				var nm: String = Sim.part(model.parts[_hover].part).name
 				toast("%s %s action group %d (now in %s)" % [nm, "added to" if on else "taken out of", g,
 					", ".join(model.groups_of(_hover).map(func(x): return str(x))) if not model.groups_of(_hover).is_empty() else "none"])
+		KEY_SEMICOLON, KEY_APOSTROPHE, KEY_COMMA, KEY_PERIOD:
+			_resize_input(k)
 		KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_MINUS, KEY_EQUAL:
+			if k.keycode in [KEY_BRACKETLEFT, KEY_BRACKETRIGHT] and _resize_input(k):
+				return
 			# thrust limit of the hovered engine (and its symmetric copies)
 			if _hover >= 0 and _held.is_empty() and Sim.part(model.parts[_hover].part).has("engine"):
 				var now: float = model.parts[_hover].get("limit", 1.0)
@@ -1070,7 +1147,7 @@ func _rebuild_loose() -> void:
 	for k in _loose.size():
 		var g := Node3D.new()
 		for h in _loose[k].held.parts:
-			var v := PartVisual.build(h.part, true)
+			var v := PartVisual.build(h.part, true, {"size": CraftModel.size_of(h)})
 			v.transform = PartVisual.xform(h.pos, h.rot)
 			v.get_node("Pick").set_meta("loose_index", k)
 			g.add_child(v)
@@ -1225,7 +1302,7 @@ func _show_ghosts(placements: Array, ok: bool) -> void:
 	while _ghosts.size() < placements.size():
 		var g := Node3D.new()
 		for h in _held.parts:
-			var v := PartVisual.build(h.part, false)
+			var v := PartVisual.build(h.part, false, {"size": CraftModel.size_of(h)})
 			v.transform = PartVisual.xform(h.pos, h.rot)
 			PartVisual.paint(v, PartVisual.ghost_mat(true))
 			g.add_child(v)
@@ -1299,8 +1376,9 @@ func _show_feed_aim(placements: Array) -> void:
 func _update_hint() -> void:
 	if not _held.is_empty():
 		var name: String = Sim.part(_held.parts[0].part).name
-		_hint.text = "Holding %s%s — click an orange node (it turns green), a hull, or a joint to slip it in · click empty space to set it aside · Q/E spin · W/S/A/D tilt · X symmetry (%dx) · Shift+click keeps placing · right-click/Esc drops it" % [
-			name, "" if _held.parts.size() == 1 else " (+%d)" % (_held.parts.size() - 1), symmetry]
+		_hint.text = "Holding %s%s — click an orange node (it turns green), a hull, or a joint to slip it in · click empty space to set it aside · Q/E spin · W/S/A/D tilt · X %s%s · Shift+click keeps placing · right-click/Esc drops it" % [
+			name, "" if _held.parts.size() == 1 else " (+%d)" % (_held.parts.size() - 1), sym_label().to_lower(),
+			" · [ ] ; ' , . resize" if _held.parts.size() == 1 and Sim.part(_held.parts[0].part).has("resize") else ""]
 		if _aim_text != "":
 			_hint.text = _aim_text + " · " + _hint.text
 	elif _hover_loose >= 0:
@@ -1310,6 +1388,8 @@ func _update_hint() -> void:
 		_hint.text = "%s — click to pick up · Del removes · Q/E/W/S/A/D rotate · arrows/PgUp/PgDn offset (Shift: bigger steps)" % Sim.part(p.part).name
 		if Sim.part(p.part).has("engine"):
 			_hint.text += " · [ ] thrust limit (now %d%%)" % roundi(float(p.get("limit", 1.0)) * 100.0)
+		if Sim.part(p.part).has("resize"):
+			_hint.text += " · [ ] ; ' , . resize"
 		var gs := model.groups_of(_hover)
 		_hint.text += " · 1-9 action group (in %s)" % (", ".join(gs.map(func(x): return str(x))) if not gs.is_empty() else "none")
 	else:

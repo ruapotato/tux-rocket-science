@@ -561,18 +561,60 @@ static func _jets(root: Node3D, d: Dictionary, size: float, bells: bool) -> void
 		k += 1
 
 
+## opts may also hold "size": [x, y, z], a resized part's multipliers.
 static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 	var d: Dictionary = Sim.part(part_id)
 	var sh: Dictionary = d.get("shape", {})
 	var root := Node3D.new()
 	root.name = part_id
+	_build_shape(root, d, sh, opts)
+	var size: Array = opts.get("size", [1.0, 1.0, 1.0])
+	if size[0] != 1.0 or size[1] != 1.0 or size[2] != 1.0:
+		# the meshes scale as one under a node of their own; the pick shape
+		# is built at the new size (physics shapes don't scale unevenly)
+		var sized := Node3D.new()
+		sized.name = "Sized"
+		sized.scale = Vector3(size[0], size[1], size[2])
+		for c in root.get_children():
+			root.remove_child(c)
+			sized.add_child(c)
+		root.add_child(sized)
+		sh = scaled_shape(sh, size)
+	if with_pick:
+		_add_pick(root, sh)
+	return root
+
+
+## A shape block at a resized part's size.
+static func scaled_shape(sh: Dictionary, size: Array) -> Dictionary:
+	var out := sh.duplicate()
+	var lat := (float(size[0]) + float(size[2])) * 0.5
+	for k in ["radius", "radius_top", "radius_bottom", "radius_bell"]:
+		if out.has(k):
+			out[k] = float(out[k]) * lat
+	for k in ["width", "width_top"]:
+		if out.has(k):
+			out[k] = float(out[k]) * float(size[0])
+	for k in ["depth", "depth_top", "span"]:
+		if out.has(k):
+			out[k] = float(out[k]) * float(size[2])
+	for k in ["height", "root"]:
+		if out.has(k):
+			out[k] = float(out[k]) * float(size[1])
+	return out
+
+
+static func _build_shape(root: Node3D, d: Dictionary, sh: Dictionary, opts: Dictionary) -> void:
 	match sh.get("type", "cylinder"):
 		"capsule":
 			_capsule(root, sh, d.get("crew", 1), opts.get("decals", true))
 		"cylinder":
 			_cylinder_part(root, d, sh, opts)
 		"engine":
-			_engine(root, sh)
+			if sh.get("alien", false):
+				_torch(root, sh)
+			else:
+				_engine(root, sh)
 		"booster":
 			_booster(root, sh)
 		"cone":
@@ -637,11 +679,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_junction(root, sh)
 		"spin_ring":
 			_spin_ring(root, sh)
+		"box", "wedge":
+			_box(root, sh)
 		_:
 			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, hull(WHITE))
-	if with_pick:
-		_add_pick(root, sh)
-	return root
 
 
 ## Windows as panes facing out (no back: from inside the room they are
@@ -812,6 +853,112 @@ static func _spin_ring(root: Node3D, sh: Dictionary) -> void:
 		_mesh(root, box, hull(WHITE, {"panels": 4.0, "ring_spacing": 1.5, "grime": 0.2}), Transform3D(b, b * Vector3((hub + r_in) * 0.5, 0, 0)))
 	_ring(root, r_out, w * 0.5, 0.06, mat("orange", ORANGE, 0.0, 0.45))
 	_ring(root, r_out, -w * 0.5, 0.06, mat("orange", ORANGE, 0.0, 0.45))
+
+
+const BOX_SHADER := """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec4 base_color : source_color = vec4(0.93, 0.94, 0.96, 1.0);
+uniform vec4 line_color : source_color = vec4(0.1, 0.1, 0.12, 1.0);
+uniform float alien = 0.0;
+uniform float panel = 0.8;
+varying vec3 lp;
+varying vec3 ln;
+void vertex() { lp = VERTEX; ln = NORMAL; }
+void fragment() {
+	// panel seams on the face's own two axes
+	vec3 a = abs(ln);
+	vec2 uv = a.x > 0.5 ? lp.yz : (a.y > 0.5 ? lp.xz : lp.xy);
+	vec2 g = abs(fract(uv / panel) - 0.5);
+	float seam = smoothstep(0.47, 0.5, max(g.x, g.y));
+	vec3 col = base_color.rgb * (1.0 - seam * 0.3);
+	if (alien > 0.5) {
+		// glassy dark, a slow teal sheen and glowing seams
+		float sh = 0.5 + 0.5 * sin(dot(lp, vec3(1.7, 2.3, 1.1)) + TIME * 0.4);
+		col = mix(vec3(0.05, 0.07, 0.1), vec3(0.1, 0.25, 0.3), sh * 0.6);
+		EMISSION = vec3(0.3, 0.95, 0.85) * seam * 1.4;
+		METALLIC = 0.6;
+		ROUGHNESS = 0.12;
+	} else {
+		ROUGHNESS = 0.55;
+	}
+	ALBEDO = col;
+}
+"""
+static var _box_shader: Shader
+
+
+## A box hull (a wedge when its top is narrower): flat panels with seams;
+## Glasswing ("alien") hulls dark and glassy with glowing seams.
+static func _box(root: Node3D, sh: Dictionary) -> void:
+	var w0: float = sh.get("width", 2.5)
+	var d0: float = sh.get("depth", w0)
+	var w1: float = sh.get("width_top", w0)
+	var d1: float = sh.get("depth_top", d0)
+	var h: float = sh.get("height", 2.5)
+	var alien: bool = sh.get("alien", false)
+	var key := "box:%s" % alien
+	if not _mats.has(key):
+		if _box_shader == null:
+			_box_shader = Shader.new()
+			_box_shader.code = BOX_SHADER
+		var m := ShaderMaterial.new()
+		m.shader = _box_shader
+		m.set_shader_parameter("alien", 1.0 if alien else 0.0)
+		_mats[key] = m
+	var c := [Vector3(-w0, -h, -d0) * 0.5, Vector3(w0, -h, -d0) * 0.5, Vector3(w0, -h, d0) * 0.5, Vector3(-w0, -h, d0) * 0.5,
+		Vector3(-w1, h, -d1) * 0.5, Vector3(w1, h, -d1) * 0.5, Vector3(w1, h, d1) * 0.5, Vector3(-w1, h, d1) * 0.5]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for f in [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]:
+		var a: Vector3 = c[f[0]]
+		var b: Vector3 = c[f[1]]
+		var cc: Vector3 = c[f[2]]
+		var dd: Vector3 = c[f[3]]
+		var n := (b - a).cross(cc - a).normalized()
+		if n.length() < 0.5:
+			n = (cc - a).cross(dd - a).normalized()
+		if n.dot((a + b + cc + dd) * 0.25) < 0.0:
+			n = -n  # outward
+		st.set_normal(n)
+		for v in [a, b, cc, a, cc, dd]:
+			st.add_vertex(v)
+	_mesh(root, st.commit(), _mats[key])
+	# edge trim
+	var trim := mat("alien_glow", Color(0.5, 0.95, 0.9), 0.0, 0.4, Color(0.25, 0.85, 0.8)) if alien else mat("orange", ORANGE, 0.0, 0.45)
+	for e in [[0, 4], [1, 5], [2, 6], [3, 7]]:
+		var p0: Vector3 = c[e[0]]
+		var p1: Vector3 = c[e[1]]
+		# just outside the corner, clear of a room inside
+		_beam(root, p0 + Vector3(signf(p0.x), 0, signf(p0.z)) * 0.025, p1 + Vector3(signf(p1.x), 0, signf(p1.z)) * 0.025, 0.05, trim)
+	if sh.get("windows", false):
+		var glass := mat("hab_window", Color(0.1, 0.13, 0.17), 0.3, 0.06, Color(0.32, 0.24, 0.12))
+		for k in 4:
+			var a := TAU * k / 4.0
+			var q := QuadMesh.new()
+			q.size = Vector2(0.5, 0.5)
+			var out := w0 * 0.5 if k % 2 == 1 else d0 * 0.5
+			_mesh(root, q, glass, Transform3D(Basis(Vector3.UP, a), Basis(Vector3.UP, a) * Vector3(0, h * 0.15, out + 0.012)))
+
+
+## The Hearth Torch: a dark alien drum with a ring of glow, over a short
+## flared nozzle that glows white-orange inside.
+static func _torch(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	var shell := mat("alien_shell", Color(0.1, 0.12, 0.15), 0.7, 0.18)
+	_cyl(root, r * 0.95, r, h * 0.45, h * 0.275, shell, 64)
+	_cyl(root, r * 1.005, r * 1.005, 0.08, h * 0.2, mat("hearth_glow", Color(1.0, 0.62, 0.25), 0.0, 0.3, Color(1.0, 0.5, 0.15)), 64)
+	var bell := CylinderMesh.new()
+	bell.top_radius = r * 0.45
+	bell.bottom_radius = float(sh.get("radius_bell", r * 0.8))
+	bell.height = h * 0.55
+	bell.radial_segments = 48
+	bell.cap_top = false
+	bell.cap_bottom = false
+	_mesh(root, bell, shell, Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.225, 0)))
+	var inner := _mesh(root, bell, mat("torch_inner", Color(1.0, 0.85, 0.6), 0.0, 0.4, Color(1.0, 0.7, 0.35)), Transform3D(Basis.IDENTITY.scaled(Vector3(0.97, 1, 0.97)), Vector3(0, -h * 0.225, 0)))
+	(inner.material_override as StandardMaterial3D).cull_mode = BaseMaterial3D.CULL_FRONT
 
 
 ## A flat ring in the XZ plane facing +Y.
@@ -1361,6 +1508,10 @@ static func _add_pick(root: Node3D, sh: Dictionary) -> void:
 			b.size = Vector3(0.2, 0.2, sh.get("length", 0.3))
 			cs.shape = b
 			cs.position = Vector3(0, 0, sh.get("length", 0.3) * 0.5)
+		"box", "wedge":
+			var b := BoxShape3D.new()
+			b.size = Vector3(maxf(sh.get("width", 2.5), sh.get("width_top", 0.0)), sh.get("height", 2.5), maxf(sh.get("depth", 2.5), sh.get("depth_top", 0.0)))
+			cs.shape = b
 		_:
 			var c := CylinderShape3D.new()
 			c.radius = sh.get("radius", sh.get("radius_bottom", 0.5))

@@ -58,7 +58,7 @@ static int parse_craft(trs_sim_handle *h, const char *text, trs_craft *c, char *
  * part: pos xyz, rot xyzw, fuel (-1 = full), thrust limit. trs_core owns
  * all text. */
 
-#define FPP 9
+#define FPP 12 /* pos 3, rot 4, fuel, limit, size 3 */
 
 static void ret_floats(trs_val *r, const trs_craft *c) {
 	r->arr.n = (int64_t)c->count * FPP;
@@ -72,6 +72,7 @@ static void ret_floats(trs_val *r, const trs_craft *c) {
 		o[3] = p->rot.x, o[4] = p->rot.y, o[5] = p->rot.z, o[6] = p->rot.w;
 		o[7] = p->fuel == cap ? -1 : p->fuel;
 		o[8] = p->limit;
+		o[9] = p->size.x, o[10] = p->size.y, o[11] = p->size.z;
 	}
 }
 
@@ -130,6 +131,8 @@ static int craft_from_bin(trs_sim_handle *h, const char *meta, const trs_val *fl
 		trs_quat q = { f[3], f[4], f[5], f[6] };
 		int k = trs_craft_add(c, def, parent, trs_json_str(pj, "node", ""), trs_json_str(pj, "parent_node", ""),
 				v3(f[0], f[1], f[2]), q, (int)trs_json_num(pj, "stage", -1), (int)trs_json_num(pj, "sym", 0));
+		if (f[9] != 1 || f[10] != 1 || f[11] != 1)
+			trs_craft_set_size(c, k, v3(f[9], f[10], f[11]));
 		if (f[7] >= 0)
 			c->parts[k].fuel = f[7];
 		c->parts[k].groups = (int)trs_json_num(pj, "groups", 0) & 0x1ff;
@@ -163,7 +166,7 @@ static void m_craft_decode(void *self, const trs_val *a, trs_val *r) {
 	trs_craft_free(&c);
 }
 
-/* craft_decode_floats(text) -> PackedFloat64Array (8 per part) */
+/* craft_decode_floats(text) -> PackedFloat64Array (FPP per part) */
 static void m_craft_decode_floats(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	trs_craft c;

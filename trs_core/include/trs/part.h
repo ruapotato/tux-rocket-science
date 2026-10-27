@@ -86,6 +86,9 @@ typedef struct {
 	 * 1 - (airspeed / jet_v_max)^2; nothing in vacuum */
 	int air_breathing;
 	double jet_v_max, jet_rho_ref;
+	/* an engine that needs electricity (the Hearth Torch): engine_kw at
+	 * full thrust; short of it, it gives what the power pays for */
+	double engine_kw;
 
 	/* RCS: small monopropellant thrusters; each nozzle pushes opposite the
 	 * way it points (part-local position and exhaust direction) */
@@ -181,8 +184,19 @@ typedef struct {
 	trs_volume volumes[TRS_MAX_VOLUMES];
 	double spin_rate;
 
-	/* geometry used for mass properties and default areas */
+	/* geometry used for mass properties and default areas. A box hull
+	 * (box) is width (local X) by depth (Z) at the bottom, tapering
+	 * linearly to width_top by depth_top at the top (a wedge); radius is
+	 * then half its widest side, for what only needs a size */
 	double radius, height;
+	int box;
+	double width_bottom, width_top, depth_bottom, depth_top;
+
+	/* resizing in the hangar: a size (multipliers along local X, Y, Z;
+	 * 1 = as listed) from size_min to size_max; round parts keep X = Z.
+	 * Mass, propellant, batteries, ore and crew go with the volume. */
+	int resize; /* 0 fixed, 1 round, 2 box */
+	trs_v3 size_min, size_max;
 
 	trs_attach_node nodes[TRS_MAX_NODES];
 	int nnodes;
@@ -195,6 +209,19 @@ typedef struct {
 } trs_part_catalog;
 
 int trs_catalog_load(trs_part_catalog *cat, const char *path, char *err, size_t errlen);
+/* The size a part may take (clamped to its limits; X = Z for round parts;
+ * a fixed part is always 1, 1, 1). */
+trs_v3 trs_part_clamp_size(const trs_part_def *d, trs_v3 size);
+/* Def `base` built at `size` (out gets a full copy, scaled). */
+void trs_part_def_scaled(const trs_part_def *base, trs_v3 size, trs_part_def *out);
+/* The hull's half-extent across at local height y: a round part's radius
+ * there, or a box's half width (X) and half depth (Z). */
+void trs_hull_half(const trs_part_def *d, double y, double *hx, double *hz);
+/* Whether part-local point p is inside the hull (tapering ends and all),
+ * and how deep: up to 2 candidate faces (outward normal, depth). */
+int trs_hull_inside(const trs_part_def *d, trs_v3 p, trs_v3 *normals, double *depths, int *nfaces);
+/* Is it a solid hull at all (not a fin, a leg, a chute, a hairline part)? */
+int trs_hull_solid(const trs_part_def *d);
 void trs_catalog_free(trs_part_catalog *cat);
 int trs_catalog_find(const trs_part_catalog *cat, const char *id);
 const trs_attach_node *trs_part_node(const trs_part_def *d, const char *name);

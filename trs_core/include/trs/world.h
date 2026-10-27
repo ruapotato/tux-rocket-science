@@ -141,6 +141,8 @@ typedef struct {
 	double ec_gen, ec_use;
 	int sunlit, powered;
 	double wheel_load; /* reaction wheels' effort last tick, 0..1 */
+	double engine_power; /* share of what powered engines need that there is, 0..1 (this tick) */
+	double engine_kw;    /* what they draw this tick, kW (telemetry) */
 	/* mining last step (telemetry): ore dug and ore refined, kg/s, and
 	 * their draw, kW; drill_ground: running drills that reach the ground
 	 * (found while the craft rests, kept while it sits LANDED) */
