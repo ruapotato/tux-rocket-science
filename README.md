@@ -181,6 +181,19 @@ out of reach of the ground.
 **G** plants a PASA flag where the penguin stands (it stays there for good). A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
 recovered at home, or lost.
 
+**Living aboard**: habs (the **Burrow Hab**, the five-metre **Rookery Wide Hab**), the **Iceframe
+Crew Spine**'s crawl tube, the **Six-Way Huddle Junction** (build sideways off any of its faces)
+and the **Carousel Spin Ring** have rooms inside, and rooms that meet are one space. Press
+**Enter** in flight and one of the crew gets up and walks about in them. Inside, a penguin feels
+exactly what the ship does to it: floating in orbit, weight toward the stern while the engines
+push (thrust / mass of it), weight out toward the rim of a spinning ring (w^2 r, with Coriolis
+on the way down a spoke), the ground's pull on the pad, and nothing at all from the Stillwater
+Drive, which pulls every atom alike. **Home** is the spin hold: SAS keeps the nose where it is
+and the wheels turn the ship about its long axis at its ring's design rate (7.5 rpm: about 1 g on
+a deck 16 m out). Ships that big are built in orbit: the hangar's **From: Orbital Yard** starts a
+craft in a 250 km circular orbit of Floe (a career opens it with Orbital Shipyard in R&D). The
+stock **Waddle Ark** has all of it.
+
 **Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak
 Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
 of it, and keeps the tank behind it cool. It also cuts the drag.

@@ -43,6 +43,7 @@ var launch_text := ""
 var launch_body := "floe"
 var launch_site := "pad"  # or "runway" (planes: on their wheels, nose east)
 const RUNWAY_M := 400.0   # the runway's west end, metres east of the pad
+const YARD_ALT := 250000.0  # m: the Orbital Yard's circular equatorial orbit
 var warp_kind := "physics"  # "physics" or "rails"
 var warp_index := 0
 const PE_CLEAR := 10000.0  # m a low point must clear the air top (or sea level) by to warp freely
@@ -78,7 +79,10 @@ func launch(craft_text: String, body := "floe", fresh := true) -> bool:
 	launch_text = craft_text
 	launch_body = body
 	_pre_launch = core.world_save()
-	active = core.flight_launch_runway(craft_text, body) if launch_site == "runway" else core.flight_launch(craft_text, body)
+	if launch_site == "orbit":
+		active = core.flight_spawn_orbit(craft_text, body, YARD_ALT, 0.0)
+	else:
+		active = core.flight_launch_runway(craft_text, body) if launch_site == "runway" else core.flight_launch(craft_text, body)
 	ticks = 0
 	warp_kind = "physics"
 	warp_index = 0
@@ -122,6 +126,8 @@ func revert_before_launch() -> void:
 ## launch would land on top of: [{id, name, ...}] from vessel_list.
 func pad_blockers(body := "floe") -> Array:
 	var out := []
+	if launch_site == "orbit":
+		return out
 	var at := RUNWAY_M if launch_site == "runway" else 0.0
 	for v in JSON.parse_string(core.vessel_list()):
 		if v.body == body and v.situation in ["prelaunch", "landed"] and v.site_m >= 0.0 and absf(v.site_m - at) < 60.0:

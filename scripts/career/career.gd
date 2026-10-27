@@ -155,6 +155,17 @@ func part_unlocked(id: String) -> bool:
 	return n == "" or n in unlocked
 
 
+## Whether the program can launch from `site`: the pad and the runway
+## always, the Orbital Yard once a node opening it is researched.
+func site_unlocked(site: String) -> bool:
+	if not is_career() or site in ["pad", "runway"]:
+		return true
+	for n in tech:
+		if n.get("site", "") == site and n.id in unlocked:
+			return true
+	return false
+
+
 func tech_node(id: String) -> Dictionary:
 	for n in tech:
 		if n.id == id:

@@ -524,6 +524,52 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(j, "relics", rl);
 		}
 	}
+	/* rooms aboard, the spin hold, and a penguin indoors */
+	{
+		int rooms = 0;
+		double spin_max = 0;
+		for (int i = 0; i < vs->craft->count; i++) {
+			const trs_part_def *d = trs_craft_def(vs->craft, i);
+			rooms += d->nvolumes;
+			spin_max = fmax(spin_max, d->spin_rate);
+		}
+		trs_v3 wloc = quat_rotate(quat_conj(vs->q), vs->w);
+		if (rooms) {
+			trs_json_set(j, "rooms", trs_json_new_num(rooms));
+			trs_json_set(j, "spin_hold", trs_json_new_num(vs->spin));
+			trs_json_set(j, "spin_rate", trs_json_new_num(vs->mode == TRS_MODE_LANDED ? 0 : wloc.y));
+			if (spin_max > 0)
+				trs_json_set(j, "spin_design", trs_json_new_num(spin_max));
+		}
+		/* what each seat weighs its penguin: thrust, spin, the ground */
+		trs_json *sg = trs_json_new(TRS_JSON_OBJECT);
+		for (int i = 0; i < vs->craft->count; i++)
+			if (trs_craft_def(vs->craft, i)->crew > 0) {
+				char key[24];
+				snprintf(key, sizeof key, "%d", vs->craft->parts[i].uid);
+				trs_json_set(sg, key, trs_json_new_num(v3_len(trs_vessel_felt(w, id, trs_part_seat(vs->craft, i))) / TRS_G0));
+			}
+		trs_json_set(j, "seat_g", sg);
+		const trs_walker *wk = &vs->walker;
+		if (wk->active) {
+			trs_json *e = trs_json_new(TRS_JSON_OBJECT);
+			int room = -1;
+			for (int i = 0; i < vs->craft->count; i++)
+				if (vs->craft->parts[i].uid == wk->uid)
+					room = i;
+			trs_json_set(e, "room", trs_json_new_num(room));
+			trs_json_set(e, "room_name", trs_json_new_str(room >= 0 ? trs_craft_def(vs->craft, room)->name : ""));
+			trs_json_set(e, "x", v3_json(wk->x));
+			trs_json_set(e, "v", v3_json(wk->v));
+			trs_json_set(e, "felt", v3_json(wk->felt));
+			trs_json_set(e, "felt_g", trs_json_new_num(v3_len(wk->felt) / TRS_G0));
+			trs_json_set(e, "normal", v3_json(wk->normal));
+			trs_json_set(e, "touching", trs_json_new_bool(wk->touching));
+			trs_json_set(e, "standing", trs_json_new_bool(wk->standing));
+			trs_json_set(e, "cm", v3_json(vs->cm));
+			trs_json_set(j, "walker", e);
+		}
+	}
 	int biome = trs_body_biome(b, bdir);
 	if (biome >= 0) {
 		trs_json_set(j, "biome", trs_json_new_str(b->biomes[biome].id));
@@ -864,6 +910,24 @@ static void m_vessel_render(void *self, const trs_val *a, trs_val *r) {
 	free(d);
 }
 
+/* vessel_frame(id, origin) -> [x, y, z, qx, qy, qz, qw]: where the craft's
+ * own (part-local) frame is, relative to the origin vessel, like a part's
+ * entry in vessel_render (interiors are drawn in it) */
+static void m_vessel_frame(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!ok_vessel(h, a[0].i) || !ok_vessel(h, a[1].i) || !h->world->vessels[a[0].i].craft) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	trs_world *w = h->world;
+	trs_vessel *vs = &w->vessels[a[0].i];
+	trs_v3 base = rel_to_origin(w, (int)a[0].i, (int)a[1].i);
+	trs_quat q = vessel_quat(w, vs);
+	trs_v3 o = v3_sub(base, quat_rotate(q, vs->cm));
+	double d[7] = { o.x, o.y, o.z, q.x, q.y, q.z, q.w };
+	ret_doubles(r, d, 7);
+}
+
 /* vessel_parts(id) -> JSON [part ids in render order] (to build visuals) */
 static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -877,6 +941,14 @@ static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(pj, "parent", trs_json_new_num(c->parts[i].parent));
 			trs_json_set(pj, "node", trs_json_new_str(c->parts[i].node));
 			trs_json_set(pj, "parent_node", trs_json_new_str(c->parts[i].parent_node));
+			trs_json_set(pj, "pos", v3_json(c->parts[i].pos));
+			trs_quat q = c->parts[i].rot;
+			trs_json *qa = trs_json_new(TRS_JSON_ARRAY);
+			trs_json_push(qa, trs_json_new_num(q.x));
+			trs_json_push(qa, trs_json_new_num(q.y));
+			trs_json_push(qa, trs_json_new_num(q.z));
+			trs_json_push(qa, trs_json_new_num(q.w));
+			trs_json_set(pj, "rot", qa);
 			trs_json_push(arr, pj);
 		}
 	}
@@ -1122,6 +1194,65 @@ static void m_vessel_set_walk(void *self, const trs_val *a, trs_val *r) {
 		vs->walk = v3(a[1].f, a[2].f, 0);
 		vs->jump |= a[3].b;
 	}
+}
+
+/* walker_enter(id, part) -> a penguin goes indoors, into part's room */
+static void m_walker_enter(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->b = ok_vessel(h, a[0].i) && trs_walker_enter(h->world, (int)a[0].i, (int)a[1].i);
+}
+
+static void m_walker_leave(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	(void)r;
+	if (ok_vessel(h, a[0].i))
+		trs_walker_leave(h->world, (int)a[0].i);
+}
+
+/* walker_command(id, [x, y, z] m/s craft-local, jump) */
+static void m_walker_command(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	(void)r;
+	if (ok_vessel(h, a[0].i) && a[1].arr.n >= 3)
+		trs_walker_command(h->world, (int)a[0].i, v3(a[1].arr.data[0], a[1].arr.data[1], a[1].arr.data[2]), a[2].b);
+}
+
+/* vessel_set_spin(id, rad/s): the spin hold (0 = off) */
+static void m_vessel_set_spin(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	(void)r;
+	if (ok_vessel(h, a[0].i))
+		h->world->vessels[a[0].i].spin = a[1].f;
+}
+
+/* room_mesh(id, cell) -> [n, 9n craft-local corner coordinates, n kinds] */
+static void m_room_mesh(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!ok_vessel(h, a[0].i) || !h->world->vessels[a[0].i].craft) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	int max = 400000;
+	double *tri = malloc(sizeof(double) * 9 * (size_t)max);
+	int *kind = malloc(sizeof(int) * (size_t)max);
+	int n = trs_craft_room_mesh(h->world->vessels[a[0].i].craft, a[1].f, tri, kind, max);
+	double *d = malloc(sizeof(double) * (1 + 10 * (size_t)n));
+	d[0] = n;
+	memcpy(d + 1, tri, sizeof(double) * 9 * (size_t)n);
+	for (int i = 0; i < n; i++)
+		d[1 + 9 * n + i] = kind[i];
+	ret_doubles(r, d, 1 + 10 * (int64_t)n);
+	free(d);
+	free(tri);
+	free(kind);
+}
+
+/* room_depth(id, [x, y, z]) -> how deep a craft-local point is inside the rooms (< 0 outside) */
+static void m_room_depth(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->f = -1e9;
+	if (ok_vessel(h, a[0].i) && h->world->vessels[a[0].i].craft && a[1].arr.n >= 3)
+		r->f = trs_craft_room_depth(h->world->vessels[a[0].i].craft, NULL, 0, v3(a[1].arr.data[0], a[1].arr.data[1], a[1].arr.data[2]));
 }
 
 static void m_sas_direction(void *self, const trs_val *a, trs_val *r) {
@@ -1583,6 +1714,12 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "eva_plant_flag", m_eva_plant_flag, I, 1, { I }, { "eva" } },
 	{ "eva_hatch", m_eva_hatch, A, 2, { I, I }, { "eva", "target" } },
 	{ "vessel_set_walk", m_vessel_set_walk, V, 4, { I, F, F, B }, { "id", "east", "north", "jump" } },
+	{ "walker_enter", m_walker_enter, B, 2, { I, I }, { "id", "part" } },
+	{ "walker_leave", m_walker_leave, V, 1, { I }, { "id" } },
+	{ "walker_command", m_walker_command, V, 3, { I, A, B }, { "id", "walk", "jump" } },
+	{ "vessel_set_spin", m_vessel_set_spin, V, 2, { I, F }, { "id", "rate" } },
+	{ "room_mesh", m_room_mesh, A, 2, { I, F }, { "id", "cell" } },
+	{ "room_depth", m_room_depth, F, 2, { I, A }, { "id", "point" } },
 	{ "target_info", m_target_info, S, 2, { I, I }, { "id", "target" } },
 	{ "vessel_set_translate", m_vessel_set_translate, V, 4, { I, F, F, F }, { "id", "x", "y", "z" } },
 	{ "vessel_stage", m_vessel_stage, S, 1, { I }, { "id" } },
@@ -1594,6 +1731,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "telemetry", m_telemetry, S, 1, { I }, { "id" } },
 	{ "vessel_render", m_vessel_render, A, 2, { I, I }, { "id", "origin" } },
 	{ "vessel_parts", m_vessel_parts, S, 1, { I }, { "id" } },
+	{ "vessel_frame", m_vessel_frame, A, 2, { I, I }, { "id", "origin" } },
 	{ "body_render", m_body_render, A, 1, { I }, { "origin" } },
 	{ "vessel_list", m_vessel_list, S, 0, { 0 }, { 0 } },
 	{ "events_drain", m_events_drain, S, 0, { 0 }, { 0 } },

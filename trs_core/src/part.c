@@ -171,6 +171,62 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->leg_angle = trs_json_num(lg, "deploy_angle_deg", 20) * TRS_PI / 180.0;
 		d->leg_stowed_fraction = trs_json_num(lg, "stowed_fraction", 0.55);
 	}
+	const trs_json *in = trs_json_get(j, "interior");
+	if (in) {
+		d->spin_rate = trs_json_num(in, "spin_rpm", 0) * 2 * TRS_PI / 60.0;
+		const trs_json *vl = trs_json_get(in, "volumes");
+		for (size_t k = 0; vl && k < vl->count; k++) {
+			const trs_json *vj = trs_json_at(vl, k);
+			const char *ty = trs_json_str(vj, "type", "cylinder");
+			trs_volume v;
+			memset(&v, 0, sizeof v);
+			v.r0 = trs_json_num(vj, "r0", 0);
+			v.r1 = trs_json_num(vj, "r1", trs_json_num(vj, "radius", 0));
+			v.y0 = trs_json_num(vj, "y0", 0);
+			v.y1 = trs_json_num(vj, "y1", 0);
+			const trs_json *wr = trs_json_get(vj, "windows");
+			for (size_t q = 0; wr && q < wr->count && v.nwindows < TRS_MAX_WINDOWS; q++) {
+				const trs_json *wj = trs_json_at(wr, q);
+				v.windows[v.nwindows++] = (trs_window_row){ trs_json_num(wj, "at", 0), trs_json_num(wj, "size", 0.5),
+					(int)trs_json_num(wj, "count", 0) };
+			}
+			int n = 1;
+			if (!strcmp(ty, "cylinder"))
+				v.kind = TRS_VOL_CYLINDER;
+			else if (!strcmp(ty, "annulus"))
+				v.kind = TRS_VOL_ANNULUS;
+			else if (!strcmp(ty, "box")) {
+				v.kind = TRS_VOL_BOX;
+				v.lo = json_v3(trs_json_get(vj, "min"), v3(0, 0, 0));
+				v.hi = json_v3(trs_json_get(vj, "max"), v3(0, 0, 0));
+				v.yaw = trs_json_num(vj, "yaw_deg", 0) * TRS_PI / 180.0;
+			} else if (!strcmp(ty, "spokes")) {
+				/* `count` boxes from r0 out to r1, `width` square, evenly round */
+				v.kind = TRS_VOL_BOX;
+				n = (int)trs_json_num(vj, "count", 4);
+				double hw = 0.5 * trs_json_num(vj, "width", 1.0);
+				v.lo = v3(v.r0, v.y0, -hw);
+				v.hi = v3(v.r1, v.y1, hw);
+			} else {
+				snprintf(err, errlen, "part %s: unknown interior volume type %s", d->id, ty);
+				return 0;
+			}
+			if (v.kind != TRS_VOL_BOX && (v.r1 <= v.r0 || v.y1 <= v.y0)) {
+				snprintf(err, errlen, "part %s: interior volume %d is empty", d->id, (int)k);
+				return 0;
+			}
+			for (int s = 0; s < n; s++) {
+				if (d->nvolumes >= TRS_MAX_VOLUMES) {
+					snprintf(err, errlen, "part %s: more than %d interior volumes", d->id, TRS_MAX_VOLUMES);
+					return 0;
+				}
+				trs_volume vs = v;
+				if (n > 1)
+					vs.yaw = 2 * TRS_PI * s / n;
+				d->volumes[d->nvolumes++] = vs;
+			}
+		}
+	}
 	const trs_json *sh = trs_json_get(j, "shape");
 	d->radius = trs_json_num(sh, "radius", trs_json_num(sh, "radius_bottom", 0.3));
 	d->height = trs_json_num(sh, "height", trs_json_num(sh, "length", trs_json_num(sh, "root", 0.5)));

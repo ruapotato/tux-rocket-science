@@ -325,6 +325,7 @@
       "crash_tolerance": 9,
       "thermal": { "max_temp": 1000, "skin_heat": 8000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.45, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "interior": { "volumes": [{ "type": "cylinder", "radius": 0.56, "y0": -0.5, "y1": 0.5 }] },
       "shape": { "type": "adapter", "radius_bottom": 1.25, "radius_top": 0.625, "height": 1.0 },
       "nodes": [
         { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.625 },
@@ -844,6 +845,134 @@
       "shape": { "type": "hearth", "radius": 1.25, "height": 2.0 },
       "nodes": [{"name": "top", "pos": [0, 1.0, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.0, 0], "dir": [0, -1, 0], "radius": 1.25}],
       "surface_attach": true
+    },
+    {
+      "id": "hab_burrow",
+      "name": "Burrow Hab Module",
+      "category": "pods",
+      "description": "A room with six windows for two penguins on a long trip. Climb inside (I) and float, or stand on the aft wall while the engines push: thrust is weight in here.",
+      "mass": 1800,
+      "cost": 3500,
+      "power": { "battery_kj": 500, "draw_kw": 0.2 },
+      "crew": 2,
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1000, "skin_heat": 9000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "interior": { "volumes": [
+        { "type": "cylinder", "radius": 1.15, "y0": -1.5, "y1": 1.5, "windows": [{ "at": 0.3, "count": 6, "size": 0.45 }] }
+      ] },
+      "shape": { "type": "hab", "radius": 1.25, "height": 3.0, "windows": 6, "window_y": 0.3 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.5, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.5, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "hab_rookery",
+      "name": "Rookery Wide Hab",
+      "category": "pods",
+      "description": "Five metres across: a whole colony's common room, twelve windows round the middle. It narrows at both ends to fit the 1.25 m stack.",
+      "mass": 7000,
+      "cost": 12000,
+      "power": { "battery_kj": 1500, "draw_kw": 0.6 },
+      "crew": 6,
+      "crash_tolerance": 9,
+      "thermal": { "max_temp": 1000, "skin_heat": 9000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.9, "cd_bottom": 0.9, "cd_side": 1.0 },
+      "interior": { "volumes": [
+        { "type": "cylinder", "radius": 2.35, "y0": -2.3, "y1": 2.3, "windows": [{ "at": 0.8, "count": 12, "size": 0.6 }] },
+        { "type": "cylinder", "radius": 1.1, "y0": 2.3, "y1": 3.0 },
+        { "type": "cylinder", "radius": 1.1, "y0": -3.0, "y1": -2.3 }
+      ] },
+      "shape": { "type": "hab_wide", "radius": 2.5, "radius_end": 1.25, "height": 6.0, "windows": 12, "window_y": 0.8 },
+      "nodes": [
+        { "name": "top", "pos": [0, 3.0, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -3.0, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "spine",
+      "name": "Iceframe Crew Spine",
+      "category": "structural",
+      "description": "Four metres of open truss round a crawl tube: puts distance between the crew and the engines (or the reactor) and still lets a penguin through.",
+      "mass": 450,
+      "cost": 900,
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 1.6, "area_side": 4.0 },
+      "interior": { "volumes": [{ "type": "cylinder", "radius": 0.6, "y0": -2.0, "y1": 2.0 }] },
+      "shape": { "type": "truss", "radius": 1.25, "height": 4.0, "tube": 0.65 },
+      "nodes": [
+        { "name": "top", "pos": [0, 2.0, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -2.0, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "truss",
+      "name": "Iceframe Truss",
+      "category": "structural",
+      "description": "Open girders, nothing inside: light, and anything can hang off its sides.",
+      "mass": 220,
+      "cost": 400,
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1100, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.3, "cd_bottom": 0.3, "cd_side": 0.5, "area_axial": 0.8, "area_side": 2.5 },
+      "shape": { "type": "truss", "radius": 1.25, "height": 2.5 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.25, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.25, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": true
+    },
+    {
+      "id": "junction",
+      "name": "Six-Way Huddle Junction",
+      "category": "structural",
+      "description": "A pressurised box with a hatch on every face: build sideways. Habs, spines and tanks fit any of its six nodes, and penguins pass between them through the box.",
+      "mass": 900,
+      "cost": 2200,
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1000, "skin_heat": 9000, "emissivity": 0.8 },
+      "aero": { "cd_top": 1.0, "cd_bottom": 1.0, "cd_side": 1.05, "area_axial": 6.25, "area_side": 6.25 },
+      "interior": { "volumes": [{ "type": "box", "min": [-1.25, -1.25, -1.25], "max": [1.25, 1.25, 1.25] }] },
+      "shape": { "type": "junction", "radius": 1.25, "height": 2.5 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.25, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.25, 0], "dir": [0, -1, 0], "radius": 1.25 },
+        { "name": "east", "pos": [1.25, 0, 0], "dir": [1, 0, 0], "radius": 1.25 },
+        { "name": "west", "pos": [-1.25, 0, 0], "dir": [-1, 0, 0], "radius": 1.25 },
+        { "name": "north", "pos": [0, 0, 1.25], "dir": [0, 0, 1], "radius": 1.25 },
+        { "name": "south", "pos": [0, 0, -1.25], "dir": [0, 0, -1], "radius": 1.25 }
+      ],
+      "surface_attach": false
+    },
+    {
+      "id": "spin_ring",
+      "name": "Carousel Spin Ring",
+      "category": "pods",
+      "description": "A 32 m wheel for eight penguins round a 1.25 m hub, four spokes out to a deck 16 m from the axis. Spun at 7.5 rpm (J, with SAS on) the deck weighs a penguin about as much as Floe does; nearer the hub, less. Its motors take a minute to spin a light ship up, longer a heavy one.",
+      "mass": 24000,
+      "cost": 40000,
+      "power": { "battery_kj": 6000, "draw_kw": 1.0, "torque_kw_per_knm": 0.05 },
+      "crew": 8,
+      "torque": 60000,
+      "crash_tolerance": 6,
+      "thermal": { "max_temp": 900, "skin_heat": 9000, "emissivity": 0.8 },
+      "aero": { "cd_top": 1.2, "cd_bottom": 1.2, "cd_side": 1.0, "area_axial": 260, "area_side": 96 },
+      "interior": { "spin_rpm": 7.5, "volumes": [
+        { "type": "annulus", "r0": 13.5, "r1": 16.0, "y0": -1.5, "y1": 1.5, "windows": [{ "at": 14.75, "count": 16, "size": 0.9 }] },
+        { "type": "cylinder", "radius": 1.15, "y0": -1.5, "y1": 1.5 },
+        { "type": "spokes", "count": 4, "width": 1.3, "r0": 0.5, "r1": 13.8, "y0": -0.65, "y1": 0.65 }
+      ] },
+      "shape": { "type": "spin_ring", "radius": 16.0, "height": 3.0, "hub": 1.25, "deck": 16.0, "ceiling": 13.5, "width": 3.0, "spokes": 4, "spoke": 1.3 },
+      "nodes": [
+        { "name": "top", "pos": [0, 1.5, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -1.5, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": false
     }
   ]
 }

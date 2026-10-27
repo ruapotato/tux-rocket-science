@@ -267,7 +267,7 @@ func _build_ui() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(spacer)
-	_site_button = _button("From: Pad", _cycle_site, "Where it launches: the pad (standing up, clamped) or the runway (lying on its wheels, nose east)")
+	_site_button = _button("From: Pad", _cycle_site, "Where it launches: the pad (standing up, clamped), the runway (lying on its wheels, nose east) or the Orbital Yard (already in orbit, for ships too big to fly up)")
 	bar.add_child(_site_button)
 	var launch := _button("  LAUNCH  ", _on_launch, "Roll out to the Glacier Shelf launch pad")
 	launch.add_theme_color_override("font_color", Color(1, 1, 1))
@@ -427,17 +427,35 @@ func launch_site() -> String:
 	for p in model.parts:
 		if Sim.part(p.part).has("wheel"):
 			return "runway"
+	# a ship with a spin ring is built in orbit, if the program can
+	for p in model.parts:
+		if Sim.part(p.part).get("interior", {}).has("spin_rpm") and Career.site_unlocked("orbit"):
+			return "orbit"
 	return "pad"
 
 
 func _cycle_site() -> void:
-	_site = "pad" if launch_site() == "runway" else "runway"
-	_site_button.text = "From: %s" % launch_site().capitalize()
+	var order := ["pad", "runway", "orbit"]
+	var k := order.find(launch_site())
+	for step in range(1, order.size() + 1):
+		var next: String = order[(k + step) % order.size()]
+		if Career.site_unlocked(next):
+			_site = next
+			break
+	_site_button.text = "From: %s" % site_name(launch_site())
+	if launch_site() == "orbit":
+		toast("The Orbital Yard: the craft starts in a %d km circular orbit of Floe, built up there" % int(FlightSession.YARD_ALT / 1000.0))
+	elif not Career.site_unlocked("orbit"):
+		toast("The Orbital Yard opens with Orbital Shipyard in R&D")
+
+
+static func site_name(s: String) -> String:
+	return "Orbital Yard" if s == "orbit" else s.capitalize()
 
 
 func _on_model_changed() -> void:
 	if _site_button:
-		_site_button.text = "From: %s" % launch_site().capitalize()
+		_site_button.text = "From: %s" % site_name(launch_site())
 	# part numbers may have changed: forget the hover until the next frame
 	_hover = -1
 	_highlight([])

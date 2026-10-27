@@ -712,11 +712,16 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 		vs->sas_hold = vs->q;
 	}
 
-	if (vs->sas >= TRS_SAS_TARGET || (vs->sas == TRS_SAS_STABILITY && !manual)) {
+	/* a spin hold turns the craft about its nose at vs->spin while SAS
+	 * keeps the nose where it was (or on its target) */
+	int spin_hold = vs->spin != 0 && vs->sas != TRS_SAS_OFF;
+	if (vs->sas >= TRS_SAS_TARGET || (vs->sas == TRS_SAS_STABILITY && !manual) || spin_hold) {
 		trs_v3 err; /* rotation vector from current to target, local frame */
-		if (vs->sas >= TRS_SAS_TARGET && v3_len2(vs->sas_target) > 0) {
+		int point = vs->sas >= TRS_SAS_TARGET && v3_len2(vs->sas_target) > 0;
+		if (point || spin_hold) {
 			trs_v3 nose = v3(0, 1, 0);
-			trs_v3 tgt = v3_norm(quat_rotate(quat_conj(vs->q), vs->sas_target));
+			trs_v3 aim = point ? vs->sas_target : quat_rotate(vs->sas_hold, nose);
+			trs_v3 tgt = v3_norm(quat_rotate(quat_conj(vs->q), aim));
 			trs_v3 ax = v3_cross(nose, tgt);
 			double s = v3_len(ax), cth = v3_dot(nose, tgt);
 			double ang = atan2(s, cth);
@@ -741,6 +746,8 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 			double kp = fmin(SAS_KP, sqrt(amax)); /* 1/s */
 			double rate = fmin(kp * fabs(e[k]), sqrt(amax * fabs(e[k])));
 			double want = e[k] < 0 ? -rate : rate;
+			if (k == 1 && spin_hold)
+				want = vs->spin;
 			out[k] = clampd(I[k] * SAS_KR * (want - om[k]), -a[k], a[k]);
 		}
 		cmd = v3(out[0], out[1], out[2]);
@@ -761,6 +768,8 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	for (int k = 0; k < 3; k++) {
 		double base = clampd(cm[k], -o[k], o[k]);
 		u[k] = ra[k] > 0 ? clampd((cm[k] - base) / ra[k], -1, 1) : 0;
+		if (k == 1 && spin_hold && !manual)
+			u[k] = 0; /* spinning up is the wheels' slow job, not the monopropellant's */
 		cm[k] = base;
 		fs[k] = o[k] > 0 ? base / o[k] : 0; /* fins carry their share of it */
 		vs->wheel_load += fabs(fs[k]) / 3; /* the wheels' share of their full effort */

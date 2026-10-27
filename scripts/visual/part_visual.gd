@@ -627,11 +627,206 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_sphere_tank(root, sh)
 		"dock":
 			_dock(root, sh)
+		"hab":
+			_hab(root, sh)
+		"hab_wide":
+			_hab_wide(root, sh)
+		"truss":
+			_truss(root, sh)
+		"junction":
+			_junction(root, sh)
+		"spin_ring":
+			_spin_ring(root, sh)
 		_:
 			_cyl(root, sh.get("radius", 0.5), sh.get("radius", 0.5), sh.get("height", 1.0), 0.0, hull(WHITE))
 	if with_pick:
 		_add_pick(root, sh)
 	return root
+
+
+## Windows as panes facing out (no back: from inside the room they are
+## holes onto space), each in a graphite frame, warm light behind them.
+static func _windows(root: Node3D, r: float, y: float, count: int, size: float, tilt := 0.0) -> void:
+	var glass := mat("hab_window", Color(0.1, 0.13, 0.17), 0.3, 0.06, Color(0.32, 0.24, 0.12))
+	var frame := mat("graphite", GRAPHITE, 0.4, 0.5)
+	for k in count:
+		var a := TAU * (k + 0.5) / count
+		var b := Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, -tilt)
+		var q := QuadMesh.new()
+		q.size = Vector2(size, size)
+		_mesh(root, q, glass, Transform3D(b, Basis(Vector3.UP, a) * Vector3(0, y, r + 0.012)))
+		for e in 4:
+			var bar := BoxMesh.new()
+			var horiz := e < 2
+			bar.size = Vector3(size + 0.08, 0.05, 0.03) if horiz else Vector3(0.05, size + 0.08, 0.03)
+			var off := Vector3(0, (size + 0.03) * 0.5 * (1 if e == 0 else -1), 0) if horiz else Vector3((size + 0.03) * 0.5 * (1 if e == 2 else -1), 0, 0)
+			_mesh(root, bar, frame, Transform3D(b, Basis(Vector3.UP, a) * Vector3(0, y, r + 0.012) + b * off))
+
+
+## A habitation module: a white drum with ring seams, a band of windows,
+## an orange stripe and steel rims.
+static func _hab(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r, h, 0.0, hull(WHITE, {"panels": 10.0, "ring_spacing": 0.75, "grime": 0.2}), 64)
+	_windows(root, r, sh.get("window_y", 0.3), int(sh.get("windows", 6)), 0.45)
+	_cyl(root, r * 1.004, r * 1.004, 0.12, -h * 0.25, mat("orange", ORANGE, 0.0, 0.45), 64)
+	for y in [h * 0.5 - 0.02, -h * 0.5 + 0.02]:
+		_ring(root, r * 1.005, y, 0.035, mat("steel", STEEL, 0.75, 0.3))
+	var hatch := BoxMesh.new()
+	hatch.size = Vector3(0.6, 0.9, 0.04)
+	_mesh(root, hatch, hull(Color(0.85, 0.86, 0.88), {"panels": 1.0, "ring_spacing": 0.0}), Transform3D(Basis(Vector3.UP, PI), Vector3(0, -0.45, -r - 0.01)))
+
+
+## The wide hab: a fat drum with shoulders narrowing to 1.25 m collars.
+static func _hab_wide(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var re: float = sh.get("radius_end", 1.25)
+	var h: float = sh.height
+	var body := h - 1.2
+	var white := hull(WHITE, {"panels": 16.0, "ring_spacing": 0.8, "grime": 0.2})
+	_cyl(root, r, r, body, 0.0, white, 96)
+	for s in [1.0, -1.0]:
+		var sh_c := _cyl(root, r if s > 0 else re, re if s > 0 else r, 0.35, s * (body * 0.5 + 0.175), white, 96)
+		sh_c.name = "Shoulder"
+		_cyl(root, re, re, 0.25, s * (h * 0.5 - 0.125), hull(GRAPHITE, {"panels": 12.0, "ring_spacing": 0.0, "metal": 0.4}), 48)
+		_ring(root, r * 1.003, s * body * 0.5, 0.05, mat("steel", STEEL, 0.75, 0.3))
+	_windows(root, r, sh.get("window_y", 0.8), int(sh.get("windows", 12)), 0.6)
+	_cyl(root, r * 1.003, r * 1.003, 0.16, -0.6, mat("orange", ORANGE, 0.0, 0.45), 96)
+	if true:
+		_decal(root, Vector3(0, -1.4, r), Vector3(0, 0, 1), 1.1)
+
+
+## Open girders: four longerons, square frames and diagonals, a crawl tube
+## down the middle if it has one.
+static func _truss(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	var a := r * 0.72
+	var steel := mat("truss", Color(0.72, 0.74, 0.78), 0.65, 0.35)
+	var corners := [Vector3(a, 0, a), Vector3(-a, 0, a), Vector3(-a, 0, -a), Vector3(a, 0, -a)]
+	for c in corners:
+		var beam := BoxMesh.new()
+		beam.size = Vector3(0.1, h, 0.1)
+		_mesh(root, beam, steel, Transform3D(Basis.IDENTITY, c))
+	var bays := maxi(1, int(round(h / (2.0 * a))))
+	for k in bays + 1:
+		var y := -h * 0.5 + h * k / bays
+		for e in 4:
+			var p0: Vector3 = corners[e]
+			var p1: Vector3 = corners[(e + 1) % 4]
+			_beam(root, p0 + Vector3(0, y, 0), p1 + Vector3(0, y, 0), 0.07, steel)
+	for k in bays:
+		var y0 := -h * 0.5 + h * k / bays
+		var y1 := -h * 0.5 + h * (k + 1) / bays
+		for e in 4:
+			var p0: Vector3 = corners[e]
+			var p1: Vector3 = corners[(e + 1) % 4]
+			if (k + e) % 2 == 0:
+				_beam(root, p0 + Vector3(0, y0, 0), p1 + Vector3(0, y1, 0), 0.05, steel)
+			else:
+				_beam(root, p1 + Vector3(0, y0, 0), p0 + Vector3(0, y1, 0), 0.05, steel)
+	for y in [h * 0.5 - 0.04, -h * 0.5 + 0.04]:
+		_cyl(root, r * 0.98, r * 0.98, 0.08, y, mat("graphite", GRAPHITE, 0.4, 0.5), 32)
+	if sh.has("tube"):
+		var t: float = sh.tube
+		_cyl(root, t, t, h - 0.1, 0.0, hull(WHITE, {"panels": 6.0, "ring_spacing": 0.5, "grime": 0.25}), 32)
+
+
+static func _beam(root: Node3D, p0: Vector3, p1: Vector3, thick: float, m: Material) -> void:
+	var d := p1 - p0
+	var box := BoxMesh.new()
+	box.size = Vector3(thick, d.length(), thick)
+	var y := d.normalized()
+	var x := y.cross(Vector3.FORWARD if absf(y.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
+	_mesh(root, box, m, Transform3D(Basis(x, y, x.cross(y)), (p0 + p1) * 0.5))
+
+
+## The junction: a white box with a hatch ring on each face.
+static func _junction(root: Node3D, sh: Dictionary) -> void:
+	var s: float = sh.get("height", 2.5)
+	var box := BoxMesh.new()
+	box.size = Vector3(s, s, s) * 0.98
+	_mesh(root, box, hull(WHITE, {"panels": 4.0, "ring_spacing": s * 0.5, "grime": 0.2}))
+	var steel := mat("steel", STEEL, 0.75, 0.3)
+	for b in [Basis.IDENTITY, Basis(Vector3.RIGHT, PI), Basis(Vector3.BACK, PI / 2), Basis(Vector3.BACK, -PI / 2),
+			Basis(Vector3.RIGHT, PI / 2), Basis(Vector3.RIGHT, -PI / 2)]:
+		var t := TorusMesh.new()
+		t.inner_radius = 0.95
+		t.outer_radius = 1.08
+		t.rings = 40
+		t.ring_segments = 6
+		_mesh(root, t, steel, Transform3D(b, b * Vector3(0, s * 0.49, 0)))
+	for k in 4:
+		var edge := BoxMesh.new()
+		edge.size = Vector3(0.12, s, 0.12)
+		var a := TAU * k / 4.0 + PI / 4
+		_mesh(root, edge, mat("orange", ORANGE, 0.0, 0.45), Transform3D(Basis.IDENTITY, Vector3(sin(a), 0, cos(a)) * s * 0.49 * sqrt(2.0)))
+
+
+## The spin ring: a hub, square spokes and a deck of rectangular section
+## with a row of windows on each side wall.
+static func _spin_ring(root: Node3D, sh: Dictionary) -> void:
+	var hub: float = sh.get("hub", 1.25)
+	var h: float = sh.height
+	var r_out: float = sh.get("deck", 16.0) + 0.2
+	var r_in: float = sh.get("ceiling", 13.5) - 0.2
+	var w: float = sh.get("width", 3.0) + 0.2
+	var white := hull(WHITE, {"panels": 48.0, "ring_spacing": 0.0, "grime": 0.2})
+	_cyl(root, hub, hub, h, 0.0, hull(GRAPHITE, {"panels": 12.0, "ring_spacing": 0.0, "metal": 0.4}), 48)
+	_cyl(root, hub * 1.01, hub * 1.01, 0.4, 0.0, mat("orange", ORANGE, 0.0, 0.45), 48)
+	var outer := CylinderMesh.new()
+	outer.top_radius = r_out
+	outer.bottom_radius = r_out
+	outer.height = w
+	outer.radial_segments = 128
+	outer.cap_top = false
+	outer.cap_bottom = false
+	_mesh(root, outer, white)
+	var inner := _mesh(root, outer.duplicate(), mat("ring_inner", Color(0.86, 0.87, 0.9), 0.1, 0.6))
+	(inner.mesh as CylinderMesh).top_radius = r_in
+	(inner.mesh as CylinderMesh).bottom_radius = r_in
+	var im := StandardMaterial3D.new()
+	im.albedo_color = Color(0.86, 0.87, 0.9)
+	im.roughness = 0.6
+	im.cull_mode = BaseMaterial3D.CULL_FRONT
+	inner.material_override = im
+	for s in [1.0, -1.0]:
+		_mesh(root, _annulus(r_in, r_out, 128), white, Transform3D(Basis.IDENTITY if s > 0 else Basis(Vector3.RIGHT, PI), Vector3(0, s * w * 0.5, 0)))
+	var glass := mat("hab_window", Color(0.1, 0.13, 0.17), 0.3, 0.06, Color(0.32, 0.24, 0.12))
+	var n := 16
+	for k in n:
+		var a := TAU * (k + 0.5) / n
+		for s in [1.0, -1.0]:
+			var q := QuadMesh.new()
+			q.size = Vector2(0.9, 0.9)
+			var b := Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, -PI / 2 * s)
+			_mesh(root, q, glass, Transform3D(b, Basis(Vector3.UP, a) * Vector3(0, s * (w * 0.5 + 0.012), (r_in + r_out) * 0.5)))
+	var spokes := int(sh.get("spokes", 4))
+	var sw: float = sh.get("spoke", 1.3) + 0.2
+	for k in spokes:
+		var a := TAU * k / spokes
+		var box := BoxMesh.new()
+		box.size = Vector3(r_in - hub + 0.1, sw, sw)
+		var b := Basis(Vector3.UP, -a)
+		_mesh(root, box, hull(WHITE, {"panels": 4.0, "ring_spacing": 1.5, "grime": 0.2}), Transform3D(b, b * Vector3((hub + r_in) * 0.5, 0, 0)))
+	_ring(root, r_out, w * 0.5, 0.06, mat("orange", ORANGE, 0.0, 0.45))
+	_ring(root, r_out, -w * 0.5, 0.06, mat("orange", ORANGE, 0.0, 0.45))
+
+
+## A flat ring in the XZ plane facing +Y.
+static func _annulus(r0: float, r1: float, segs: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3.UP)
+	for k in segs:
+		var a0 := TAU * k / segs
+		var a1 := TAU * (k + 1) / segs
+		var p := [Vector3(cos(a0) * r0, 0, sin(a0) * r0), Vector3(cos(a0) * r1, 0, sin(a0) * r1),
+			Vector3(cos(a1) * r1, 0, sin(a1) * r1), Vector3(cos(a1) * r0, 0, sin(a1) * r0)]
+		for i in [0, 1, 2, 0, 2, 3]:
+			st.add_vertex(p[i])
+	return st.commit()
 
 
 static func _mesh(parent: Node3D, mesh: Mesh, m: Material, xf := Transform3D.IDENTITY) -> MeshInstance3D:

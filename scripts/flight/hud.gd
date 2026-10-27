@@ -404,6 +404,7 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
    against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
 [b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in)   [b]O[/b] science
+[b]Enter[/b] one of the crew walks about inside (habs, spin rings: WASD, Space jumps or pushes off, Enter again back to the controls)   [b]Home[/b] spin hold
 [b]B[/b] wheel brakes (planes start on the runway with them on)   [b]F5[/b] quicksave   [b]F9[/b] quickload   [b]1-9[/b] action groups   [b]`[/b] steer by the craft / by the view   [b]C[/b] mining on / off
 [b]V[/b] surface / orbital speed
 

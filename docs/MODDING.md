@@ -80,6 +80,7 @@ tapering leading end takes less heating than a flat one (see
 | `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
 | `scanner` | `range_km`: a Signal Scanner hears a relic in sight of it this far away (with the power on) |
+| `interior` | rooms a penguin can walk about in: `volumes: [...]`, part-local, each a `cylinder` (`radius`, `y0`, `y1` along +Y), an `annulus` (`r0`, `r1`: a spin ring's deck is its outer wall), a `box` (`min`, `max`, `yaw_deg`) or `spokes` (`count` boxes `width` square from `r0` out to `r1`, between `y0` and `y1`), with optional `windows: [{at, count, size}]` (a row round a cylinder's wall at height `at`, or round an annulus's side walls at radius `at`). Rooms that touch or overlap are one space: make them reach the part's ends so they meet the next part's. `spin_rpm` is the rate the spin hold turns a craft with this part at. |
 
 After changing parts, run `./build/linux/trs_tests --data data --all`: the
 gates check the stock parts still behave.
@@ -113,7 +114,8 @@ ones keeps old saves loadable.
 - `science.json`: `situations` (`value`, `phrase`, `biome`: counted per biome), `bodies` (`value`, the
   heights that split low from high), `experiments` (`base`, `situations`,
   `eva`), and `repeat_factor`.
-- `tech.json`: R&D `nodes`: `{id, name, cost, requires, parts}`. A node with
+- `tech.json`: R&D `nodes`: `{id, name, cost, requires, parts}` (and `site`:
+  a launch site it opens, `orbit` for the Orbital Yard). A node with
   `found_by` (a mission id) can't be bought: it opens when that mission is
   done. Parts in no node are always available.
 - `missions.json`: `start_funds`, `recovery_refund`, and `missions`:

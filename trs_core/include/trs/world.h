@@ -83,6 +83,32 @@ typedef enum {
 } trs_sas_mode;
 
 
+/* A penguin walking (or floating) around inside its ship. It moves in the
+ * craft's own frame, so it feels exactly what anyone aboard would: the
+ * ship's non-gravitational acceleration (thrust, drag, the ground holding
+ * it up) as weight toward the stern, its spin as weight out toward the
+ * rim (and Coriolis on the way), and nothing at all from the Stillwater
+ * Drive, which pulls every atom alike. (interior.c) */
+typedef struct {
+	int active;
+	int uid;      /* the part whose room it is in */
+	trs_v3 x, v;  /* centre, craft-local, and velocity in the craft's frame */
+	trs_v3 walk;  /* wanted velocity, craft-local, m/s */
+	int jump;     /* push off the surface it touches, on the next step */
+	int touching; /* against a wall last step */
+	int standing; /* ... one it is pressed onto by what it feels */
+	trs_v3 normal; /* that surface's normal, into the room, craft-local */
+	trs_v3 felt;  /* apparent gravity where it is, craft-local, m/s2 */
+} trs_walker;
+
+/* A room of a craft: part `part`'s volume, placed (craft-local). */
+typedef struct {
+	int part;
+	const trs_volume *v;
+	trs_v3 pos;
+	trs_quat rot; /* part rotation, and the box's yaw on top */
+} trs_room;
+
 typedef struct {
 	int alive;
 	int body;
@@ -137,6 +163,9 @@ typedef struct {
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
 	double rcs_mdot;  /* monopropellant flow last tick, kg/s (telemetry) */
 	double rcs_dv_expended; /* integral of |RCS thrust accel| dt */
+
+	trs_walker walker;
+	double spin;      /* spin hold: SAS turns the craft about its +Y at this rate (rad/s), 0 = off */
 
 	/* Telemetry (true numbers for the HUD) */
 	trs_v3 sensed_accel; /* non-gravitational acceleration last tick, SOI frame */
@@ -302,6 +331,34 @@ void trs_heliopause_check(trs_world *w, trs_vessel *vs);
 void trs_interstellar_advance(trs_world *w, trs_vessel *vs, double dt);
 /* Switches every drill and refinery aboard on or off; returns how many. */
 int trs_world_set_isru(trs_world *w, int id, int on);
+/* Interiors (interior.c). The rooms of a craft, craft-local; returns how
+ * many (up to max). */
+int trs_craft_rooms(const trs_craft *c, trs_room *out, int max);
+/* How far point x (craft-local) is inside the craft's rooms: the depth
+ * into the room it is deepest in (< 0: outside every room). */
+double trs_craft_room_depth(const trs_craft *c, trs_room *rooms, int n, trs_v3 x);
+/* The inside walls of every room, cut where another room carries on and
+ * where windows are, as triangles about `cell` m across: 9 doubles each
+ * (three craft-local corners) into tri, and a kind each into kind (0
+ * curved wall, 1 flat wall, 2 a ring's deck, 3 a ring's ceiling, 4 glass).
+ * Returns how many (up to max). */
+int trs_craft_room_mesh(const trs_craft *c, double cell, double *tri, int *kind, int max);
+/* Where part `part`'s crew are (craft-local): on a ring's deck, in the
+ * middle of any other room, at the part itself if it has none. */
+trs_v3 trs_part_seat(const trs_craft *c, int part);
+/* A penguin of vessel id goes inside: into the first room of part `part`
+ * (which must have one), at rest in the craft's frame. 0 if it can't. */
+int trs_walker_enter(trs_world *w, int id, int part);
+void trs_walker_leave(trs_world *w, int id);
+/* What the penguin is trying to do: walk (or paddle, floating) at `walk`
+ * m/s (craft-local), and push off its surface. */
+void trs_walker_command(trs_world *w, int id, trs_v3 walk, int jump);
+/* Apparent gravity (m/s2, craft-local) felt at rest at craft-local x now. */
+trs_v3 trs_vessel_felt(const trs_world *w, int id, trs_v3 x);
+/* internal: one step of the penguin, given the craft's attitude, spin and
+ * centre of mass at the start of the step (the vessel has already moved) */
+void trs_walker_step(trs_world *w, trs_vessel *vs, trs_quat q0, trs_v3 w0, trs_v3 cm0, double h);
+
 /* Local horizon frame at r (SOI frame): up, north, east. */
 void trs_local_frame(trs_v3 r, trs_v3 *up, trs_v3 *north, trs_v3 *east);
 /* Destroys part `part` of vessel `id` (impact speed, or a TRS_DESTROY_* code);

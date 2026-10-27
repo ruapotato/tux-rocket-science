@@ -361,6 +361,18 @@ void trs_world_step_physics(trs_world *w) {
 	const double h = TRS_PHYSICS_DT;
 	double t = w->t;
 	trs_world_vessel_contacts(w);
+	/* penguins indoors step with their craft's frame: where it was */
+	trs_quat wq0[TRS_MAX_VESSELS];
+	trs_v3 ww0[TRS_MAX_VESSELS], wcm0[TRS_MAX_VESSELS];
+	for (int i = 0; i < w->nvessels; i++)
+		if (w->vessels[i].alive && w->vessels[i].walker.active) {
+			trs_vessel *vs = &w->vessels[i];
+			if (vs->craft && vs->dirty)
+				trs_vessel_refresh(w, i);
+			wq0[i] = vs->q, wcm0[i] = vs->cm;
+			ww0[i] = vs->mode == TRS_MODE_RAILS ? v3(0, 0, 0) : vs->w;
+		}
+	int nbefore = w->nvessels;
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
 		if (!vs->alive || (vs->mode != TRS_MODE_PHYSICS && vs->mode != TRS_MODE_INTERSTELLAR))
@@ -379,6 +391,9 @@ void trs_world_step_physics(trs_world *w) {
 			idle_mining(w, vs, h);
 	}
 	time_add(w, h);
+	for (int i = 0; i < nbefore; i++)
+		if (w->vessels[i].alive && w->vessels[i].walker.active)
+			trs_walker_step(w, &w->vessels[i], wq0[i], ww0[i], wcm0[i], h);
 	trs_world_dock_check(w);
 	int n = w->nvessels; /* destruction may append vessels */
 	for (int i = 0; i < n; i++) {

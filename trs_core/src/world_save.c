@@ -243,6 +243,21 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_D(o, vs, rcs_mdot);
 		PUT_D(o, vs, rcs_dv_expended);
 		PUT_V(o, vs, sensed_accel);
+		PUT_D(o, vs, spin);
+		if (vs->walker.active) {
+			const trs_walker *wk = &vs->walker;
+			trs_json *wj = trs_json_new(TRS_JSON_OBJECT);
+			PUT_I(wj, wk, uid);
+			PUT_V(wj, wk, x);
+			PUT_V(wj, wk, v);
+			PUT_V(wj, wk, walk);
+			PUT_I(wj, wk, jump);
+			PUT_I(wj, wk, touching);
+			PUT_I(wj, wk, standing);
+			PUT_V(wj, wk, normal);
+			PUT_V(wj, wk, felt);
+			trs_json_set(o, "walker", wj);
+		}
 		PUT_D(o, vs, dv_expended);
 		PUT_D(o, vs, pressure);
 		PUT_D(o, vs, density);
@@ -362,6 +377,21 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_D(o, vs, rcs_mdot);
 		GET_D(o, vs, rcs_dv_expended);
 		GET_V(o, vs, sensed_accel);
+		GET_D(o, vs, spin);
+		const trs_json *wj = trs_json_get(o, "walker");
+		if (wj) {
+			trs_walker *wk = &vs->walker;
+			wk->active = 1;
+			GET_I(wj, wk, uid);
+			GET_V(wj, wk, x);
+			GET_V(wj, wk, v);
+			GET_V(wj, wk, walk);
+			GET_I(wj, wk, jump);
+			GET_I(wj, wk, touching);
+			GET_I(wj, wk, standing);
+			GET_V(wj, wk, normal);
+			GET_V(wj, wk, felt);
+		}
 		GET_D(o, vs, dv_expended);
 		GET_D(o, vs, pressure);
 		GET_D(o, vs, density);

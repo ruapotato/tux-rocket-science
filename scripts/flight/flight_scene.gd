@@ -110,6 +110,11 @@ func _ready() -> void:
 		# the mission clock runs from its liftoff, however long ago
 		mission_start = float(tr.liftoff_t) if tr.get("liftoff_t") != null else session.time()
 		hud.toast("Back aboard %s: %s over %s." % [tr.get("name", "the vessel"), str(tr.get("situation", "")).replace("_", " "), str(tr.get("body", "")).capitalize()], 4.0)
+	elif session.launch_site == "orbit":
+		_launched = true
+		mission_start = session.time()
+		hud.toast("PASA, %s is in the Orbital Yard, %d km over Floe. Enter takes you inside%s." % [session.telemetry().get("name", "vessel"),
+			int(FlightSession.YARD_ALT / 1000.0), ", Home spins it up" if session.telemetry().has("spin_design") else ""], 6.0)
 	elif session.launch_site == "runway":
 		hud.toast("%sPASA, %s is on the runway, brakes on. SPACE starts the engine, Z full throttle, B lets the brakes off." % [
 			("Cleared the runway first: recovered %s. " % ", ".join(cleared)) if not cleared.is_empty() else "", session.telemetry().get("name", "vessel")], 6.0)
@@ -377,6 +382,7 @@ func _build() -> void:
 	_sun = DirectionalLight3D.new()
 	_sun.light_energy = 1.3
 	_sun.shadow_enabled = true
+	_sun.light_cull_mask = 0xFFFFF & ~InteriorView.LAYER  # rooms are lit by their own lamps
 	_sun.directional_shadow_max_distance = 400.0
 	add_child(_sun)
 
@@ -466,10 +472,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
 			_orbiting = mb.pressed
+		elif _inside and mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+			_in_dist = clampf(_in_dist * (0.9 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1), 0.6, 8.0)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			_cam_dist = maxf(1.5 if session.telemetry().get("eva", false) else 4.0, _cam_dist * 0.9)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			_cam_dist = minf(CAM_MAX_DIST, _cam_dist * 1.1)
+	elif event is InputEventMouseMotion and _orbiting and _inside:
+		var mm := event as InputEventMouseMotion
+		_in_yaw += mm.relative.x * 0.008
+		_in_pitch = clampf(_in_pitch + mm.relative.y * 0.006, -1.4, 1.4)
 	elif event is InputEventMouseMotion and _orbiting:
 		var mm := event as InputEventMouseMotion
 		_cam_yaw += mm.relative.x * 0.008
@@ -488,8 +500,14 @@ func _key(k: InputEventKey) -> void:
 			hud.toggle_help()
 		KEY_ESCAPE:
 			hud.show_menu(not hud.menu_visible())
+		KEY_ENTER, KEY_KP_ENTER:
+			_toggle_inside()
+		KEY_HOME:
+			_toggle_spin()
 		KEY_SPACE:
-			if session.telemetry().get("eva", false):
+			if _inside:
+				session.core.walker_command(session.active, PackedFloat64Array([0, 0, 0]), true)
+			elif session.telemetry().get("eva", false):
 				session.set_walk(0.0, 0.0, true)  # jump (the walk is set again next frame)
 			else:
 				_stage()
@@ -1045,6 +1063,9 @@ func _exit_tree() -> void:
 
 
 func _controls(delta: float) -> void:
+	if _inside:
+		_inside_controls()
+		return
 	if session.telemetry().get("eva", false):
 		_eva_controls()
 		return
@@ -1289,6 +1310,211 @@ func _eva_key() -> void:
 	hud.toast("Nobody aboard to go outside", 2.0)
 
 
+## Enter: one of the crew gets up and walks about inside (a room of a
+## crewed part, or any room aboard), or goes back to the controls.
+func _toggle_inside() -> void:
+	if _inside:
+		_leave_inside()
+		hud.toast("%s is back at the controls" % _in_who, 2.0)
+		return
+	var t := session.telemetry()
+	if not t.get("alive", false) or t.get("eva", false):
+		return
+	var parts: Array = JSON.parse_string(session.core.vessel_parts(session.active))
+	var room := -1
+	var who := ""
+	for k in parts.size():
+		var d: Dictionary = Sim.part(parts[k].part)
+		if d.get("interior", {}).get("volumes", []).is_empty():
+			continue
+		var aboard: Array = Sim.seats.get(str(int(parts[k].uid)), [])
+		if room < 0 or (who == "" and not aboard.is_empty()):
+			room = k
+			who = aboard[0] if not aboard.is_empty() else ""
+	if room < 0:
+		hud.toast("No room aboard to walk about in: build in a hab (Burrow, Rookery) or a spin ring", 3.0)
+		return
+	if who == "":
+		for uid in Sim.seats:
+			for k in parts.size():
+				if str(int(parts[k].uid)) == uid and not Sim.seats[uid].is_empty():
+					who = Sim.seats[uid][0]
+	if who == "" and int(t.get("crew_capacity", 0)) > 0 and Sim.seats.is_empty():
+		who = "A penguin"
+	if who == "":
+		hud.toast("Nobody aboard to get up and walk about", 2.5)
+		return
+	if not session.core.walker_enter(session.active, room):
+		return
+	_in_who = who
+	_inside = InteriorView.new()
+	_inside.setup(session.core, session.active)
+	add_child(_inside)
+	_inside.rebuild(parts)
+	_in_dist = 3.0
+	_in_reframe = true
+	_in_cam_up = Vector3.UP
+	_in_framed_up = Vector3.UP
+	Sfx.play("click")
+	hud.toast("%s floats out of the seat into the %s. WASD move, Space jump or push off, Enter back to the controls" % [who, Sim.part(parts[room].part).get("name", "room")], 4.0)
+
+
+func _leave_inside() -> void:
+	if _inside:
+		session.core.walker_leave(_inside.vessel_id)
+		_inside.queue_free()
+	_inside = null
+
+
+## Home: the spin hold, turning the craft about its long axis at the rate
+## its spin ring was built for, with SAS keeping the nose where it is.
+func _toggle_spin() -> void:
+	var t := session.telemetry()
+	if not t.has("spin_design"):
+		hud.toast("No spin ring aboard: nothing to spin for", 2.0)
+		return
+	if float(t.get("spin_hold", 0.0)) != 0.0:
+		session.core.vessel_set_spin(session.active, 0.0)
+		hud.toast("Spin hold off: the craft keeps turning at %.2f rpm until something stops it (SAS holds still)" % (absf(float(t.spin_rate)) * 60.0 / TAU), 3.0)
+		return
+	var w: float = t.spin_design
+	session.core.vessel_set_spin(session.active, w)
+	if t.get("sas", "off") == "off":
+		_on_sas("stability")
+	hud.toast("Spinning up to %.2f rpm: %.2f g on the deck %.1f m out, once it gets there" % [w * 60.0 / TAU, w * w * _deck_radius() / 9.80665, _deck_radius()], 4.0)
+
+
+## How far a spin ring's deck is from the axis (the widest one aboard).
+func _deck_radius() -> float:
+	var best := 0.0
+	for p in JSON.parse_string(session.core.vessel_parts(session.active)):
+		for v in Sim.part(p.part).get("interior", {}).get("volumes", []):
+			if v.get("type", "") == "annulus":
+				best = maxf(best, float(v.get("r1", 0.0)))
+	return best
+
+
+## Walking indoors: WASD by the view (over the floor when there is weight
+## to stand on, anywhere when floating), Shift / Ctrl up and down when
+## floating. The ship keeps flying as it was: throttle, SAS and all.
+func _inside_controls() -> void:
+	session.set_input(0.0, 0.0, 0.0)
+	session.set_translate(0.0, 0.0, 0.0)
+	session.set_throttle(_throttle)
+	var t := session.telemetry()
+	var wk: Dictionary = t.get("walker", {})
+	if wk.is_empty():
+		return
+	var fwd := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
+	var right := float(Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT))
+	var lift := float(Input.is_key_pressed(KEY_SHIFT)) - float(Input.is_key_pressed(KEY_CTRL))
+	var inv := _inside.global_basis.inverse()
+	var cf := inv * -_cam.global_basis.z
+	var cr := inv * _cam.global_basis.x
+	var cu := inv * _cam.global_basis.y
+	var want: Vector3
+	if wk.get("standing", false):
+		var u := _inside.up
+		cf = (cf - u * cf.dot(u)).normalized() if absf(cf.dot(u)) < 0.98 else (cu - u * cu.dot(u)).normalized()
+		cr = (cr - u * cr.dot(u)).normalized()
+		want = cf * fwd + cr * right
+	else:
+		want = cf * fwd + cr * right + cu * lift
+	if want.length() > 1.0:
+		want = want.normalized()
+	var top: float = Sim.part("eva_penguin").get("eva", {}).get("walk_speed", 1.5)
+	var w := want * top
+	session.core.walker_command(session.active, PackedFloat64Array([w.x, w.y, w.z]), false)
+
+
+## The camera indoors: behind the penguin, its up away from the weight it
+## feels (or the way it already was, weightless), kept inside the room. It
+## picks the longest view in the room when the penguin comes in or its
+## weight swings round; in a tube too tight to stand back in it looks out
+## through the penguin's eyes.
+func _inside_view(t: Dictionary, delta: float) -> void:
+	if _inside == null:
+		return
+	var wk: Dictionary = t.get("walker", {})
+	if wk.is_empty() or _inside.vessel_id != session.active or not t.get("alive", false):
+		_leave_inside()
+		return
+	var frame: PackedFloat64Array = session.core.vessel_frame(session.active, session.active)
+	_inside.rebuild(JSON.parse_string(session.core.vessel_parts(session.active)))
+	_inside.update(frame, wk, delta)
+	var felt := DMath.to_v3(wk.felt)
+	var want_up := -felt.normalized() if felt.length() > 0.3 else _in_cam_up
+	if want_up.dot(_in_framed_up) < 0.85:
+		_in_framed_up = want_up
+		_in_reframe = true
+	_in_cam_up = _in_cam_up.slerp(want_up, clampf(delta * 3.0, 0.0, 1.0)).normalized()
+	var u := _in_cam_up
+	var target := DMath.to_v3(wk.x) + u * 0.25
+	if _in_reframe and not _orbiting:
+		_in_reframe = false
+		var best := -1.0
+		for yi in 12:
+			for pi in [0.15, 0.5, 0.95]:
+				var dd := _in_free(DMath.to_v3(wk.x) + want_up * 0.25, _in_dir(want_up, TAU * yi / 12.0, pi))
+				if dd > best + 0.05:
+					best = dd
+					_in_yaw = TAU * yi / 12.0
+					_in_pitch = pi
+	var dir := _in_dir(u, _in_yaw, _in_pitch)
+	var d := _in_free(target, dir)
+	var g := _inside.global_transform
+	var first := d < 1.1
+	_inside.penguin.visible = not first
+	if first:
+		var head := DMath.to_v3(wk.x) + _inside.up * 0.3
+		_cam.global_position = g * head
+		_cam.look_at(g * (head - dir), (g.basis * u).normalized())
+	else:
+		_cam.global_position = g * (target + dir * d)
+		_cam.look_at(g * target, (g.basis * u).normalized())
+	_cam.v_offset = 0.0
+
+
+## Which way the camera stands off the penguin: yaw about its up, pitch above.
+func _in_dir(u: Vector3, yaw: float, pitch: float) -> Vector3:
+	var ref := Vector3.UP if absf(u.dot(Vector3.UP)) < 0.9 else Vector3.BACK
+	var e1 := (ref - u * ref.dot(u)).normalized()
+	var e2 := u.cross(e1)
+	return -(e1 * cos(yaw) + e2 * sin(yaw)) * cos(pitch) + u * sin(pitch)
+
+
+## How far the camera can stand back from `from` along `dir` (up to the
+## chosen distance) and stay a little way off the walls.
+func _in_free(from: Vector3, dir: Vector3) -> float:
+	var d := 0.3
+	while d < _in_dist:
+		var p := from + dir * (d + 0.1)
+		if float(session.core.room_depth(session.active, PackedFloat64Array([p.x, p.y, p.z]))) < 0.12:
+			break
+		d += 0.1
+	return minf(d, _in_dist)
+
+
+func _inside_hint(t: Dictionary) -> String:
+	var wk: Dictionary = t.get("walker", {})
+	if wk.is_empty():
+		return ""
+	var g: float = wk.get("felt_g", 0.0)
+	var why := ""
+	if float(t.get("drive_accel", 0.0)) > 0.0 and g < 0.01:
+		why = "the Stillwater Drive pushes %.2f g and nobody feels it" % (float(t.drive_accel) / 9.80665)
+	elif absf(float(t.get("spin_rate", 0.0))) > 0.01 and g > 0.01:
+		why = "spinning at %.2f rpm" % (absf(float(t.spin_rate)) * 60.0 / TAU)
+	elif float(t.get("thrust", 0.0)) > 0.0:
+		why = "the engines push"
+	elif t.get("landed", false):
+		why = "the ground holds the ship up"
+	var feel := ("weighs %.2f g" % g) if g >= 0.005 else "weightless"
+	return "%s in the %s: %s%s · WASD %s · Space %s · Enter back to the controls" % [_in_who, wk.get("room_name", "room"), feel,
+		(" (" + why + ")") if why != "" else "", "walk" if wk.get("standing", false) else "paddle, Shift / Ctrl up / down",
+		"jump" if wk.get("standing", false) else "push off a wall"]
+
+
 ## The name of the craft whose hatch the penguin can reach now ("" if none).
 func _hatch_near() -> String:
 	for v in JSON.parse_string(session.core.vessel_list()):
@@ -1466,6 +1692,7 @@ func _render(delta: float) -> void:
 	# centre the craft in the band between the top panels and the navball
 	var vh := get_viewport().get_visible_rect().size.y
 	_cam.v_offset = -_cam_dist * tan(deg_to_rad(_cam.fov) * 0.5) * clampf((FlightHUD.BOTTOM_H - FlightHUD.TOP_H) / maxf(vh, 1.0), 0.0, 0.5)
+	_inside_view(t, delta)
 	_update_booms(delta, drift)
 	_update_failure(delta)
 
@@ -1559,8 +1786,22 @@ func _render(delta: float) -> void:
 		_react("orbit", 4.0)
 		hud.toast("Orbit achieved! The crew presses their beaks to the window.", 4.0)
 	_was_orbiting = t.situation == "orbiting"
+	# each penguin feels what its own seat does (a spin ring's deck weighs
+	# them, the capsule on the axis doesn't)
+	var seat_g: Dictionary = t.get("seat_g", {})
+	var felt_by := {}
+	for uid in Sim.seats:
+		if seat_g.has(uid):
+			for who in Sim.seats[uid]:
+				felt_by[who] = seat_g[uid]
 	for p in _portraits:
-		p.update_state(t, t.get("spin", 0.0), delta)
+		var name: String = p.member.get("name", "")
+		if felt_by.has(name) and absf(float(felt_by[name]) - float(t.get("g_force", 0.0))) > 1e-3:
+			var tp := t.duplicate()
+			tp.g_force = felt_by[name]
+			p.update_state(tp, t.get("spin", 0.0), delta)
+		else:
+			p.update_state(t, t.get("spin", 0.0), delta)
 	_update_audio(t)
 	if _smoke == null:
 		_smoke = SmokeTrail.new()
@@ -1626,6 +1867,10 @@ func _render(delta: float) -> void:
 	_was_powered = powered
 	if not powered and float(t.get("ec_capacity", 0.0)) > 0.0 and hint == "":
 		hint = "No power: point a solar panel at the sun (or wait for daylight) to charge the batteries"
+	if _inside:
+		hint = _inside_hint(t)
+	elif hint == "" and int(t.get("rooms", 0)) > 0 and not t.get("eva", false):
+		hint = "Enter: go inside and walk about" + (" · Home: spin hold (%s)" % ("on" if float(t.get("spin_hold", 0.0)) != 0.0 else "off") if t.has("spin_design") else "")
 	if t.get("eva", false):
 		var near := _hatch_near()
 		var standing: bool = int(t.get("contacts", 0)) > 0
@@ -1811,6 +2056,14 @@ var _chutes_open := 0
 var _reentry: ReentryFX
 var _front_ids: Array = []  # per rendered part: [radius, half height]
 var _front_key := ""  # which vessel (and how many parts) _front_ids describes
+var _inside: InteriorView  # a penguin walking about inside the active craft
+var _in_who := ""
+var _in_yaw := 0.0
+var _in_pitch := 0.25
+var _in_dist := 2.4
+var _in_cam_up := Vector3.UP  # the camera's up, craft-local
+var _in_framed_up := Vector3.UP  # the up the view was last framed for
+var _in_reframe := false
 
 
 func _update_audio(t: Dictionary) -> void:

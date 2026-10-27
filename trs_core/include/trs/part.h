@@ -34,6 +34,30 @@
 #define TRS_T_AMBIENT 288.15 /* K: skin temperature at rest, and what skins radiate toward */
 
 typedef enum { TRS_PROP_NONE = 0, TRS_PROP_LIQUID, TRS_PROP_SOLID } trs_propellant;
+
+#define TRS_MAX_VOLUMES 12 /* interior rooms per part */
+#define TRS_MAX_WINDOWS 4  /* window rows per room */
+
+/* A room inside a part, in part-local coordinates (its axis the part's +Y):
+ * a cylinder (radius r1 from y0 to y1), an annulus (r0 to r1 from the
+ * axis: a spin ring's deck is its outer wall), or a box (lo..hi, turned
+ * yaw rad about +Y). Rooms that touch or overlap are one space: a wall is
+ * only a wall where no other room carries on past it. Windows: rows of
+ * `count` square panes (side `size`) around a cylinder's wall at height
+ * `at`, or around an annulus's side walls at radius `at`. */
+typedef enum { TRS_VOL_CYLINDER = 1, TRS_VOL_ANNULUS, TRS_VOL_BOX } trs_volume_kind;
+typedef struct {
+	double at, size;
+	int count;
+} trs_window_row;
+typedef struct {
+	trs_volume_kind kind;
+	double r0, r1, y0, y1;
+	trs_v3 lo, hi;
+	double yaw;
+	int nwindows;
+	trs_window_row windows[TRS_MAX_WINDOWS];
+} trs_volume;
 typedef enum { TRS_DECOUPLER_NONE = 0, TRS_DECOUPLER_STACK, TRS_DECOUPLER_RADIAL } trs_decoupler_kind;
 
 typedef struct {
@@ -149,6 +173,13 @@ typedef struct {
 	double max_temp;    /* K: the part fails above this */
 	double skin_heat;   /* J/(m^2 K): heat capacity per unit skin area */
 	double emissivity;
+
+	/* interior: rooms a penguin can float or walk around in, and the
+	 * spin (rad/s about the craft's axis) a spin hold turns a craft with
+	 * this part at (spin rings) */
+	int nvolumes;
+	trs_volume volumes[TRS_MAX_VOLUMES];
+	double spin_rate;
 
 	/* geometry used for mass properties and default areas */
 	double radius, height;
