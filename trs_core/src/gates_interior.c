@@ -90,7 +90,7 @@ trs_gate_status trs_gate_interior(trs_log *out, const char *data_dir) {
 	}
 	int floe = trs_system_find(&sys, "floe"), austra = trs_system_find(&sys, "austra");
 	const double h = TRS_PHYSICS_DT;
-	const double rad = 0.5 * cat.defs[trs_catalog_find(&cat, "eva_penguin")].height;
+	const double rad = trs_penguin_room_radius(&cat);
 	int failed = 0;
 	trs_world *w = malloc(sizeof(trs_world));
 
@@ -287,6 +287,28 @@ trs_gate_status trs_gate_interior(trs_log *out, const char *data_dir) {
 		failed += !ok;
 		trs_log_printf(out, "%s on the pad: stands on the floor feeling %.5f m/s2, the ground's pull less its turning %.5f, straight down\n",
 				ok ? "ok  " : "FAIL", felt, v3_len(g_eff));
+		trs_world_free(w);
+		trs_craft_free(&c);
+	}
+
+	/* 5b. even the Pebble-1: one penguin, hunched, on its floor */
+	{
+		trs_world_init(w, &sys, 0);
+		trs_craft c;
+		trs_craft_init(&c, &cat);
+		int pod = stack(&c, "pod_1", -1, 0);
+		const trs_body *F = &sys.bodies[floe];
+		int id = trs_world_launch(w, &c, floe, F->site_lat, F->site_lon);
+		trs_vessel *vs = &w->vessels[id];
+		int in = trs_walker_enter(w, id, pod);
+		for (int k = 0; k < 150; k++)
+			trs_world_step_physics(w);
+		const trs_volume *v = &trs_craft_def(vs->craft, pod)->volumes[0];
+		double depth = trs_craft_room_depth(vs->craft, NULL, 0, vs->walker.x);
+		int ok = in && vs->walker.standing && depth >= rad - 2e-3 && fabs(vs->walker.x.y - (v->y0 + rad)) < 2e-3;
+		failed += !ok;
+		trs_log_printf(out, "%s in a Pebble-1 on the pad: the penguin (a %.2f m ball, hunched) stands on its floor %.3f m off it, %.3f m clear of the walls\n",
+				ok ? "ok  " : "FAIL", rad, vs->walker.x.y - v->y0, depth);
 		trs_world_free(w);
 		trs_craft_free(&c);
 	}

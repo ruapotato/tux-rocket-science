@@ -24,7 +24,7 @@ class_name InteriorView
 extends Node3D
 
 const LAYER := 1 << 2
-const CELL := 0.35
+const CELL := 0.2
 const WALL_SHADER := """
 shader_type spatial;
 render_mode cull_disabled;
@@ -63,6 +63,7 @@ var _built_for := ""
 var up := Vector3.UP       # the penguin's up, craft-local
 var _fwd := Vector3.BACK   # where it faces, craft-local
 var _air := false
+var windows: Array = []  # craft-local centres of the capsule windows (a cockpit view looks out of the first)
 
 
 func setup(c: TrsSim, id: int) -> void:
@@ -79,7 +80,8 @@ func setup(c: TrsSim, id: int) -> void:
 	var rig: Node3D = load("res://scenes/tux_rig.tscn").instantiate()
 	rig.scale = Vector3.ONE * (h / 1.05)
 	_facing.add_child(rig)
-	_facing.position.y = -h * 0.5
+	# its feet at the bottom of the ball it takes up indoors (it hunches in a capsule)
+	_facing.position.y = -float(Sim.part("eva_penguin").get("eva", {}).get("room_radius", h * 0.5))
 	_anim = TuxAnimator.new()
 	_anim.setup(rig)
 	_layer(penguin)
@@ -94,8 +96,9 @@ func rebuild(parts: Array) -> void:
 	if walls:
 		walls.queue_free()
 	for c in get_children():
-		if c is OmniLight3D:
+		if c is OmniLight3D or c.name.begins_with("Fit"):
 			c.queue_free()
+	windows.clear()
 	var feed: PackedFloat64Array = core.room_mesh(vessel_id, CELL)
 	if feed.is_empty():
 		return
@@ -153,8 +156,9 @@ func rebuild(parts: Array) -> void:
 					var r: float = v.get("radius", 1.0)
 					var y0: float = v.get("y0", 0.0)
 					var y1: float = v.get("y1", 0.0)
-					if r > 0.8:
-						_lamp(xf * Vector3(0, (y0 + y1) * 0.5, 0), maxf(r, y1 - y0) * 2.2)
+					_lamp(xf * Vector3(0, (y0 + y1) * 0.5, 0), maxf(r, y1 - y0) * 2.2, 1.4 if r > 0.8 else 0.6)
+					if v.has("radius_top"):
+						_cockpit(xf, v, CraftModel.size_of(p))
 				"annulus":
 					var rm: float = (float(v.get("r0", 0.0)) + float(v.get("r1", 0.0))) * 0.5
 					var y: float = (float(v.get("y0", 0.0)) + float(v.get("y1", 0.0))) * 0.5
@@ -167,11 +171,59 @@ func rebuild(parts: Array) -> void:
 					_lamp(xf * ((lo + hi) * 0.5), (hi - lo).length() * 1.2)
 
 
-func _lamp(at: Vector3, reach: float) -> void:
+## A capsule's cabin: a console under each window, its screens lit, and the
+## couch the penguin sits in to fly.
+func _cockpit(xf: Transform3D, v: Dictionary, size: Array) -> void:
+	var r0: float = float(v.radius) * (float(size[0]) + float(size[2])) * 0.5
+	var r1: float = float(v.radius_top) * (float(size[0]) + float(size[2])) * 0.5
+	var y0: float = float(v.y0) * float(size[1])
+	var y1: float = float(v.y1) * float(size[1])
+	var dark := PartVisual.mat("console", Color(0.12, 0.13, 0.16), 0.3, 0.5)
+	for w in v.get("windows", []):
+		var y: float = float(w.get("at", 0.0)) * float(size[1])
+		var rr := lerpf(r0, r1, (y - y0) / (y1 - y0)) - 0.05
+		for a_deg in w.get("angles_deg", []):
+			var a := deg_to_rad(float(a_deg))
+			var out := Vector3(sin(a), 0, cos(a))
+			windows.append(xf * (out * rr + Vector3(0, y, 0)))
+			var b := Basis(Vector3.UP, a)
+			var ry := y - 0.2
+			var rc := lerpf(r0, r1, (ry - y0) / (y1 - y0)) - 0.09
+			var con := _fit(MeshInstance3D.new(), xf * Transform3D(b * Basis(Vector3.RIGHT, -0.5), b * Vector3(0, ry, rc)))
+			var bm := BoxMesh.new()
+			bm.size = Vector3(0.3, 0.16, 0.05)
+			con.mesh = bm
+			con.material_override = dark
+			for k in 3:
+				var scr := _fit(MeshInstance3D.new(), con.transform * Transform3D(Basis.IDENTITY, Vector3(-0.09 + 0.09 * k, 0.01, -0.03)))
+				var qm := QuadMesh.new()
+				qm.size = Vector2(0.06, 0.05)
+				scr.mesh = qm
+				scr.rotation = con.rotation
+				scr.rotate_object_local(Vector3.UP, PI)
+				var glow: Color = [Color(0.3, 1.0, 0.55), Color(1.0, 0.6, 0.2), Color(0.4, 0.75, 1.0)][k]
+				scr.material_override = PartVisual.mat("screen%d" % k, glow * 0.3, 0.0, 0.4, glow)
+	# the couch: a padded seat and back on the floor
+	var seat := _fit(MeshInstance3D.new(), xf * Transform3D(Basis(Vector3.RIGHT, 0.25), Vector3(0, y0 + 0.08, -0.08)))
+	var sm := BoxMesh.new()
+	sm.size = Vector3(0.42, 0.08, 0.5)
+	seat.mesh = sm
+	seat.material_override = PartVisual.mat("couch", Color(0.85, 0.45, 0.15), 0.0, 0.8)
+
+
+func _fit(n: Node3D, xf: Transform3D) -> Node3D:
+	n.name = "Fit%d" % get_child_count()
+	n.transform = xf
+	add_child(n)
+	_layer(n)
+	return n
+
+
+func _lamp(at: Vector3, reach: float, energy := 1.4) -> void:
 	var l := OmniLight3D.new()
 	l.position = at
 	l.omni_range = reach
-	l.light_energy = 1.4
+	l.light_energy = energy
 	l.light_color = Color(1.0, 0.9, 0.75)
 	l.light_cull_mask = LAYER
 	l.shadow_enabled = false

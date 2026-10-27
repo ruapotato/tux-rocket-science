@@ -483,6 +483,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		_in_yaw += mm.relative.x * 0.008
 		_in_pitch = clampf(_in_pitch + mm.relative.y * 0.006, -1.4, 1.4)
+		_in_looked = true
 	elif event is InputEventMouseMotion and _orbiting:
 		var mm := event as InputEventMouseMotion
 		_cam_yaw += mm.relative.x * 0.008
@@ -1354,6 +1355,7 @@ func _toggle_inside() -> void:
 	_inside.rebuild(parts)
 	_in_dist = 3.0
 	_in_reframe = true
+	_in_looked = false
 	_in_cam_up = Vector3.UP
 	_in_framed_up = Vector3.UP
 	Sfx.play("click")
@@ -1467,9 +1469,13 @@ func _inside_view(t: Dictionary, delta: float) -> void:
 	var first := d < 1.1
 	_inside.penguin.visible = not first
 	if first:
-		var head := DMath.to_v3(wk.x) + _inside.up * 0.3
+		var head := DMath.to_v3(wk.x) + _inside.up * 0.2
 		_cam.global_position = g * head
-		_cam.look_at(g * (head - dir), (g.basis * u).normalized())
+		# in a capsule, out of its window (until the mouse turns the view)
+		var look := head - dir
+		if not _inside.windows.is_empty() and not _in_looked:
+			look = _inside.windows[0]
+		_cam.look_at(g * look, (g.basis * u).normalized())
 	else:
 		_cam.global_position = g * (target + dir * d)
 		_cam.look_at(g * target, (g.basis * u).normalized())
@@ -2072,6 +2078,7 @@ var _in_dist := 2.4
 var _in_cam_up := Vector3.UP  # the camera's up, craft-local
 var _in_framed_up := Vector3.UP  # the up the view was last framed for
 var _in_reframe := false
+var _in_looked := false  # the player has turned the view indoors
 
 
 func _update_audio(t: Dictionary) -> void:

@@ -148,6 +148,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->eva_walk = trs_json_num(ev, "walk_speed", 1.5);
 		d->eva_jump = trs_json_num(ev, "jump_speed", 2.0);
 		d->eva_reach = trs_json_num(ev, "reach", 1.5);
+		d->eva_room_radius = trs_json_num(ev, "room_radius", 0.35);
 	}
 	const trs_json *wh = trs_json_get(j, "wheel");
 	if (wh) {
@@ -185,11 +186,15 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 			v.r1 = trs_json_num(vj, "r1", trs_json_num(vj, "radius", 0));
 			v.y0 = trs_json_num(vj, "y0", 0);
 			v.y1 = trs_json_num(vj, "y1", 0);
+			v.rt = trs_json_num(vj, "radius_top", v.r1);
 			const trs_json *wr = trs_json_get(vj, "windows");
 			for (size_t q = 0; wr && q < wr->count && v.nwindows < TRS_MAX_WINDOWS; q++) {
 				const trs_json *wj = trs_json_at(wr, q);
-				v.windows[v.nwindows++] = (trs_window_row){ trs_json_num(wj, "at", 0), trs_json_num(wj, "size", 0.5),
-					(int)trs_json_num(wj, "count", 0) };
+				trs_window_row wr = { trs_json_num(wj, "at", 0), trs_json_num(wj, "size", 0.5), (int)trs_json_num(wj, "count", 0), 0, { 0 } };
+				const trs_json *aj = trs_json_get(wj, "angles_deg");
+				for (size_t e = 0; aj && e < aj->count && wr.nangles < 6; e++)
+					wr.angles[wr.nangles++] = trs_json_at(aj, e)->num * TRS_PI / 180.0;
+				v.windows[v.nwindows++] = wr;
 			}
 			int n = 1;
 			if (!strcmp(ty, "cylinder"))
@@ -327,7 +332,7 @@ void trs_part_def_scaled(const trs_part_def *b, trs_v3 s, trs_part_def *d) {
 		d->rcs_pos[k] = mulv(b->rcs_pos[k], s);
 	for (int k = 0; k < d->nvolumes; k++) {
 		trs_volume *v = &d->volumes[k];
-		v->r0 *= lat, v->r1 *= lat, v->y0 *= s.y, v->y1 *= s.y;
+		v->r0 *= lat, v->r1 *= lat, v->rt *= lat, v->y0 *= s.y, v->y1 *= s.y;
 		if (v->kind == TRS_VOL_BOX && v->yaw == 0)
 			v->lo = mulv(v->lo, s), v->hi = mulv(v->hi, s);
 		else if (v->kind == TRS_VOL_BOX)

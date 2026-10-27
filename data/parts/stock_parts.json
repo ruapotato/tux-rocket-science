@@ -17,6 +17,7 @@
       "crash_tolerance": 14,
       "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
+      "interior": { "volumes": [{ "type": "cylinder", "radius": 0.585, "radius_top": 0.276, "y0": -0.46, "y1": 0.45, "windows": [{ "at": 0.08, "angles_deg": [0], "size": 0.21 }] }] },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.0 },
       "nodes": [
         { "name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.3 },
@@ -39,6 +40,7 @@
       "crash_tolerance": 14,
       "thermal": { "max_temp": 1100, "skin_heat": 12000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.35, "cd_bottom": 1.1, "cd_side": 0.9, "cop": 0.3 },
+      "interior": { "volumes": [{ "type": "cylinder", "radius": 0.585, "radius_top": 0.28, "y0": -0.74, "y1": 0.72, "windows": [{ "at": 0.128, "angles_deg": [-31.5, 0, 31.5], "size": 0.21 }] }] },
       "shape": { "type": "capsule", "radius_bottom": 0.625, "radius_top": 0.3, "height": 1.6 },
       "nodes": [
         { "name": "top", "pos": [0, 0.8, 0], "dir": [0, 1, 0], "radius": 0.3 },
@@ -552,7 +554,7 @@
       "crew": 1,
       "torque": 500,
       "fuel_mono": 5,
-      "eva": { "walk_speed": 1.6, "jump_speed": 2.2, "reach": 1.5 },
+      "eva": { "walk_speed": 1.6, "jump_speed": 2.2, "reach": 1.5, "room_radius": 0.35 },
       "rcs": {
         "thrust": 25, "isp_vac": 80, "isp_sl": 40,
         "nozzles": [

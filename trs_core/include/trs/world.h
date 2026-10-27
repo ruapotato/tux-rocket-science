@@ -351,6 +351,8 @@ trs_v3 trs_part_seat(const trs_craft *c, int part);
 /* A penguin of vessel id goes inside: into the first room of part `part`
  * (which must have one), at rest in the craft's frame. 0 if it can't. */
 int trs_walker_enter(trs_world *w, int id, int part);
+/* The ball a penguin takes up indoors (its "eva" room_radius), m. */
+double trs_penguin_room_radius(const trs_part_catalog *cat);
 void trs_walker_leave(trs_world *w, int id);
 /* What the penguin is trying to do: walk (or paddle, floating) at `walk`
  * m/s (craft-local), and push off its surface. */

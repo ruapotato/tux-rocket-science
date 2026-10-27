@@ -44,15 +44,18 @@ typedef enum { TRS_PROP_NONE = 0, TRS_PROP_LIQUID, TRS_PROP_SOLID } trs_propella
  * yaw rad about +Y). Rooms that touch or overlap are one space: a wall is
  * only a wall where no other room carries on past it. Windows: rows of
  * `count` square panes (side `size`) around a cylinder's wall at height
- * `at`, or around an annulus's side walls at radius `at`. */
+ * `at`, or around an annulus's side walls at radius `at`. A cylinder may
+ * taper: radius r1 at y0 to rt at y1 (a capsule's cabin). */
 typedef enum { TRS_VOL_CYLINDER = 1, TRS_VOL_ANNULUS, TRS_VOL_BOX } trs_volume_kind;
 typedef struct {
 	double at, size;
 	int count;
+	int nangles; /* or panes at these angles (rad, from +Z toward +X), not `count` evenly */
+	double angles[6];
 } trs_window_row;
 typedef struct {
 	trs_volume_kind kind;
-	double r0, r1, y0, y1;
+	double r0, r1, y0, y1, rt;
 	trs_v3 lo, hi;
 	double yaw;
 	int nwindows;
@@ -133,6 +136,7 @@ typedef struct {
 	 * eva_reach m of its hull */
 	int is_eva;
 	double eva_walk, eva_jump, eva_reach;
+	double eva_room_radius; /* indoors it takes up a ball this big (m): it hunches in a capsule */
 	int is_ladder; /* a penguin within reach of it can climb it to the hatch */
 
 	/* mining: an ore bin holds ore_capacity kg; a drill, running, its tip

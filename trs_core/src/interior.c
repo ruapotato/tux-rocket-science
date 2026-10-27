@@ -66,8 +66,21 @@ static double room_depth_local(const trs_volume *v, trs_v3 p) {
 		return fmin(fmin(fmin(p.x - v->lo.x, v->hi.x - p.x), fmin(p.y - v->lo.y, v->hi.y - p.y)),
 				fmin(p.z - v->lo.z, v->hi.z - p.z));
 	double rho = hypot(p.x, p.z);
+	if (v->kind == TRS_VOL_CYLINDER && v->rt != v->r1) {
+		/* tapering: the slant wall's distance, square to it */
+		double sl = (v->rt - v->r1) / (v->y1 - v->y0);
+		double R = v->r1 + sl * (p.y - v->y0);
+		return fmin(fmin((R - rho) / sqrt(1 + sl * sl), p.y - v->y0), v->y1 - p.y);
+	}
 	double d = fmin(fmin(v->r1 - rho, p.y - v->y0), v->y1 - p.y);
 	return v->kind == TRS_VOL_ANNULUS ? fmin(d, rho - v->r0) : d;
+}
+
+/* a cylinder's radius at height y (tapering from r1 at y0 to rt at y1) */
+static double wall_r(const trs_volume *v, double y) {
+	if (v->kind != TRS_VOL_CYLINDER || v->rt == v->r1)
+		return v->r1;
+	return v->r1 + (v->rt - v->r1) * (y - v->y0) / (v->y1 - v->y0);
 }
 
 static double room_depth(const trs_room *r, trs_v3 x) {
@@ -108,11 +121,18 @@ static int face(const trs_volume *v, int f, trs_v3 p, trs_v3 *at, trs_v3 *n) {
 	double rho = hypot(p.x, p.z);
 	trs_v3 dir = rho > 1e-12 ? v3(p.x / rho, 0, p.z / rho) : v3(1, 0, 0);
 	double y = fmin(fmax(p.y, v->y0), v->y1);
-	if (f == 0) { /* the outer wall */
+	if (f == 0 && v->kind == TRS_VOL_CYLINDER && v->rt != v->r1) {
+		/* a tapering wall: the nearest point of its slant, in the plane through the axis */
+		double ty = v->y1 - v->y0, tr = v->rt - v->r1, L = sqrt(ty * ty + tr * tr);
+		double s = fmin(1, fmax(0, ((rho - v->r1) * tr + (p.y - v->y0) * ty) / (L * L)));
+		double rr = v->r1 + tr * s, yy = v->y0 + ty * s;
+		*at = v3(dir.x * rr, yy, dir.z * rr);
+		*n = v3_add(v3_scale(dir, -ty / L), v3(0, tr / L, 0));
+	} else if (f == 0) { /* the outer wall */
 		*at = v3(dir.x * v->r1, y, dir.z * v->r1);
 		*n = v3_neg(dir);
 	} else if (f == 1 || f == 2) { /* the ends */
-		double rr = fmin(fmax(rho, v->kind == TRS_VOL_ANNULUS ? v->r0 : 0), v->r1);
+		double rr = fmin(fmax(rho, v->kind == TRS_VOL_ANNULUS ? v->r0 : 0), f == 2 ? wall_r(v, v->y1) : v->r1);
 		*at = v3(dir.x * rr, f == 1 ? v->y0 : v->y1, dir.z * rr);
 		*n = v3(0, f == 1 ? 1 : -1, 0);
 	} else { /* an annulus's inner wall */
@@ -139,8 +159,13 @@ static const trs_part_def *penguin_def(const trs_part_catalog *cat) {
 	return NULL;
 }
 
+double trs_penguin_room_radius(const trs_part_catalog *cat) {
+	const trs_part_def *pd = penguin_def(cat);
+	return pd && pd->eva_room_radius > 0 ? pd->eva_room_radius : 0.35;
+}
+
 static double penguin_radius(const trs_part_def *pd) {
-	return pd ? 0.5 * pd->height : 0.45;
+	return pd && pd->eva_room_radius > 0 ? pd->eva_room_radius : 0.35;
 }
 
 trs_v3 trs_part_seat(const trs_craft *c, int part) {
@@ -177,6 +202,16 @@ int trs_walker_enter(trs_world *w, int id, int part) {
 	/* the middle of the room (of an annulus: its cross-section at +X) */
 	trs_v3 mid = v->kind == TRS_VOL_BOX ? v3_scale(v3_add(v->lo, v->hi), 0.5)
 		: v3(v->kind == TRS_VOL_ANNULUS ? 0.5 * (v->r0 + v->r1) : 0, 0.5 * (v->y0 + v->y1), 0);
+	if (v->kind == TRS_VOL_CYLINDER && v->rt != v->r1) {
+		/* a tapering cabin: on the axis where there is most room */
+		double best = -1e300;
+		for (int k = 0; k <= 40; k++) {
+			trs_v3 q = v3(0, v->y0 + (v->y1 - v->y0) * k / 40.0, 0);
+			double dp = room_depth_local(v, q);
+			if (dp > best)
+				best = dp, mid = q;
+		}
+	}
 	trs_walker *wk = &vs->walker;
 	memset(wk, 0, sizeof *wk);
 	wk->active = 1;
@@ -433,15 +468,27 @@ static void emit(mesh_out *m, trs_v3 a, trs_v3 b, trs_v3 c, trs_v3 d, int kind, 
 	}
 }
 
-static int in_window(const trs_volume *v, int curved, double ang, double along) {
+/* Is a wall cell (centre at angle ang, height or radius `along`, `cell`
+ * across) glass? A pane smaller than a cell still opens the one it is in. */
+static int in_window(const trs_volume *v, int curved, double ang, double along, double cell) {
 	for (int k = 0; k < v->nwindows; k++) {
 		const trs_window_row *wr = &v->windows[k];
-		if (wr->count <= 0 || fabs(along - wr->at) > 0.5 * wr->size)
+		double half = 0.5 * fmax(wr->size, cell * 1.01);
+		if ((wr->count <= 0 && wr->nangles == 0) || fabs(along - wr->at) > half)
 			continue;
 		double rad = curved ? v->r1 : wr->at;
+		if (wr->nangles) {
+			for (int a = 0; a < wr->nangles; a++) {
+				/* the panes' angles run from +Z toward +X; the walls' from +X toward +Z */
+				double off = fmod(ang - (0.5 * TRS_PI - wr->angles[a]) + 5 * TRS_PI, 2 * TRS_PI) - TRS_PI;
+				if (fabs(off) * rad < half)
+					return 1;
+			}
+			continue;
+		}
 		double step = 2 * TRS_PI / wr->count;
 		double off = fmod(ang + 0.5 * step + 4 * TRS_PI, step) - 0.5 * step;
-		if (fabs(off) * rad < 0.5 * wr->size)
+		if (fabs(off) * rad < half)
 			return 1;
 	}
 	return 0;
@@ -489,18 +536,18 @@ int trs_craft_room_mesh(const trs_craft *c, double cell, double *tri, int *kind,
 		int ny = (int)fmax(1, ceil((v->y1 - v->y0) / cell));
 		/* curved walls: the outer (a ring's deck), and an annulus's inner */
 		for (int wall = 0; wall < 1 + ann; wall++) {
-			double R = wall ? v->r0 : v->r1;
 			int kd = ann ? (wall ? 3 : 2) : 0;
 			for (int a = 0; a < nth; a++) {
 				double t0 = 2 * TRS_PI * a / nth, t1 = 2 * TRS_PI * (a + 1) / nth, tm = 0.5 * (t0 + t1);
 				for (int b = 0; b < ny; b++) {
 					double y0 = v->y0 + (v->y1 - v->y0) * b / ny, y1 = v->y0 + (v->y1 - v->y0) * (b + 1) / ny;
 					double ym = 0.5 * (y0 + y1);
-					if (covered(rooms, n, i, P(R * cos(tm), ym, R * sin(tm))))
+					double R0 = wall ? v->r0 : wall_r(v, y0), R1 = wall ? v->r0 : wall_r(v, y1), Rm = 0.5 * (R0 + R1);
+					if (covered(rooms, n, i, P(Rm * cos(tm), ym, Rm * sin(tm))))
 						continue;
-					int k = !wall && !ann && in_window(v, 1, tm, ym) ? 4 : kd;
-					emit(&m, P(R * cos(t0), y0, R * sin(t0)), P(R * cos(t1), y0, R * sin(t1)), P(R * cos(t1), y1, R * sin(t1)),
-							P(R * cos(t0), y1, R * sin(t0)), k, quat_rotate(r->rot, v3_scale(v3(cos(tm), 0, sin(tm)), wall ? 1 : -1)));
+					int k = !wall && !ann && in_window(v, 1, tm, ym, fmax(y1 - y0, Rm * (t1 - t0))) ? 4 : kd;
+					emit(&m, P(R0 * cos(t0), y0, R0 * sin(t0)), P(R0 * cos(t1), y0, R0 * sin(t1)), P(R1 * cos(t1), y1, R1 * sin(t1)),
+							P(R1 * cos(t0), y1, R1 * sin(t0)), k, quat_rotate(r->rot, v3_scale(v3(cos(tm), 0, sin(tm)), wall ? 1 : -1)));
 				}
 			}
 		}
@@ -508,14 +555,14 @@ int trs_craft_room_mesh(const trs_craft *c, double cell, double *tri, int *kind,
 		double rin = ann ? v->r0 : 0;
 		int nr = (int)fmax(1, ceil((v->r1 - rin) / cell));
 		for (int end = 0; end < 2; end++) {
-			double y = end ? v->y1 : v->y0;
+			double y = end ? v->y1 : v->y0, rout = end ? wall_r(v, v->y1) : v->r1;
 			for (int a = 0; a < nth; a++) {
 				double t0 = 2 * TRS_PI * a / nth, t1 = 2 * TRS_PI * (a + 1) / nth, tm = 0.5 * (t0 + t1);
 				for (int b = 0; b < nr; b++) {
-					double r0 = rin + (v->r1 - rin) * b / nr, r1 = rin + (v->r1 - rin) * (b + 1) / nr, rm = 0.5 * (r0 + r1);
+					double r0 = rin + (rout - rin) * b / nr, r1 = rin + (rout - rin) * (b + 1) / nr, rm = 0.5 * (r0 + r1);
 					if (covered(rooms, n, i, P(rm * cos(tm), y, rm * sin(tm))))
 						continue;
-					int k = ann && in_window(v, 0, tm, rm) ? 4 : 1;
+					int k = ann && in_window(v, 0, tm, rm, fmax(r1 - r0, rm * (t1 - t0))) ? 4 : 1;
 					emit(&m, P(r0 * cos(t0), y, r0 * sin(t0)), P(r1 * cos(t0), y, r1 * sin(t0)), P(r1 * cos(t1), y, r1 * sin(t1)),
 							P(r0 * cos(t1), y, r0 * sin(t1)), k, quat_rotate(r->rot, v3(0, end ? -1 : 1, 0)));
 				}
