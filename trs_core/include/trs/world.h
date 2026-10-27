@@ -45,6 +45,7 @@ typedef enum {
 	TRS_MODE_PHYSICS = 0,
 	TRS_MODE_RAILS = 1,
 	TRS_MODE_LANDED = 2, /* fixed to the rotating surface (clamps, landed warp) */
+	TRS_MODE_INTERSTELLAR = 3, /* past a star's heliopause: special relativity, no gravity (r, v relative to that star) */
 } trs_mode;
 
 typedef enum {
@@ -119,6 +120,18 @@ typedef struct {
 	 * (found while the craft rests, kept while it sits LANDED) */
 	double ore_rate, refine_rate, isru_kw;
 	int drill_ground;
+	/* between the stars: proper velocity (gamma v; v is kept as u / gamma),
+	 * how far the home calendar has run ahead of the ship's clock (s), the
+	 * Stillwater Drive's throttle, and its push last tick (m/s2, unfelt) */
+	trs_v3 u;
+	double tau_lag;
+	double drive;
+	double drive_accel;
+	/* a course to a star: course_star + 1 (0 = none); ship time left
+	 * speeding up, then slowing down; the line it flies along */
+	int course;
+	double course_acc, course_dec;
+	trs_v3 course_dir;
 	double drill_gap; /* m from the nearest running drill to the ground (-1 = none to say) */
 	trs_v3 rcs_rot;   /* RCS share of the rotation command per local axis (runtime) */
 	trs_v3 rcs_force; /* RCS force last tick, vessel-local, N (telemetry) */
@@ -175,6 +188,7 @@ typedef enum {
 	TRS_WEV_FLAMEOUT,
 	TRS_WEV_DOCKED,   /* vessel absorbed `other` (now gone) */
 	TRS_WEV_UNDOCKED, /* vessel let go of `other` (new) */
+	TRS_WEV_INTERSTELLAR, /* vessel passed star `other`'s heliopause, out into the space between the stars */
 } trs_world_event_kind;
 
 typedef struct {
@@ -269,6 +283,23 @@ double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit);
  * rests on the ground, running refineries turn ore into liquid
  * propellant; both stop where the batteries can't pay. */
 void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt);
+/* The Stillwater Drive's throttle (0..1); returns the drives aboard. */
+int trs_world_set_drive(trs_world *w, int id, double throttle);
+/* The drive's full push (m/s2) and power (kW) for the whole vessel. */
+double trs_vessel_drive_max(const trs_vessel *vs, double *kw);
+/* Warps the world on by `dtau` of vessel id's own clock (it must be
+ * between the stars): everything else moves by the home time that takes.
+ * Stops early when its course arrives. Returns the home time that passed. */
+double trs_world_warp_ship(trs_world *w, int id, double dtau);
+/* Sets a course to star `star`: the drive flat out toward a point just
+ * short of its heliopause, turning round exactly when what is left is
+ * what stopping takes, and off on arrival. Returns 0 if the vessel isn't
+ * between the stars or has no drive; star < 0 clears the course. Fills
+ * the ship time and home time the trip will take. */
+int trs_world_set_course(trs_world *w, int id, int star, double *tau, double *t);
+/* internal: heliopause crossings, and dt of home time between the stars */
+void trs_heliopause_check(trs_world *w, trs_vessel *vs);
+void trs_interstellar_advance(trs_world *w, trs_vessel *vs, double dt);
 /* Switches every drill and refinery aboard on or off; returns how many. */
 int trs_world_set_isru(trs_world *w, int id, int on);
 /* Local horizon frame at r (SOI frame): up, north, east. */

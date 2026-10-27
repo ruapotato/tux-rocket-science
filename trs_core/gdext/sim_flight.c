@@ -20,6 +20,7 @@
 
 /* TrsSim flight API: launch, controls, telemetry, render feeds, terrain. */
 #include "sim.h"
+#include "trs/relativity.h"
 #include "trs/craft.h"
 #include "trs/json.h"
 #include "trs/terrain.h"
@@ -331,7 +332,7 @@ static void m_vessel_deploy_chutes(void *self, const trs_val *a, trs_val *r) {
 	r->i = ok_vessel(h, a[0].i) ? trs_vessel_deploy_chutes(h->world, (int)a[0].i) : 0;
 }
 
-static const char *MODE_NAMES[] = { "physics", "rails", "landed" };
+static const char *MODE_NAMES[] = { "physics", "rails", "landed", "interstellar" };
 
 /* vessel_set_mode(id, "physics"|"rails"|"landed") */
 static void m_vessel_set_mode(void *self, const trs_val *a, trs_val *r) {
@@ -367,6 +368,8 @@ static const char *situation(const trs_world *w, int id, const trs_orbit *o) {
 		return "prelaunch";
 	if (vs->landed || vs->mode == TRS_MODE_LANDED)
 		return "landed";
+	if (vs->mode == TRS_MODE_INTERSTELLAR)
+		return "interstellar";
 	trs_v3 r, v;
 	trs_vessel_state(w, id, &r, &v);
 	double alt = v3_len(r) - b->radius;
@@ -461,6 +464,38 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(j, "mining_kw", trs_json_new_num(vs->isru_kw));
 		}
 	}
+	/* between the stars, and the Stillwater Drive */
+	{
+		double dkw, dmax = trs_vessel_drive_max(vs, &dkw);
+		const trs_body *st = &w->sys.bodies[b->star];
+		trs_v3 br0, bv0;
+		trs_body_state_galactic(&w->sys, vs->body, w->t, &br0, &bv0);
+		trs_v3 gal = v3_add(br0, pos);
+		trs_json_set(j, "star", trs_json_new_num(b->star));
+		trs_json_set(j, "star_name", trs_json_new_str(st->name));
+		trs_json_set(j, "galactic", v3_json(gal));
+		trs_json_set(j, "interstellar", trs_json_new_bool(vs->mode == TRS_MODE_INTERSTELLAR));
+		trs_json_set(j, "tau_lag", trs_json_new_num(vs->tau_lag));
+		if (vs->mode == TRS_MODE_INTERSTELLAR) {
+			double g = trs_rel_gamma(vs->u);
+			trs_json_set(j, "gamma", trs_json_new_num(g));
+			trs_json_set(j, "beta", trs_json_new_num(v3_len(vs->v) / TRS_C));
+			trs_json_set(j, "proper_speed", trs_json_new_num(v3_len(vs->u)));
+			trs_json_set(j, "velocity_galactic", v3_json(v3_add(bv0, vs->v)));
+		}
+		if (vs->course) {
+			trs_json_set(j, "course", trs_json_new_str(w->sys.bodies[vs->course - 1].id));
+			trs_json_set(j, "course_name", trs_json_new_str(w->sys.bodies[vs->course - 1].name));
+			trs_json_set(j, "course_to_turn", trs_json_new_num(vs->course_acc));
+			trs_json_set(j, "course_left", trs_json_new_num(vs->course_acc + vs->course_dec));
+		}
+		if (dmax > 0) {
+			trs_json_set(j, "drive", trs_json_new_num(vs->drive));
+			trs_json_set(j, "drive_accel", trs_json_new_num(vs->drive_accel));
+			trs_json_set(j, "drive_max", trs_json_new_num(dmax));
+			trs_json_set(j, "drive_kw", trs_json_new_num(dkw));
+		}
+	}
 	int biome = trs_body_biome(b, bdir);
 	if (biome >= 0) {
 		trs_json_set(j, "biome", trs_json_new_str(b->biomes[biome].id));
@@ -495,7 +530,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "ec", trs_json_new_num(ec));
 		trs_json_set(j, "ec_capacity", trs_json_new_num(ec_cap));
 		trs_json_set(j, "ec_gen", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_gen : trs_vessel_solar(w, vs, &lit)));
-		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS ? vs->ec_use : vs->isru_kw)); /* idle: only mining runs */
+		trs_json_set(j, "ec_use", trs_json_new_num(vs->mode == TRS_MODE_PHYSICS || vs->mode == TRS_MODE_INTERSTELLAR ? vs->ec_use : vs->isru_kw)); /* idle: only mining runs */
 		trs_json_set(j, "sunlit", trs_json_new_bool(vs->mode == TRS_MODE_PHYSICS ? vs->sunlit : (trs_vessel_solar(w, vs, &lit), lit)));
 		trs_json_set(j, "powered", trs_json_new_bool(vs->mode != TRS_MODE_PHYSICS || vs->powered || ec > 1e-9));
 		trs_json_set(j, "antenna_fraction", trs_json_new_num(antf));
@@ -830,12 +865,12 @@ static void m_body_render(void *self, const trs_val *a, trs_val *r) {
 	trs_world *w = h->world;
 	trs_v3 ro, vo, bo, bvo;
 	trs_vessel_state(w, (int)a[0].i, &ro, &vo);
-	trs_body_state_abs(&w->sys, w->vessels[a[0].i].body, w->t, &bo, &bvo);
+	trs_body_state_galactic(&w->sys, w->vessels[a[0].i].body, w->t, &bo, &bvo);
 	trs_v3 abs_origin = v3_add(ro, bo);
 	double *d = malloc(sizeof(double) * (size_t)(w->sys.count * 5));
 	for (int i = 0; i < w->sys.count; i++) {
 		trs_v3 bp, bv;
-		trs_body_state_abs(&w->sys, i, w->t, &bp, &bv);
+		trs_body_state_galactic(&w->sys, i, w->t, &bp, &bv);
 		trs_v3 rel = v3_sub(bp, abs_origin);
 		d[i * 5] = rel.x, d[i * 5 + 1] = rel.y, d[i * 5 + 2] = rel.z;
 		d[i * 5 + 3] = trs_body_rotation(&w->sys.bodies[i], w->t);
@@ -901,7 +936,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 }
 
 static const char *EVENT_NAMES[] = { "", "part_destroyed", "vessel_created", "soi_change", "landed", "liftoff",
-	"flameout", "docked", "undocked" };
+	"flameout", "docked", "undocked", "interstellar" };
 
 /* events_drain() -> JSON [{kind, t, vessel, other, uid, part, speed}] */
 static void m_events_drain(void *self, const trs_val *a, trs_val *r) {
@@ -917,7 +952,7 @@ static void m_events_drain(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(ej, "uid", trs_json_new_num(e->uid));
 		trs_json_set(ej, "part", trs_json_new_str(e->part));
 		trs_json_set(ej, "speed", trs_json_new_num(e->speed));
-		if (e->kind == TRS_WEV_SOI_CHANGE && e->other >= 0)
+		if ((e->kind == TRS_WEV_SOI_CHANGE || e->kind == TRS_WEV_INTERSTELLAR) && e->other >= 0)
 			trs_json_set(ej, "body", trs_json_new_str(h->world->sys.bodies[e->other].id));
 		trs_json_push(arr, ej);
 	}
@@ -935,8 +970,8 @@ static void m_to_body_fixed(void *self, const trs_val *a, trs_val *r) {
 		trs_world *w = h->world;
 		trs_v3 ro, vo, bo, bvo, bp, bv;
 		trs_vessel_state(w, (int)a[1].i, &ro, &vo);
-		trs_body_state_abs(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
-		trs_body_state_abs(&w->sys, (int)a[0].i, w->t, &bp, &bv);
+		trs_body_state_galactic(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
+		trs_body_state_galactic(&w->sys, (int)a[0].i, w->t, &bp, &bv);
 		trs_v3 p = v3_add(v3_add(ro, bo), v3(a[2].arr.data[0], a[2].arr.data[1], a[2].arr.data[2]));
 		trs_v3 f = trs_body_to_fixed(&w->sys.bodies[a[0].i], w->t, v3_sub(p, bp));
 		out[0] = f.x, out[1] = f.y, out[2] = f.z;
@@ -954,8 +989,8 @@ static void m_ground_clearance(void *self, const trs_val *a, trs_val *r) {
 		trs_world *w = h->world;
 		trs_v3 ro, vo, bo, bvo, bp, bv;
 		trs_vessel_state(w, (int)a[1].i, &ro, &vo);
-		trs_body_state_abs(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
-		trs_body_state_abs(&w->sys, (int)a[0].i, w->t, &bp, &bv);
+		trs_body_state_galactic(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
+		trs_body_state_galactic(&w->sys, (int)a[0].i, w->t, &bp, &bv);
 		trs_v3 p = v3_sub(v3_add(v3_add(ro, bo), v3(a[2].arr.data[0], a[2].arr.data[1], a[2].arr.data[2])), bp);
 		const trs_body *b = &w->sys.bodies[a[0].i];
 		double g = trs_body_terrain_at(b, w->t, p);
@@ -1114,6 +1149,27 @@ static void m_transfer_window(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(j, "dv_eject", trs_json_new_num(tr.dv_eject));
 	}
 	ret_json(r, j);
+}
+
+/* vessel_set_drive(id, throttle) -> drives aboard */
+static void m_vessel_set_drive(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->i = ok_vessel(h, a[0].i) ? trs_world_set_drive(h->world, (int)a[0].i, a[1].f) : 0;
+}
+
+/* set_course(id, star_index) -> [ship time, home time] of the trip (empty
+ * if it can't: not between the stars, no drive); star -1 clears it */
+static void m_set_course(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double out[2] = { 0, 0 };
+	int ok = ok_vessel(h, a[0].i) && trs_world_set_course(h->world, (int)a[0].i, (int)a[1].i, &out[0], &out[1]);
+	ret_doubles(r, out, ok && a[1].i >= 0 ? 2 : 0);
+}
+
+/* warp_ship(id, dtau) -> the home time that took (vessel between the stars) */
+static void m_warp_ship(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	r->f = ok_vessel(h, a[0].i) ? trs_world_warp_ship(h->world, (int)a[0].i, a[1].f) : 0;
 }
 
 /* vessel_set_mining(id, on) -> how many drills and refineries switched */
@@ -1408,8 +1464,8 @@ static void m_subpoint(void *self, const trs_val *a, trs_val *r) {
 	double out[2] = { 0, 0 };
 	if (ok_body(h, a[0].i) && ok_body(h, a[1].i)) {
 		trs_v3 bp, bv, tp, tv;
-		trs_body_state_abs(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
-		trs_body_state_abs(&h->world->sys, (int)a[1].i, h->world->t, &tp, &tv);
+		trs_body_state_galactic(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
+		trs_body_state_galactic(&h->world->sys, (int)a[1].i, h->world->t, &tp, &tv);
 		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_sub(tp, bp)));
 		out[0] = asin(d.z) * DEG;
 		out[1] = atan2(d.y, d.x) * DEG;
@@ -1423,7 +1479,7 @@ static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
 	double out[2] = { 0, 0 };
 	if (ok_body(h, a[0].i)) {
 		trs_v3 bp, bv;
-		trs_body_state_abs(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
+		trs_body_state_galactic(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
 		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_neg(bp)));
 		out[0] = asin(d.z) * DEG;
 		out[1] = atan2(d.y, d.x) * DEG;
@@ -1519,6 +1575,9 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "plan_start", m_plan_start, B, 4, { I, I, F, B }, { "id", "to", "want_pe_alt", "correction" } },
 	{ "plan_run", m_plan_run, A, 0, { 0 }, { 0 } },
 	{ "vessel_set_mining", m_vessel_set_mining, I, 2, { I, B }, { "id", "on" } },
+	{ "vessel_set_drive", m_vessel_set_drive, I, 2, { I, F }, { "id", "throttle" } },
+	{ "warp_ship", m_warp_ship, F, 2, { I, F }, { "id", "dtau" } },
+	{ "set_course", m_set_course, A, 2, { I, I }, { "id", "star" } },
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },

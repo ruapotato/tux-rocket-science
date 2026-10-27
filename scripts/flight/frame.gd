@@ -27,6 +27,17 @@ static func vec(a: PackedFloat64Array, o: int) -> Vector3:
 	return Vector3(a[o], a[o + 2], -a[o + 1])
 
 
+## Distance (double) and unit direction of a vector at o, less `minus`:
+## safe however far away it is (a float32 Vector3 squares to infinity
+## past about 1e19 m).
+static func dist_dir(a: PackedFloat64Array, o: int, minus := Vector3.ZERO) -> Array:
+	var x: float = a[o] - minus.x
+	var y: float = a[o + 2] - minus.y
+	var z: float = -a[o + 1] - minus.z
+	var d := sqrt(x * x + y * y + z * z)
+	return [d, Vector3(x / d, y / d, z / d) if d > 0.0 else Vector3.ZERO]
+
+
 static func vec_arr(a: Array) -> Vector3:
 	return Vector3(a[0], a[2], -a[1])
 

@@ -161,7 +161,7 @@ func _build_space() -> void:
 	_krill.mesh = km
 	_krill.material_override = PlanetBake.planet_material(Sim.core, Sim.core.body_find("krill"))
 	vp.add_child(_krill)
-	var stars := ScaledSpace._starfield()
+	var stars := ScaledSpace.backdrop_stars()
 	stars.scale = Vector3.ONE * 0.012
 	vp.add_child(stars)
 

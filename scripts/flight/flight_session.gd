@@ -137,6 +137,7 @@ func time() -> float:
 
 func set_throttle(x: float) -> void:
 	core.vessel_set_throttle(active, x)
+	core.vessel_set_drive(active, x)  # a Stillwater Drive aboard follows the throttle
 	_telemetry_tick = -1
 
 
@@ -306,7 +307,7 @@ func rails_cap(t: Dictionary) -> int:
 	if top > 0.0 and t.altitude > top:
 		h = minf(h, t.altitude - top)
 	var down := -float(t.vertical_speed)
-	if t.landed or down <= 0.0:
+	if t.get("interstellar", false) or t.landed or down <= 0.0:
 		return RAILS_WARP.size() - 1
 	# a path whose low point clears the air (or the mountains) comes to no harm
 	var pe = t.get("orbit", {}).get("pe_alt", null)
@@ -319,11 +320,32 @@ func rails_cap(t: Dictionary) -> int:
 	return cap
 
 
+## Between the stars with the drive braking: the fastest warp level at
+## which a frame takes off no more than a tenth of the speed that is left.
+func braking_cap(t: Dictionary, real_dt: float) -> int:
+	var acc: float = t.get("drive_accel", 0.0)
+	var u: float = t.get("proper_speed", 0.0)
+	var vg: Array = t.get("velocity_galactic", [0, 0, 0])
+	var nose: Array = t.get("nose", [0, 1, 0])
+	var along: float = vg[0] * nose[0] + vg[1] * nose[1] + vg[2] * nose[2]
+	if acc <= 0.0 or along >= 0.0:
+		return RAILS_WARP.size() - 1
+	var cap := 0
+	for i in RAILS_WARP.size():
+		if i > 0 and RAILS_WARP[i] * maxf(real_dt, 1.0 / 60.0) * acc <= 0.1 * u:
+			cap = i
+	return cap
+
+
 ## Why on-rails warp is not allowed right now ("" if it is).
 func rails_refusal() -> String:
 	var t := telemetry()
 	if not t.get("alive", false):
 		return "no vessel"
+	if t.get("interstellar", false):
+		return ""  # out here the drive burns through warp, by the ship's clock
+	if float(t.get("drive_accel", 0.0)) > 0.0:
+		return "cannot warp while the drive pushes inside a star's heliopause"
 	if t.landed and t.get("thrust", 0.0) <= 0.0:
 		return ""
 	if t.get("thrust", 0.0) > 0.0:
@@ -379,7 +401,23 @@ func advance(real_dt: float) -> void:
 	if warp_kind == "rails" and warp_index > 0:
 		# on rails nothing burns: throttling up hands the craft back to physics
 		var t := telemetry()
-		if t.get("thrust", 0.0) > 0.0 and not t.landed:
+		if t.get("interstellar", false):
+			# between the stars warp runs on the ship's clock, drive and all;
+			# braking, it eases off so the last of the speed comes off gently
+			var cap := braking_cap(t, real_dt)
+			if cap < warp_index:
+				set_warp("rails", cap)
+				events.append({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
+				if cap <= 0:
+					return
+			core.warp_ship(active, real_dt * RAILS_WARP[warp_index])
+			_collect_events()
+			_telemetry_tick = -1
+			if t.has("course") and not telemetry().has("course"):
+				set_warp("rails", 0)
+				events.append({"kind": "arrived", "body": t.course_name, "t": time()})
+			return
+		if (t.get("thrust", 0.0) > 0.0 or float(t.get("drive", 0.0)) > 0.0 and float(t.get("drive_max", 0.0)) > 0.0) and not t.landed:
 			set_warp("rails", 0)
 			events.append({"kind": "warp_stopped", "reason": "engines firing", "t": time()})
 			return

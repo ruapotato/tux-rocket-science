@@ -795,14 +795,23 @@ static trs_v3 control_torque(const trs_world *world, trs_vessel *vs, double gimb
 	return v3(cm[0], cm[1], cm[2]);
 }
 
+/* Rotation over a tick, by angular momentum: L (SOI frame) takes the
+ * torque, the craft turns by the spin at mid-tick, and the spin is what L
+ * and the inertia give at the new attitude. With no torque L is kept
+ * exactly, however fast it spins (stepping the spin itself, with its
+ * gyroscopic term, ran away past about 1 rad per tick). */
+static trs_v3 spin_of(const trs_m3 *Ii, trs_quat q, trs_v3 L) {
+	return quat_rotate(q, m3_mulv(Ii, quat_rotate(quat_conj(q), L)));
+}
+
 static void integrate_attitude(trs_vessel *vs, trs_v3 torque_local, double h) {
 	trs_v3 wb = quat_rotate(quat_conj(vs->q), vs->w);
-	trs_v3 Iw = m3_mulv(&vs->inertia, wb);
+	trs_v3 L = quat_rotate(vs->q, m3_mulv(&vs->inertia, wb));
+	L = v3_madd(L, quat_rotate(vs->q, torque_local), h);
 	trs_m3 Ii = m3_inverse(&vs->inertia);
-	trs_v3 wdot = m3_mulv(&Ii, v3_sub(torque_local, v3_cross(wb, Iw)));
-	wb = v3_madd(wb, wdot, h);
-	vs->w = quat_rotate(vs->q, wb);
-	vs->q = quat_integrate(vs->q, vs->w, h);
+	trs_quat half = quat_integrate(vs->q, spin_of(&Ii, vs->q, L), 0.5 * h);
+	vs->q = quat_integrate(vs->q, spin_of(&Ii, half, L), h);
+	vs->w = spin_of(&Ii, vs->q, L);
 }
 
 /* ---- translational RK4 with linear mass loss ------------------------------------- */
@@ -884,19 +893,33 @@ static void update_chutes(const trs_world *w, trs_vessel *vs, double t, double h
 /* Solar power (kW) on a vessel's panels now: each gives solar_kw x the
  * cosine of the sun off its face x (solar_ref_m / distance)^2, nothing
  * while any body stands between the vessel and the star. */
+static double solar_only(const trs_world *w, const trs_vessel *vs, int *sunlit);
+
+/* Power coming in (kW): the panels in the light and any reactor. */
 double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit) {
+	double kw = solar_only(w, vs, sunlit);
+	if (vs->craft)
+		for (int i = 0; i < vs->craft->count; i++)
+			kw += trs_craft_def(vs->craft, i)->gen_kw;
+	return kw;
+}
+
+static double solar_only(const trs_world *w, const trs_vessel *vs, int *sunlit) {
 	*sunlit = 0;
 	if (!vs->craft)
 		return 0;
 	trs_v3 br, bv, vr, vv;
 	trs_body_state_abs(&w->sys, vs->body, w->t, &br, &bv);
 	trs_vessel_state(w, (int)(vs - w->vessels), &vr, &vv); /* in any mode */
-	trs_v3 p = v3_add(br, vr); /* from the star */
+	trs_v3 p = v3_add(br, vr); /* from its star */
 	double d = v3_len(p);
-	if (d <= w->sys.bodies[0].radius)
+	const trs_body *star = &w->sys.bodies[w->sys.bodies[vs->body].star];
+	if (d <= star->radius)
 		return 0;
 	trs_v3 to_sun = v3_scale(p, -1.0 / d);
-	for (int k = 1; k < w->sys.count; k++) {
+	for (int k = 0; k < w->sys.count; k++) {
+		if (w->sys.bodies[k].star != star - w->sys.bodies || k == star - w->sys.bodies)
+			continue;
 		trs_v3 ck, cv;
 		trs_body_state_abs(&w->sys, k, w->t, &ck, &cv);
 		trs_v3 rel = v3_sub(ck, p);
@@ -919,7 +942,7 @@ double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit) {
 			continue;
 		trs_v3 n = quat_rotate(vs->craft->parts[i].rot, v3(0, 0, 1));
 		double r = df->solar_ref_m / d;
-		kw += df->solar_kw * fmax(0, v3_dot(n, sl)) * r * r;
+		kw += df->solar_kw * star->luminosity * fmax(0, v3_dot(n, sl)) * r * r;
 	}
 	return kw;
 }
@@ -1181,9 +1204,80 @@ int trs_world_set_isru(trs_world *w, int id, int on) {
 
 /* ---- the tick ------------------------------------------------------------------- */
 
+/* The Stillwater Drive inside a star's heliopause: at most DRIVE_SYSTEM_G,
+ * and it won't push a ship past DRIVE_SYSTEM_BETA of light speed through
+ * the star's frame (so ordinary mechanics stay true to a few parts per
+ * million). It moves every atom alike: nothing aboard feels it. */
+#define DRIVE_SYSTEM_G 1.0
+#define DRIVE_SYSTEM_BETA 0.01
+static void system_drive(trs_world *w, trs_vessel *vs, double h) {
+	double kw, amax = trs_vessel_drive_max(vs, &kw);
+	vs->drive_accel = 0;
+	if (amax <= 0 || vs->drive <= 0)
+		return;
+	double want = fmin(amax * vs->drive, DRIVE_SYSTEM_G * 9.80665);
+	double need = kw * want / amax;
+	double have = trs_craft_ec(vs->craft, NULL) / h;
+	double f = need > 0 ? fmin(1, fmax(0, have / need)) : 1;
+	trs_v3 a = v3_scale(quat_rotate(vs->q, v3(0, 1, 0)), want * f);
+	trs_v3 br, bv;
+	trs_body_state_abs(&w->sys, vs->body, w->t, &br, &bv);
+	trs_v3 vstar = v3_add(bv, vs->v);
+	double vl = v3_len(vstar);
+	if (vl > DRIVE_SYSTEM_BETA * 299792458.0) {
+		trs_v3 n = v3_scale(vstar, 1.0 / vl);
+		double along = v3_dot(a, n);
+		if (along > 0)
+			a = v3_madd(a, n, -along);
+	}
+	vs->r = v3_madd(vs->r, a, 0.5 * h * h);
+	vs->v = v3_madd(vs->v, a, h);
+	vs->drive_accel = v3_len(a);
+	trs_craft_ec_add(vs->craft, -need * f * h);
+	vs->ec_use += need * f;
+}
+
+/* Between the stars: steering as usual (wheels and SAS on the batteries),
+ * the drive's push, relativistic motion; no air, ground or gravity. */
+static void interstellar_tick(trs_world *w, trs_vessel *vs, double h) {
+	trs_craft *c = vs->craft;
+	double draw = 0, cap;
+	int lit;
+	double gen = trs_vessel_solar(w, vs, &lit);
+	vs->sunlit = lit;
+	for (int i = 0; i < c->count; i++)
+		draw += trs_craft_def(c, i)->ec_draw;
+	vs->powered = trs_craft_ec(c, &cap) > 1e-9 || gen >= draw + 1e-12;
+	trs_v3 torque = control_torque(w, vs, 0);
+	double wheel_kw = 0;
+	if (vs->powered)
+		for (int i = 0; i < c->count; i++) {
+			const trs_part_def *d = trs_craft_def(c, i);
+			wheel_kw += d->torque_kw_per_knm * d->torque / 1000.0;
+		}
+	trs_craft_ec_add(c, -wheel_kw * vs->wheel_load * h);
+	trs_interstellar_advance(w, vs, h);
+	vs->ec_gen = gen;
+	if (vs->drive_accel <= 0) { /* no drive running: the usual draw */
+		trs_craft_ec_add(c, (gen - draw) * h);
+		vs->ec_use = draw;
+	}
+	vs->ec_use += wheel_kw * vs->wheel_load;
+	vs->altitude = v3_len(vs->r) - w->sys.bodies[vs->body].radius;
+	vs->pressure = vs->density = vs->air_speed = 0;
+	vs->contacts = vs->landed = 0;
+	vs->throttle = 0; /* rockets are no use out here */
+	integrate_attitude(vs, torque, h);
+}
+
 void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	if (vs->dirty)
 		trs_vessel_refresh(w, (int)(vs - w->vessels));
+	if (vs->mode == TRS_MODE_INTERSTELLAR) {
+		interstellar_tick(w, vs, h);
+		return;
+	}
+	vs->drive_accel = 0;
 	const trs_body *b = &w->sys.bodies[vs->body];
 	vs->altitude = v3_len(vs->r) - b->radius;
 	trs_atmosphere_at(b, vs->altitude, &vs->pressure, &vs->density);
@@ -1303,6 +1397,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	}
 	vs->dv_expended += dv;
 	vs->sensed_accel = sensed;
+	system_drive(w, vs, h);
 	integrate_attitude(vs, torque, h);
 
 	/* a penguin jumps off the ground (the planet takes the other end) */

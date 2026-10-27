@@ -261,6 +261,36 @@ static func _panel(root: Node3D, sh: Dictionary) -> void:
 		_mesh(root, line, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.5 + h * k / 4.0, 0.157)))
 
 
+## The Stillwater Drive: a smooth dark drum ringed with pale teal bands
+## that glow, over a domed lens where a rocket would have its bell.
+static func _drive(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	var shell := mat("alien_shell", Color(0.1, 0.12, 0.15), 0.7, 0.18)
+	var glow := mat("alien_glow", Color(0.5, 0.95, 0.9), 0.0, 0.4, Color(0.25, 0.85, 0.8))
+	_cyl(root, r, r * 0.92, h * 0.8, h * 0.1, shell, 64)
+	for k in 3:
+		_cyl(root, r * 1.01 - k * 0.02, r * 1.01 - k * 0.02, 0.06, h * 0.4 - k * h * 0.22, glow, 64)
+	var lens := SphereMesh.new()
+	lens.radius = r * 0.88
+	lens.height = r * 0.7
+	_mesh(root, lens, glow, Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.3, 0)))
+	_cyl(root, r * 0.9, r * 0.9, h * 0.08, -h * 0.32, shell, 64)
+
+
+## The Hearth Core: a drum with a band of windows onto a warm glow.
+static func _hearth(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.radius
+	var h: float = sh.height
+	_cyl(root, r, r, h, 0.0, mat("alien_shell", Color(0.1, 0.12, 0.15), 0.7, 0.18), 64)
+	_cyl(root, r * 1.004, r * 1.004, h * 0.3, 0.0, mat("hearth_glow", Color(1.0, 0.62, 0.25), 0.0, 0.3, Color(1.0, 0.5, 0.15)), 64)
+	for k in 8:
+		var a := TAU * k / 8.0
+		var rib := BoxMesh.new()
+		rib.size = Vector3(0.12, h * 0.34, 0.05)
+		_mesh(root, rib, mat("alien_shell", Color(0.1, 0.12, 0.15), 0.7, 0.18), Transform3D(Basis(Vector3.UP, a), Vector3(sin(a), 0, cos(a)) * (r + 0.01)))
+
+
 ## An ore drill: a graphite gearbox on the hull (+Z out) with a steel
 ## auger hanging below it (-Y, toward the ground on a standing craft).
 static func _drill(root: Node3D, sh: Dictionary) -> void:
@@ -508,6 +538,10 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_panel(root, sh)
 		"drill":
 			_drill(root, sh)
+		"drive":
+			_drive(root, sh)
+		"hearth":
+			_hearth(root, sh)
 		"ladder":
 			_ladder(root, sh)
 		"flag":

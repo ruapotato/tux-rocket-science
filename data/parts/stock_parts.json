@@ -798,6 +798,36 @@
       "shape": { "type": "cylinder", "radius": 0.625, "height": 1.0 },
       "nodes": [{"name": "top", "pos": [0, 0.5, 0], "dir": [0, 1, 0], "radius": 0.625}, {"name": "bottom", "pos": [0, -0.5, 0], "dir": [0, -1, 0], "radius": 0.625}],
       "surface_attach": true
+    },
+    {
+      "id": "stillwater_drive",
+      "name": "Stillwater Drive",
+      "category": "engines",
+      "description": "Alien. It pulls every atom of the ship alike, so nobody aboard feels a thing: 100 g between the stars (where it can push a ship toward light speed), up to 1 g inside a star's heliopause and never past 1% of light speed there. Needs 40 MW: a Hearth Core. Shift/Ctrl set its throttle in flight.",
+      "mass": 6000,
+      "cost": 250000,
+      "drive": { "accel_g": 100, "kw": 40000 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 3000, "skin_heat": 40000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "drive", "radius": 1.25, "height": 3.0 },
+      "nodes": [{"name": "top", "pos": [0, 1.5, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.5, 0], "dir": [0, -1, 0], "radius": 1.25}],
+      "surface_attach": true
+    },
+    {
+      "id": "hearth_core",
+      "name": "Hearth Core",
+      "category": "control",
+      "description": "Alien. A steady 45 MW from something no penguin understands yet, in the dark or the light, with a 20 MJ buffer.",
+      "mass": 3000,
+      "cost": 150000,
+      "power": { "generator_kw": 45000, "battery_kj": 20000 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 3000, "skin_heat": 40000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 0.8, "cd_side": 1.0 },
+      "shape": { "type": "hearth", "radius": 1.25, "height": 2.0 },
+      "nodes": [{"name": "top", "pos": [0, 1.0, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.0, 0], "dir": [0, -1, 0], "radius": 1.25}],
+      "surface_attach": true
     }
   ]
 }

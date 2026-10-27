@@ -34,18 +34,23 @@ int trs_system_find(const trs_system *sys, const char *id) {
 	return -1;
 }
 
-static int load_from(trs_system *sys, const trs_json *root, char *err, size_t errlen) {
-	memset(sys, 0, sizeof(*sys));
-	snprintf(sys->name, sizeof sys->name, "%s", trs_json_str(root, "name", "unnamed"));
+/* Appends a system file's bodies (the first world's file first). */
+static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t errlen) {
 	const trs_json *bodies = trs_json_get(root, "bodies");
 	if (!bodies || bodies->type != TRS_JSON_ARRAY || bodies->count == 0) {
 		snprintf(err, errlen, "system has no bodies");
 		return 0;
 	}
-	if (bodies->count > TRS_MAX_BODIES) {
+	if (sys->count + (int)bodies->count > TRS_MAX_BODIES) {
 		snprintf(err, errlen, "too many bodies");
 		return 0;
 	}
+	const trs_json *gp = trs_json_get(root, "galactic_position_ly");
+#define AT(k) (trs_json_at(gp, k) && trs_json_at(gp, k)->type == TRS_JSON_NUMBER ? trs_json_at(gp, k)->num : 0.0)
+	trs_v3 gal = v3(0, 0, 0);
+	if (gp)
+		gal = v3_scale(v3(AT(0), AT(1), AT(2)), 9.4607304725808e15);
+#undef AT
 	/* Bodies must be listed parent-first. */
 	for (size_t k = 0; k < bodies->count; k++) {
 		const trs_json *j = trs_json_at(bodies, k);
@@ -66,10 +71,13 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 			snprintf(err, errlen, "body %s: parent %s must be listed first", b->id, pid);
 			return 0;
 		}
-		if (b->parent < 0 && sys->count > 0) {
-			snprintf(err, errlen, "body %s: only the first body may be parentless", b->id);
+		if (b->parent < 0 && strcmp(trs_json_str(j, "kind", ""), "star") && sys->count > 0) {
+			snprintf(err, errlen, "body %s: only stars may be parentless", b->id);
 			return 0;
 		}
+		b->star = b->parent < 0 ? sys->count : sys->bodies[b->parent].star;
+		b->galactic = gal;
+		b->luminosity = trs_json_num(j, "luminosity", 1.0);
 		const trs_json *atm = trs_json_get(j, "atmosphere");
 		if (atm) {
 			b->atm.height = trs_json_num(atm, "height", 0);
@@ -135,7 +143,7 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 			t->site_radius = trs_json_num(ls, "flat_radius", 1500);
 			t->site_height = b->site_alt;
 		}
-		b->soi = INFINITY;
+		b->soi = trs_json_num(j, "heliopause", INFINITY);
 		if (b->parent >= 0) {
 			trs_body *p = &sys->bodies[b->parent];
 			const trs_json *o = trs_json_get(j, "orbit");
@@ -158,11 +166,17 @@ static int load_from(trs_system *sys, const trs_json *root, char *err, size_t er
 	return 1;
 }
 
+static void start(trs_system *sys, const trs_json *root) {
+	memset(sys, 0, sizeof(*sys));
+	snprintf(sys->name, sizeof sys->name, "%s", trs_json_str(root, "name", "unnamed"));
+}
+
 int trs_system_load_json(trs_system *sys, const char *text, char *err, size_t errlen) {
 	trs_json *root = trs_json_parse(text, err, errlen);
 	if (!root)
 		return 0;
-	int ok = load_from(sys, root, err, errlen);
+	start(sys, root);
+	int ok = add_bodies(sys, root, err, errlen);
 	trs_json_free(root);
 	return ok;
 }
@@ -171,7 +185,23 @@ int trs_system_load(trs_system *sys, const char *path, char *err, size_t errlen)
 	trs_json *root = trs_json_load_file(path, err, errlen);
 	if (!root)
 		return 0;
-	int ok = load_from(sys, root, err, errlen);
+	start(sys, root);
+	int ok = add_bodies(sys, root, err, errlen);
+	const trs_json *nb = trs_json_get(root, "neighbours");
+	for (size_t k = 0; ok && nb && k < nb->count; k++) {
+		const trs_json *e = trs_json_at(nb, k);
+		char p2[1024];
+		const char *slash = strrchr(path, '/');
+		int dir = slash ? (int)(slash - path + 1) : 0;
+		snprintf(p2, sizeof p2, "%.*s%s", dir, path, e && e->type == TRS_JSON_STRING ? e->str : "");
+		trs_json *r2 = trs_json_load_file(p2, err, errlen);
+		if (!r2) {
+			ok = 0;
+			break;
+		}
+		ok = add_bodies(sys, r2, err, errlen);
+		trs_json_free(r2);
+	}
 	trs_json_free(root);
 	return ok;
 }
@@ -194,6 +224,11 @@ void trs_body_state_abs(const trs_system *sys, int i, double t, trs_v3 *r, trs_v
 		*r = v3_add(*r, rr);
 		*v = v3_add(*v, vv);
 	}
+}
+
+void trs_body_state_galactic(const trs_system *sys, int i, double t, trs_v3 *r, trs_v3 *v) {
+	trs_body_state_abs(sys, i, t, r, v);
+	*r = v3_add(*r, sys->bodies[i].galactic);
 }
 
 double trs_body_rotation(const trs_body *b, double t) {

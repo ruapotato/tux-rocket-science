@@ -111,6 +111,23 @@ coast on a Hohmann transfer), 0.6x Floe's gravity under thin air that tops out a
 parachute slows you but won't land you, so bring an engine for the last of it. Its moon **Tusk**
 is small and bright. Research there is worth 10-12x Floe's.
 
+**Between the stars**: Austra has neighbours. **Lantern**, 4.2 light-years away (`data/bodies/lantern_system.json`),
+has three worlds: hot **Cinder**, green **Haven** with air like Floe's, and Haven's moon **Wisp**.
+Past a star's heliopause (Austra's is 40 Gm out, beyond Narwhal) a ship flies by special
+relativity: its proper velocity, its own clock and the home calendar are all tracked exactly
+(`test-relativity`, `test-interstellar`). The alien **Stillwater Drive** pulls every atom of the ship
+alike, so nobody aboard feels it (the G meter reads 0): 100 g out between the stars, at most 1 g
+and never past 1% of light speed inside a star's heliopause. It needs a **Hearth Core** (45 MW).
+Out there the throttle runs it, warp runs on the ship's clock (and eases off as you brake), and
+the **COURSE** panel flies you to a star: flat out, turning round exactly halfway, stopping just
+short of its heliopause. Austra to Lantern at 100 g takes 43 days of ship time while Floe's
+calendar runs on 4.22 years; at 100000x warp that is under a minute of real time. The HUD shows
+the speed as a fraction of light, gamma, the ship and home clocks, each star's distance and
+closing speed, and the distance and ship time it would take to stop. The sky shows what a ship
+moving that fast would really see: stars crowd toward the way ahead (aberration), turn blue and
+brighten there, and redden and fade behind (Doppler shift of each star's light). Things aboard
+look normal: they move with you.
+
 **Biomes**: every world with ground is split into named regions (Floe's Glacier Shelf, the Puffin
 Spires, Frozen Seas, Highlands, Tundra and Polar Caps; Krill's Crater Floors and Rims; Kelp's
 Basins and Meadows...). The status line names the one below you when you're low. Landed and

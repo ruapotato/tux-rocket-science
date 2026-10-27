@@ -111,6 +111,11 @@ typedef struct {
 	 * running, turns refine_kg_s of ore into refine_yield x as much
 	 * liquid propellant (into every tank aboard) for refine_kw */
 	double ore_capacity;
+
+	/* the Stillwater Drive: pushes every atom of the ship alike (so nobody
+	 * aboard feels it) at drive_accel m/s2 for drive_kw, and only between
+	 * the stars; a reactor makes gen_kw whatever the light */
+	double drive_accel, drive_kw, gen_kw;
 	double drill_kg_s, drill_kw, drill_reach;
 	double refine_kg_s, refine_yield, refine_kw;
 

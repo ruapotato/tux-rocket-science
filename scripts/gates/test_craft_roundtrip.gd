@@ -308,6 +308,9 @@ func _editor_ops() -> void:
 			cs.stage()
 			cs.step_ticks(int(cst.stages[0].burn_time * 50.0) + 50)
 			flown = cs.telemetry().get("dv_expended", -1.0)
+			var ft := cs.telemetry()
+			if absf(flown - tilted) / tilted >= 1e-4:
+				_log.append("    tilted flight: alive %s mode %s body %s liquid %s thrust %s throttle %s engines_lit %s" % [ft.get("alive"), ft.get("mode"), ft.get("body"), ft.get("liquid"), ft.get("thrust"), ft.get("throttle"), ft.get("engines_lit")])
 	var ratio := tilted / straight
 	_check(absf(ratio - cos(deg_to_rad(30.0))) < 1e-9 and absf(flown - tilted) / tilted < 1e-4 and cant_hits.is_empty(),
 		"tilted engines: hangar dv %.1f -> %.1f m/s (x%.9f, cos 30 = %.9f), flown %.1f m/s, exhaust hits %s" % [straight, tilted, ratio, cos(deg_to_rad(30.0)), flown, cant_hits])

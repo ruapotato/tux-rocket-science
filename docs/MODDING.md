@@ -76,6 +76,7 @@ tapering leading end takes less heating than a flat one (see
 | `leg` | `length`, `spring` N/m, `damper` N s/m, `max_load_speed`, `hinge`, `deploy_angle_deg`, `stowed_fraction` |
 | `wheel` | `length` (out along +Z), `spring`, `damper`, `max_load_speed`, `mu_roll`, `mu_brake`, `mu_side`, `steer_deg` |
 | `power` | `battery_kj`, `draw_kw`, `torque_kw_per_knm`, `solar_kw` (face-on at `solar_ref_m` from the star; face is +Z), `antenna_kj_per_point`, `antenna_fraction` |
+| `drive` | the Stillwater Drive: `accel_g`, `kw` (the whole ship is pushed alike, whatever it weighs); `power.generator_kw` is a reactor's steady output |
 | `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
 
@@ -84,11 +85,12 @@ gates check the stock parts still behave.
 
 ## The star system: `data/bodies/austra_system.json`
 
-`{"name", "bodies": [...]}`, the star first. Each body:
+`{"name", "bodies": [...]}`, the star first. A system file may list `"neighbours"` (other system files beside it), each placing its own star with `"galactic_position_ly": [x, y, z]` light-years from Austra. Each body:
 
 | Field | Meaning |
 |---|---|
 | `id`, `name`, `kind` | `star`, `planet`, `moon` |
+| `heliopause`, `luminosity` | stars: where the space between the stars begins (m; leave it out for none), and brightness for solar power (Austra = 1) |
 | `parent` | id of what it orbits |
 | `mu` | gravitational parameter, m^3/s^2 |
 | `radius` | m |

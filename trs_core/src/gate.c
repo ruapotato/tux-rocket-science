@@ -96,6 +96,7 @@ trs_gate_status trs_gate_power(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_biomes(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_mining(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_relativity(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_interstellar(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_actions(trs_log *log, const char *data_dir);
 
 static const trs_gate_def GATES[] = {
@@ -121,6 +122,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-biomes", "M21", trs_gate_biomes },
 	{ "test-mining", "M22", trs_gate_mining },
 	{ "test-relativity", "M23", trs_gate_relativity },
+	{ "test-interstellar", "M23", trs_gate_interstellar },
 	{ "test-craft-roundtrip", "M3", NULL },
 	{ "test-ascent", "M4", NULL },
 	{ "test-moon", "M5", NULL },

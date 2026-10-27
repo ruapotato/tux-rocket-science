@@ -60,7 +60,7 @@ func flag_planted(body: String) -> void:
 
 
 func _init() -> void:
-	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/bodies/austra_system.json")).bodies:
+	for b in Sim.system_bodies():
 		_body_names[b.id] = b.name
 		var bn := {}
 		for e in b.get("biomes", []):

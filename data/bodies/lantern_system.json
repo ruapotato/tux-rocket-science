@@ -1,0 +1,296 @@
+{
+  "name": "Lantern system",
+  "_doc": "A second star, 4.2 light-years from Austra. Reached between the stars on the Stillwater Drive.",
+  "galactic_position_ly": [
+    3.02264,
+    2.896697,
+    0.335849
+  ],
+  "bodies": [
+    {
+      "id": "lantern",
+      "name": "Lantern",
+      "kind": "star",
+      "mu": 8.4e+17,
+      "radius": 190000000,
+      "rotation_period": 380000,
+      "heliopause": 30000000000,
+      "luminosity": 0.6,
+      "look": {
+        "star_color": [
+          1.0,
+          0.78,
+          0.52
+        ]
+      }
+    },
+    {
+      "id": "cinder",
+      "name": "Cinder",
+      "kind": "planet",
+      "parent": "lantern",
+      "mu": 1400000000000.0,
+      "radius": 380000,
+      "rotation_period": 64000,
+      "rotation_at_epoch_deg": 20,
+      "orbit": {
+        "a": 4200000000,
+        "e": 0.04,
+        "inc_deg": 1.0,
+        "lan_deg": 40,
+        "argp_deg": 10,
+        "mean_anomaly_deg": 60
+      },
+      "terrain": {
+        "seed": 131,
+        "amplitude": 2600,
+        "base_freq": 2.4,
+        "octaves": 15,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.5,
+        "crater_freq": 6,
+        "crater_depth": 1800,
+        "mountain_amplitude": 3600,
+        "mountain_freq": 28,
+        "mountain_coverage": 0.3
+      },
+      "ore": 0.7,
+      "biomes": [
+        {
+          "id": "poles",
+          "name": "Ash Poles",
+          "abs_lat_min_deg": 70
+        },
+        {
+          "id": "ridges",
+          "name": "Scorched Ridges",
+          "height_min": 450
+        },
+        {
+          "id": "pits",
+          "name": "Slag Pits",
+          "height_max": -200
+        },
+        {
+          "id": "flats",
+          "name": "Cinder Flats"
+        }
+      ],
+      "look": {
+        "style": "rock",
+        "tint": [
+          1.35,
+          0.82,
+          0.6
+        ],
+        "low": [
+          0.42,
+          0.24,
+          0.16
+        ],
+        "high": [
+          0.7,
+          0.46,
+          0.3
+        ],
+        "slope": [
+          0.3,
+          0.18,
+          0.12
+        ],
+        "rock": [
+          0.2,
+          0.12,
+          0.09
+        ],
+        "range": 1800
+      }
+    },
+    {
+      "id": "haven",
+      "name": "Haven",
+      "kind": "planet",
+      "parent": "lantern",
+      "mu": 4000000000000.0,
+      "radius": 650000,
+      "rotation_period": 22000,
+      "rotation_at_epoch_deg": 75,
+      "orbit": {
+        "a": 10800000000,
+        "e": 0.01,
+        "inc_deg": 0.5,
+        "lan_deg": 120,
+        "argp_deg": 0,
+        "mean_anomaly_deg": 200
+      },
+      "atmosphere": {
+        "height": 75000,
+        "sea_level_pressure": 96000,
+        "sea_level_density": 1.15,
+        "scale_height": 6200
+      },
+      "terrain": {
+        "seed": 149,
+        "amplitude": 2000,
+        "base_freq": 2.8,
+        "octaves": 15,
+        "persistence": 0.5,
+        "offset": 250,
+        "ridge": 0.3,
+        "mountain_amplitude": 4400,
+        "mountain_freq": 40,
+        "mountain_coverage": 0.32
+      },
+      "ore": 0.4,
+      "biomes": [
+        {
+          "id": "poles",
+          "name": "Polar Snow",
+          "abs_lat_min_deg": 66
+        },
+        {
+          "id": "mountains",
+          "name": "Mountains",
+          "height_min": 1200
+        },
+        {
+          "id": "uplands",
+          "name": "Uplands",
+          "height_min": 620
+        },
+        {
+          "id": "lakes",
+          "name": "Lake Basins",
+          "height_max": 20
+        },
+        {
+          "id": "grasslands",
+          "name": "Grasslands"
+        }
+      ],
+      "look": {
+        "style": "moss",
+        "sky": [
+          0.62,
+          0.7,
+          0.92
+        ],
+        "tau": [
+          0.04,
+          0.11,
+          0.32
+        ],
+        "clouds": true,
+        "low": [
+          0.24,
+          0.4,
+          0.3
+        ],
+        "high": [
+          0.62,
+          0.58,
+          0.42
+        ],
+        "slope": [
+          0.3,
+          0.34,
+          0.24
+        ],
+        "rock": [
+          0.23,
+          0.21,
+          0.19
+        ],
+        "basin": [
+          0.1,
+          0.24,
+          0.4
+        ],
+        "range": 2000
+      }
+    },
+    {
+      "id": "wisp",
+      "name": "Wisp",
+      "kind": "moon",
+      "parent": "haven",
+      "mu": 9000000000.0,
+      "radius": 110000,
+      "tidally_locked": true,
+      "orbit": {
+        "a": 6000000,
+        "e": 0.02,
+        "inc_deg": 3,
+        "lan_deg": 0,
+        "argp_deg": 0,
+        "mean_anomaly_deg": 15
+      },
+      "terrain": {
+        "seed": 163,
+        "amplitude": 1500,
+        "base_freq": 2.2,
+        "octaves": 14,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.2,
+        "crater_freq": 8,
+        "crater_depth": 1700,
+        "mountain_amplitude": 1800,
+        "mountain_freq": 22,
+        "mountain_coverage": 0.2
+      },
+      "ore": 0.9,
+      "biomes": [
+        {
+          "id": "poles",
+          "name": "Poles",
+          "abs_lat_min_deg": 72
+        },
+        {
+          "id": "highlands",
+          "name": "Highlands",
+          "height_min": 200
+        },
+        {
+          "id": "craters",
+          "name": "Craters",
+          "height_max": -200
+        },
+        {
+          "id": "plains",
+          "name": "Plains"
+        }
+      ],
+      "look": {
+        "style": "rock",
+        "tint": [
+          0.95,
+          1.0,
+          1.15
+        ],
+        "low": [
+          0.5,
+          0.52,
+          0.58
+        ],
+        "high": [
+          0.8,
+          0.82,
+          0.88
+        ],
+        "slope": [
+          0.35,
+          0.36,
+          0.4
+        ],
+        "rock": [
+          0.2,
+          0.2,
+          0.24
+        ],
+        "range": 1500
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 {
   "name": "Austra system",
+  "neighbours": ["lantern_system.json"],
   "bodies": [
     {
       "id": "austra",
@@ -7,7 +8,9 @@
       "kind": "star",
       "mu": 1.2e18,
       "radius": 250000000,
-      "rotation_period": 432000
+      "rotation_period": 432000,
+      "heliopause": 40000000000,
+      "luminosity": 1.0
     },
     {
       "id": "floe",

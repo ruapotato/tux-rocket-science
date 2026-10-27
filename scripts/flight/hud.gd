@@ -556,6 +556,18 @@ static func signed(v: float, dec: int) -> String:
 	return ("%+." + str(dec) + "f") % q
 
 
+const YEAR := 31557600.0
+const LIGHT_YEAR := 9.4607304725808e15
+const C := 299792458.0
+
+static func fmt_power(kw: float) -> String:
+	return "%.1f MW" % (kw / 1000.0) if absf(kw) >= 10000.0 else "%.2f kW" % kw
+
+
+static func fmt_energy(kj: float) -> String:
+	return "%.1f MJ" % (kj / 1000.0) if absf(kj) >= 10000.0 else "%.0f kJ" % kj
+
+
 static func fmt_time(s: float) -> String:
 	if s < 0 or is_inf(s) or is_nan(s):
 		return "—"
@@ -564,6 +576,10 @@ static func fmt_time(s: float) -> String:
 	var h := int(s / 3600.0)
 	var m := int(fmod(s, 3600.0) / 60.0)
 	var sec := fmod(s, 60.0)
+	if s >= YEAR:  # between the stars: Julian years of 365.25 standard days
+		return "%.3f yr" % (s / YEAR)
+	if h >= 1000:
+		return "%dd %02dh" % [int(s / 86400.0), int(fmod(s, 86400.0) / 3600.0)]
 	if h >= 100:
 		return "%dh %02dm" % [h, m]
 	if h > 0:
@@ -573,12 +589,53 @@ static func fmt_time(s: float) -> String:
 	return "%.1fs" % sec
 
 
+var _stars: Array = []  # [{name, galactic: [x,y,z]}], from the core once
+
+
+## Between the stars: speed as a fraction of light, gamma, the drive, and
+## how far each star is and how fast it closes.
+func _interstellar(t: Dictionary) -> void:
+	if _stars.is_empty() and Sim.game:
+		for i in Sim.game.core.body_count():
+			var info: Dictionary = JSON.parse_string(Sim.game.core.body_info(i))
+			if info.has("galactic"):
+				_stars.append({"name": info.name, "galactic": info.galactic})
+	var beta: float = t.get("beta", 0.0)
+	var gamma: float = t.get("gamma", 1.0)
+	var digits := clampi(int(ceil(-log(maxf(1.0 - beta, 1e-15)) / log(10.0))) + 3, 4, 12)
+	_status.text = "BETWEEN THE STARS · leaving %s%s" % [t.get("star_name", "?"), ("   " + _warp_text) if _warp_text != "" else ""]
+	var drive := ""
+	if t.has("drive_max"):
+		drive = "\n[color=#9fb4cc]Drive[/color]  [b]%.1f g[/b] of %.0f g  [color=#6f86a6](felt: 0 g)[/color]" % [float(t.drive_accel) / 9.80665, float(t.drive_max) / 9.80665]
+	_left.text = ("[color=#9fb4cc]SPEED[/color]  [b]%." + str(digits) + "f c[/b]\n[color=#9fb4cc]gamma[/color]  %.4f  [color=#6f86a6](ship clock at 1/%.4f)[/color]\n[color=#9fb4cc]Proper speed[/color]  %.4f c%s\n[color=#9fb4cc]Mass[/color] %.2f t") % [
+		beta, gamma, gamma, float(t.get("proper_speed", 0.0)) / C, drive, t.get("mass", 0.0) / 1000.0]
+	var g: Array = t.get("galactic", [0, 0, 0])
+	var vg: Array = t.get("velocity_galactic", [0, 0, 0])
+	var p := Vector3(g[0], g[1], g[2])  # float32 is fine for light-year readouts
+	var vv := Vector3(vg[0], vg[1], vg[2])
+	var txt := "[color=#9fb4cc]STARS[/color]"
+	for st in _stars:
+		var d := Vector3(st.galactic[0], st.galactic[1], st.galactic[2]) - p
+		var closing := vv.dot(d.normalized()) if d.length() > 0 else 0.0  # moving toward it
+		txt += "\n%s  [b]%.4f ly[/b]  %s %.4f c" % [st.name, d.length() / LIGHT_YEAR, "closing" if closing >= 0 else "opening", absf(closing) / C]
+	# stopping: (c^2/a)(gamma - 1) of distance and (c/a) asinh(u/c) of ship time at full drive
+	if float(t.get("drive_max", 0.0)) > 0.0 and float(t.get("proper_speed", 0.0)) > 0.0:
+		var a: float = t.drive_max
+		var stop_d := C * C / a * (gamma - 1.0)
+		var stop_tau := C / a * asinh(float(t.proper_speed) / C)
+		txt += "\n[color=#9fb4cc]To stop at full drive[/color]  %.4f ly, %s ship time" % [stop_d / LIGHT_YEAR, fmt_time(stop_tau)]
+	_right.text = txt
+
+
 func update_from(t: Dictionary, mission_t: float) -> void:
 	_t = t
 	if not t.get("alive", false):
 		_clock.text = "SIGNAL LOST"
 		return
 	_clock.text = "T+ " + fmt_time(mission_t)
+	var lag: float = t.get("tau_lag", 0.0)
+	if lag > 1.0:  # the ship's clock has fallen behind the home calendar
+		_clock.text = "SHIP T+ %s · HOME T+ %s" % [fmt_time(mission_t - lag), fmt_time(mission_t)]
 	var body: String = t.body.capitalize()
 	if t.has("biome_name") and (t.get("landed", false) or float(t.get("altitude_terrain", 1.0e9)) < 25000.0):
 		body += " · " + str(t.biome_name)  # the region below, for science
@@ -637,6 +694,8 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	rb.set_pressed_no_signal(t.get("rcs", false))
 	rb.text = "RCS  (R)" + (" ·" if t.get("rcs", false) and t.get("rcs_force", 0.0) > 0.0 else "")
 	_update_fuel(t)
+	if t.get("interstellar", false):
+		_interstellar(t)
 
 
 ## One line on the drills and refineries: what they do now and why not.
@@ -727,8 +786,8 @@ func _update_fuel(t: Dictionary) -> void:
 		ebar.add_theme_stylebox_override("fill", ef)
 		var el := Label.new()
 		var net: float = float(t.get("ec_gen", 0.0)) - float(t.get("ec_use", 0.0))
-		el.text = "Power  %.0f / %.0f kJ  %s%.2f kW%s" % [t.get("ec", 0.0), ecap, "+" if net >= 0.0 else "", net,
-			"  sun %.2f kW" % float(t.ec_gen) if float(t.get("ec_gen", 0.0)) > 0.0 else ("  in shadow" if not t.get("sunlit", true) else "")]
+		el.text = "Power  %s / %s  %s%s%s" % [fmt_energy(t.get("ec", 0.0)), fmt_energy(ecap), "+" if net >= 0.0 else "", fmt_power(net),
+			"  in %s" % fmt_power(float(t.ec_gen)) if float(t.get("ec_gen", 0.0)) > 0.0 else ("  in shadow" if not t.get("sunlit", true) else "")]
 		el.add_theme_font_size_override("font_size", 12)
 		v.add_child(el)
 		v.add_child(ebar)

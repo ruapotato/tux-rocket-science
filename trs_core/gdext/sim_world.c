@@ -140,6 +140,15 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(site, "altitude", trs_json_new_num(b->site_alt));
 		trs_json_set(j, "site", site);
 	}
+	trs_json_set(j, "star", trs_json_new_num(b->star));
+	trs_json_set(j, "luminosity", trs_json_new_num(sys->bodies[b->star].luminosity));
+	if (b->parent < 0) {
+		trs_json *g = trs_json_new(TRS_JSON_ARRAY);
+		trs_json_push(g, trs_json_new_num(b->galactic.x));
+		trs_json_push(g, trs_json_new_num(b->galactic.y));
+		trs_json_push(g, trs_json_new_num(b->galactic.z));
+		trs_json_set(j, "galactic", g);
+	}
 	if (b->nbiomes > 0) {
 		trs_json *bl = trs_json_new(TRS_JSON_ARRAY);
 		for (int k = 0; k < b->nbiomes; k++) {
@@ -170,13 +179,13 @@ static void m_biome_at(void *self, const trs_val *a, trs_val *r) {
 	r->s = trs_strdup_printf("%s", k >= 0 ? b->biomes[k].id : "");
 }
 
-/* body_state(i) -> [rx,ry,rz, vx,vy,vz, rotation] relative to the root star */
+/* body_state(i) -> [rx,ry,rz, vx,vy,vz, rotation] in the galaxy (the home star at the origin) */
 static void m_body_state(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	double d[7] = { 0 };
 	if (h->world && a[0].i >= 0 && a[0].i < h->world->sys.count) {
 		trs_v3 rr, vv;
-		trs_body_state_abs(&h->world->sys, (int)a[0].i, h->world->t, &rr, &vv);
+		trs_body_state_galactic(&h->world->sys, (int)a[0].i, h->world->t, &rr, &vv);
 		d[0] = rr.x, d[1] = rr.y, d[2] = rr.z, d[3] = vv.x, d[4] = vv.y, d[5] = vv.z;
 		d[6] = trs_body_rotation(&h->world->sys.bodies[a[0].i], h->world->t);
 	}

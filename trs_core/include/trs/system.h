@@ -67,6 +67,13 @@ typedef struct {
 	double ore; /* ore abundance, 0..1: scales what drills dig */
 	trs_biome biomes[TRS_MAX_BIOMES];
 	int nbiomes;
+	/* stars: several systems can share one world, each star fixed at its
+	 * galactic position (m, the home star at the origin, shared axes);
+	 * every body knows its star. A star's soi is its heliopause, past which
+	 * a ship is between the stars; luminosity scales solar power. */
+	int star;
+	trs_v3 galactic;
+	double luminosity;
 	int children[TRS_MAX_BODIES];
 	int nchildren;
 } trs_body;
@@ -77,6 +84,8 @@ typedef struct {
 	int count;
 } trs_system;
 
+/* Loads a system file and the "neighbours" it lists (other system files,
+ * paths relative to it), each placed at its "galactic_position_ly". */
 int trs_system_load(trs_system *sys, const char *path, char *err, size_t errlen);
 int trs_system_load_json(trs_system *sys, const char *text, char *err, size_t errlen);
 int trs_system_find(const trs_system *sys, const char *id);
@@ -94,6 +103,8 @@ trs_v3 trs_body_to_fixed(const trs_body *b, double t, trs_v3 v);
 trs_v3 trs_body_from_fixed(const trs_body *b, double t, trs_v3 v);
 /* Terrain height (m above datum) under an SOI-frame position at time t. */
 double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r);
+/* Position and velocity relative to the home star's galactic origin. */
+void trs_body_state_galactic(const trs_system *sys, int i, double t, trs_v3 *r, trs_v3 *v);
 /* Biome under body-fixed direction dir (unit), or -1 if the body has none. */
 int trs_body_biome(const trs_body *b, trs_v3 dir);
 /* Atmosphere at altitude (m above surface): pressure (Pa), density (kg/m^3). */

@@ -166,8 +166,8 @@ void trs_vessel_orbit(const trs_world *w, int id, trs_orbit *o) {
 
 void trs_vessel_set_mode(trs_world *w, int id, trs_mode mode) {
 	trs_vessel *vs = &w->vessels[id];
-	if (vs->mode == mode || (vs->anchored && vs->mode == TRS_MODE_LANDED))
-		return;
+	if (vs->mode == mode || (vs->anchored && vs->mode == TRS_MODE_LANDED) || vs->mode == TRS_MODE_INTERSTELLAR || mode == TRS_MODE_INTERSTELLAR)
+		return; /* in and out between the stars only by crossing a heliopause */
 	const trs_body *b = &w->sys.bodies[vs->body];
 	/* leave the current mode: materialise r, v, q, w */
 	if (vs->mode == TRS_MODE_RAILS) {
@@ -363,10 +363,12 @@ void trs_world_step_physics(trs_world *w) {
 	trs_world_vessel_contacts(w);
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
-		if (!vs->alive || vs->mode != TRS_MODE_PHYSICS)
+		if (!vs->alive || (vs->mode != TRS_MODE_PHYSICS && vs->mode != TRS_MODE_INTERSTELLAR))
 			continue;
 		if (vs->craft)
 			trs_vessel_physics_tick(w, vs, t, h);
+		else if (vs->mode == TRS_MODE_INTERSTELLAR)
+			trs_interstellar_advance(w, vs, h);
 		else
 			rk4(w, vs, t, h);
 	}
@@ -409,6 +411,8 @@ void trs_world_step_physics(trs_world *w) {
 		trs_vessel *vs = &w->vessels[i];
 		if (vs->alive && vs->mode == TRS_MODE_PHYSICS)
 			physics_soi_check(w, vs);
+		if (vs->alive && (vs->mode == TRS_MODE_PHYSICS || vs->mode == TRS_MODE_INTERSTELLAR))
+			trs_heliopause_check(w, vs);
 	}
 }
 
@@ -445,6 +449,7 @@ static trs_event advance_rails(trs_world *w, trs_vessel *vs, double t_start, dou
  * drawing, integrated in steps of at most WARP_POWER_STEP so eclipses
  * are caught. No wheels turn on rails. */
 #define WARP_POWER_STEP 20.0
+#define WARP_POWER_MAX_STEPS 4000
 static double draw_of(const trs_vessel *vs) {
 	double d = 0;
 	for (int k = 0; k < vs->craft->count; k++)
@@ -472,11 +477,11 @@ static void idle_mining(trs_world *w, trs_vessel *vs, double dt) {
 static void warp_power(trs_world *w, double t0, double t1) {
 	if (t1 <= t0)
 		return;
-	int n = (int)ceil((t1 - t0) / WARP_POWER_STEP);
+	int n = (int)fmin(ceil((t1 - t0) / WARP_POWER_STEP), WARP_POWER_MAX_STEPS); /* years between the stars: longer steps */
 	double step = (t1 - t0) / n, keep = w->t;
 	for (int i = 0; i < w->nvessels; i++) {
 		trs_vessel *vs = &w->vessels[i];
-		if (!vs->alive || !vs->craft || vs->mode == TRS_MODE_PHYSICS)
+		if (!vs->alive || !vs->craft || vs->mode == TRS_MODE_PHYSICS || vs->mode == TRS_MODE_INTERSTELLAR)
 			continue;
 		double cap, draw = 0;
 		trs_craft_ec(vs->craft, &cap);
@@ -521,8 +526,19 @@ void trs_world_warp(trs_world *w, double dt, int stop_on, trs_event *stop) {
 			continue; /* LANDED vessels ride the body rotation analytically */
 		advance_rails(w, vs, t0, t1, 0);
 	}
+	for (int i = 0; i < w->nvessels; i++) {
+		trs_vessel *vs = &w->vessels[i];
+		if (vs->alive && vs->mode == TRS_MODE_INTERSTELLAR) {
+			double keep = w->t;
+			trs_interstellar_advance(w, vs, t1 - t0); /* the drive burns through warp out here */
+			w->t = keep;
+		}
+	}
 	warp_power(w, t0, t1);
 	time_set(w, t1);
+	for (int i = 0; i < w->nvessels; i++)
+		if (w->vessels[i].alive && w->vessels[i].mode != TRS_MODE_LANDED)
+			trs_heliopause_check(w, &w->vessels[i]);
 	if (stop)
 		*stop = result;
 }

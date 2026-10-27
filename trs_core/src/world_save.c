@@ -229,6 +229,13 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_I(o, vs, jump);
 		PUT_I(o, vs, anchored);
 		PUT_I(o, vs, drill_ground);
+		PUT_V(o, vs, u);
+		PUT_D(o, vs, tau_lag);
+		PUT_D(o, vs, drive);
+		PUT_I(o, vs, course);
+		PUT_D(o, vs, course_acc);
+		PUT_D(o, vs, course_dec);
+		PUT_V(o, vs, course_dir);
 		PUT_I(o, vs, brakes);
 		PUT_D(o, vs, air_speed);
 		PUT_V(o, vs, rcs_rot);
@@ -341,6 +348,13 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_I(o, vs, jump);
 		GET_I(o, vs, anchored);
 		GET_I(o, vs, drill_ground);
+		GET_V(o, vs, u);
+		GET_D(o, vs, tau_lag);
+		GET_D(o, vs, drive);
+		GET_I(o, vs, course);
+		GET_D(o, vs, course_acc);
+		GET_D(o, vs, course_dec);
+		GET_V(o, vs, course_dir);
 		GET_I(o, vs, brakes);
 		GET_D(o, vs, air_speed);
 		GET_V(o, vs, rcs_rot);

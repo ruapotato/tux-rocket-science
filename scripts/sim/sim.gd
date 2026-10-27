@@ -58,7 +58,7 @@ func _init() -> void:
 	err = core.load_catalog(ProjectSettings.globalize_path(CATALOG_PATH))
 	if err != "":
 		push_error("trs_core: " + err)
-	for b in JSON.parse_string(FileAccess.get_file_as_string(SYSTEM_PATH)).bodies:
+	for b in system_bodies():
 		_looks[b.id] = b.get("look", {})
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(CATALOG_PATH))
 	for p in data.parts:
@@ -70,6 +70,16 @@ var _looks := {}
 
 
 ## How a body looks (data/bodies "look"): style, sky, tau, clouds, colours.
+## Every body's data: the home system file and the neighbours it lists,
+## in the order the core loads them.
+static func system_bodies() -> Array:
+	var main: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(SYSTEM_PATH))
+	var out: Array = main.bodies.duplicate()
+	for f in main.get("neighbours", []):
+		out.append_array(JSON.parse_string(FileAccess.get_file_as_string(SYSTEM_PATH.get_base_dir() + "/" + str(f))).bodies)
+	return out
+
+
 func look(body_id: String) -> Dictionary:
 	return _looks.get(body_id, {})
 

@@ -118,10 +118,16 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->torque_kw_per_knm = trs_json_num(pw, "torque_kw_per_knm", 0);
 		d->solar_kw = trs_json_num(pw, "solar_kw", 0);
 		d->solar_ref_m = trs_json_num(pw, "solar_ref_m", 1.4e10);
+		d->gen_kw = trs_json_num(pw, "generator_kw", 0);
 		d->antenna_kj_per_point = trs_json_num(pw, "antenna_kj_per_point", 0);
 		d->antenna_fraction = trs_json_num(pw, "antenna_fraction", 0);
 	}
 	d->is_ladder = trs_json_get(j, "ladder") != NULL;
+	const trs_json *dj = trs_json_get(j, "drive");
+	if (dj) {
+		d->drive_accel = trs_json_num(dj, "accel_g", 0) * 9.80665;
+		d->drive_kw = trs_json_num(dj, "kw", 0);
+	}
 	const trs_json *mn = trs_json_get(j, "mining");
 	if (mn) {
 		d->ore_capacity = trs_json_num(mn, "ore_kg", 0);

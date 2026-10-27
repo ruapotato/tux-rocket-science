@@ -814,7 +814,16 @@ func _on_sim_event(e: Dictionary) -> void:
 			_react("orbit", 3.0)
 			if not _mission.visited.has(str(e.get("body", ""))):
 				_mission.visited.append(str(e.get("body", "")))
-			hud.toast("Entering the sphere of influence of %s" % str(e.get("body", "?")).capitalize(), 4.0)
+			var bi: int = session.core.body_find(str(e.get("body", "")))
+			var star := bi >= 0 and int(JSON.parse_string(session.core.body_info(bi)).parent) < 0
+			hud.toast(("In through %s's heliopause: back among a star's worlds" if star else "Entering the sphere of influence of %s") % str(e.get("body", "?")).capitalize(), 4.0)
+		"arrived":
+			Sfx.play("click")
+			hud.toast("Arrived: stopped short of %s's heliopause, drive off. Ease in with a little drive" % str(e.get("body", "?")), 6.0)
+		"interstellar":
+			if e.vessel == session.active:
+				_react("orbit", 3.0)
+				hud.toast("Out past %s's heliopause: between the stars. The Stillwater Drive runs at full strength out here, and warp keeps the ship's clock" % str(e.get("body", "?")).capitalize(), 6.0)
 		"landed":
 			if e.vessel == session.active and _launched:
 				_react("landed", 5.0)
@@ -845,6 +854,7 @@ func _process(delta: float) -> void:
 	_controls(delta)
 	session.advance(delta)
 	_render(delta)
+	_update_course_panel()
 	_mission_tick += delta
 	if persistent and _mission_tick > 0.25:
 		_mission_tick = 0.0
@@ -872,6 +882,67 @@ func _on_mission_done(m: Dictionary) -> void:
 
 ## O: the science panel: each experiment aboard, what it would bring home
 ## from here, and a button to run it.
+## Between the stars: a button per star sets a course there (drive flat
+## out, turning round halfway, stopping just short of its heliopause);
+## shown only out there and only for a ship with a Stillwater Drive.
+func _update_course_panel() -> void:
+	var t := session.telemetry()
+	var show: bool = t.get("interstellar", false) and float(t.get("drive_max", 0.0)) > 0.0
+	if _course == null:
+		if not show:
+			return
+		_course = PanelContainer.new()
+		_course.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.06, 0.1, 0.18, 0.92), 8, Color(0.5, 0.95, 0.9), 2))
+		_course.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_course.offset_left = -330
+		_course.offset_right = -10
+		_course.offset_top = 150
+		hud.add_child(_course)
+		_course.add_child(VBoxContainer.new())
+	_course.visible = show
+	if not show:
+		return
+	var box: VBoxContainer = _course.get_child(0)
+	var sig := str(t.get("course", ""))
+	if box.get_meta("sig", "-") == sig:
+		if t.has("course"):
+			(box.get_child(1) as Label).text = "turn round in %s, there in %s (ship time)" % [FlightHUD.fmt_time(t.course_to_turn) if float(t.course_to_turn) > 0.0 else "(braking)", FlightHUD.fmt_time(t.course_left)]
+		return
+	box.set_meta("sig", sig)
+	for c in box.get_children():
+		c.queue_free()
+	var head := Label.new()
+	head.text = "COURSE · %s" % (str(t.course_name) if t.has("course") else "none")
+	head.add_theme_color_override("font_color", Color(0.5, 0.95, 0.9))
+	box.add_child(head)
+	var info := Label.new()
+	info.text = "pick a star: the drive does the rest" if not t.has("course") else ""
+	info.add_theme_font_size_override("font_size", 12)
+	box.add_child(info)
+	for si in _stars_idx():
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.text = "Set course to %s" % JSON.parse_string(session.core.body_info(si)).name
+		b.pressed.connect(func():
+			var r: PackedFloat64Array = session.core.set_course(session.active, si)
+			session._telemetry_tick = -1
+			if r.size() == 2:
+				Sfx.play("click")
+				hud.toast("Course set: %s of ship time, %s at home. Warp (.) to fly it" % [FlightHUD.fmt_time(r[0]), FlightHUD.fmt_time(r[1])], 5.0)
+			else:
+				hud.toast("Too close to set a course there", 2.0))
+		box.add_child(b)
+	if t.has("course"):
+		var cancel := Button.new()
+		cancel.focus_mode = Control.FOCUS_NONE
+		cancel.text = "Cancel course (drive off)"
+		cancel.pressed.connect(func():
+			session.core.set_course(session.active, -1)
+			session._telemetry_tick = -1
+			_throttle = 0.0)
+		box.add_child(cancel)
+
+
 func _toggle_science() -> void:
 	if _science == null:
 		_science = PanelContainer.new()
@@ -1141,6 +1212,17 @@ func _toggle_brakes() -> void:
 	hud.toast("Brakes on" if on else "Brakes off: free to roll", 1.5)
 
 
+var _star_cache: Array[int] = []
+
+
+func _stars_idx() -> Array[int]:
+	if _star_cache.is_empty():
+		for i in session.core.body_count():
+			if int(JSON.parse_string(session.core.body_info(i)).parent) < 0:
+				_star_cache.append(i)
+	return _star_cache
+
+
 ## C: every drill and refinery aboard on (or all off).
 func _toggle_mining() -> void:
 	var t := session.telemetry()
@@ -1384,8 +1466,15 @@ func _render(delta: float) -> void:
 
 	# bodies: sun direction, terrain for the current body
 	var bodies: PackedFloat64Array = core.body_render(origin)
-	var sun_rel := Frame.vec(bodies, 0)
-	var sun_dir := sun_rel.normalized()
+	# the light comes from the nearest star (distances in doubles: between
+	# the stars they are light-years)
+	var sun_dir := Vector3.UP
+	var best := INF
+	for si in _stars_idx():
+		var sd: Array = Frame.dist_dir(bodies, si * 5)
+		if sd[0] < best:
+			best = sd[0]
+			sun_dir = sd[1]
 	_sun.look_at(-sun_dir * 1000.0, up if absf(sun_dir.dot(up)) < 0.99 else north)
 	_sun.position = Vector3.ZERO
 	var bi := int(t.body_index)
@@ -1425,6 +1514,15 @@ func _render(delta: float) -> void:
 		_env.ambient_light_energy = 0.08  # airless: hard shadows
 	_sun.light_energy = (0.15 + 1.2 * clampf(up.dot(sun_dir) * 4.0 + 0.6, 0.0, 1.0)) if t.altitude < 20000.0 else 1.3
 	_scaled.sync(_cam, origin, _cam.position, sun_dir, density, up)
+	if t.get("interstellar", false):
+		var vg: Array = t.velocity_galactic
+		var vx: float = vg[0]
+		var vy: float = vg[2]
+		var vz: float = -vg[1]
+		var vl := sqrt(vx * vx + vy * vy + vz * vz)
+		_scaled.set_motion(Vector3(vx, vy, vz) / maxf(vl, 1e-30), float(t.beta), float(t.gamma), bodies)
+	else:
+		_scaled.set_motion(Vector3.ZERO, 0.0, 1.0, bodies)
 
 	# HUD
 	var nose := Frame.vec_arr(t.nose)
@@ -1694,6 +1792,7 @@ var steer_craft := false
 var _mission_tick := 0.0
 var _docked_seen := false
 var _science: PanelContainer
+var _course: PanelContainer
 ## The flight lives in the persistent game world (not the tutorial's own).
 var persistent := false
 ## Took over a vessel already flying (no launch to revert to).
