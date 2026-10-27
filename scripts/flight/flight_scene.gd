@@ -1692,6 +1692,13 @@ func _render(delta: float) -> void:
 	# centre the craft in the band between the top panels and the navball
 	var vh := get_viewport().get_visible_rect().size.y
 	_cam.v_offset = -_cam_dist * tan(deg_to_rad(_cam.fov) * 0.5) * clampf((FlightHUD.BOTTOM_H - FlightHUD.TOP_H) / maxf(vh, 1.0), 0.0, 0.5)
+	# v_offset moves the eye itself down the view's up: keep that point
+	# above the ground too, or a low camera looks out from under it
+	var eye_at := _cam.position + _cam.global_basis.y * _cam.v_offset
+	var eye_clear: float = core.ground_clearance(int(t.body_index), origin, PackedFloat64Array(Frame.to_sim(eye_at)))
+	if eye_clear < CAM_CLEARANCE:
+		_cam.position += up * (CAM_CLEARANCE - eye_clear)
+		_cam.look_at(focus, up)
 	_inside_view(t, delta)
 	_update_booms(delta, drift)
 	_update_failure(delta)
