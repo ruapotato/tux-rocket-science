@@ -145,7 +145,7 @@ verbs the game declares.
 
 - **Readings** come from `ShipComputer.readings()` in
   `scripts/flight/ship_computer.gd`: whole metres, seconds, kilograms and m/s
-  (the guest languages have integers only), plus words. Each is
+  (two decimal places; the shell's tests read the whole part), plus words. Each is
   `/dev/ship/<key>`, and `ship status` / `ship json` prints them all. `frame`
   counts the game's updates. A script loops many times inside one frame, so
   wait for a new `frame` before doing something you want done once.
@@ -155,6 +155,13 @@ verbs the game declares.
   the line, the same line said twice in one frame is done once, and
   `ShipComputer._do()` carries it out through the flight scene's own
   controls. A new verb takes a row in `VERBS` and a branch in `_do()`.
+- **Programs** are `scripts/flight/flight_programs.gd` (`FlightPrograms`): each verb in
+  `ShipComputer.PROGRAMS` starts one. A program is a `_begin_<name>` that checks it can run
+  and a step function the game calls each frame, ending with `_done(note)` or `_fail(why)`.
+  The machine reads `program`, `program_status`, `program_note` and `program_id`; the
+  flight library's calls in `os/guest/py.c` (`PROGRAM(...)`) start one and wait for it.
+- **Numbers:** the CPU has the F and D extensions (`os/machine/cpu_fp.inc`). `/bin/py` is built
+  for rv64imfd, and its `sin` and friends are the `SYS_math` syscall.
 - **Scripts:** `/bin/py` or `/bin/sh` (for `*.sh`). In py, `ship()` returns
   the JSON, `json()` parses it, and `do("verb args")` sends a command. The
   examples on the disk are in `os/machine/image.c` (search for

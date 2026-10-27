@@ -468,11 +468,23 @@ func _on_action(a: String) -> void:
 
 # ---- input --------------------------------------------------------------------
 
+## ~ (the key under Esc, without Shift) goes round the views from
+## anywhere, the desktop too: it comes here before the desktop's own keys.
+## With Shift it is a tilde, typed at the terminal.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_QUOTELEFT \
+			and not (event as InputEventKey).shift_pressed and not hud.menu_visible():
+		_cycle_view()
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
 			_orbiting = mb.pressed
+		elif _inside and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _inside.screen_hit(_cam, mb.position):
+			_toggle_desk()
 		elif _inside and mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			_in_dist = clampf(_in_dist * (0.9 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1), 0.6, 8.0)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
@@ -496,7 +508,7 @@ func _key(k: InputEventKey) -> void:
 	if k.keycode == KEY_F2:
 		_toggle_desk()
 		return
-	if _desk != null:
+	if _desk_open:
 		return  # the keyboard is the computer's while its desktop is up
 	if hud.menu_visible() and k.keycode != KEY_ESCAPE:
 		return
@@ -528,7 +540,7 @@ func _key(k: InputEventKey) -> void:
 			_toggle_mining()
 		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
 			_action_group(k.keycode - KEY_0)
-		KEY_QUOTELEFT:
+		KEY_F3:
 			steer_craft = not steer_craft
 			hud.toast("Steering %s" % ("by the craft: W/S nose down / up, A/D yaw, Q/E roll" if steer_craft else "by the view: W tips the nose away from the camera"), 2.5)
 		KEY_F5:
@@ -536,8 +548,10 @@ func _key(k: InputEventKey) -> void:
 		KEY_F9:
 			quickload()
 		KEY_Z:
+			_hands_on()
 			_throttle = 1.0
 		KEY_X:
+			_hands_on()
 			_throttle = 0.0
 		KEY_T:
 			_on_sas("off" if session.telemetry().get("sas", "off") != "off" else "stability")
@@ -879,7 +893,7 @@ func _process(delta: float) -> void:
 	if hud.menu_visible():
 		Sfx.silence_beds()  # paused: the engines and wind go quiet too
 		return
-	if _desk == null:
+	if not _desk_open:
 		_controls(delta)
 	else:
 		session.set_input(0.0, 0.0, 0.0)  # (typing at the computer is not flying)
@@ -1080,6 +1094,13 @@ func _exit_tree() -> void:
 	Sfx.silence_beds()
 
 
+## A key that flies the ship stops the computer's program.
+func _hands_on() -> void:
+	if computer != null and computer.programs.running():
+		computer.programs.stop("you took the controls")
+		hud.toast("The computer's %s program stopped: you have the controls" % computer.programs.name, 2.5)
+
+
 func _controls(delta: float) -> void:
 	if _inside:
 		_inside_controls()
@@ -1087,6 +1108,16 @@ func _controls(delta: float) -> void:
 	if session.telemetry().get("eva", false):
 		_eva_controls()
 		return
+	# a program of the ship's computer is flying: hands on the keys take over
+	if computer != null and computer.programs.running():
+		var hands := false
+		for key in [KEY_SHIFT, KEY_CTRL, KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]:
+			hands = hands or Input.is_key_pressed(key)
+		if hands:
+			computer.programs.stop("you took the controls")
+			hud.toast("The computer's %s program stopped: you have the controls" % computer.programs.name, 2.5)
+		else:
+			_throttle = session.throttle_set
 	if Input.is_key_pressed(KEY_SHIFT):
 		_throttle = minf(1.0, _throttle + THROTTLE_RATE * delta)
 	if Input.is_key_pressed(KEY_CTRL):
@@ -1331,36 +1362,87 @@ func _eva_key() -> void:
 ## F2: the ship's computer, its desktop over the flight. The ship flies on
 ## underneath; scripts started from it keep running when it closes.
 func _toggle_desk() -> void:
-	if _desk != null:
-		_desk.queue_free()
-		_desk = null
+	if _desk_open:
+		_desk_open = false
+		_desk.visible = false
+		_desk_box.visible = false
+		_screen_live()
 		if computer:
 			computer.save()
 		return
+	if not _ensure_desk():
+		return
+	_desk_open = true
+	_desk.visible = true
+	_desk_box.visible = true
+	_screen_live()
+	Sfx.play("click")
+
+
+## The ship's desktop, made once a flight: NOMINAL's DE in a viewport of
+## its own the size of the window. Full screen (F2, ~, a click on the
+## cabin's screen) it is shown over everything and takes the keys; in the
+## penguins' view the same picture is on the screen in the cabin.
+func _ensure_desk() -> bool:
+	if _desk != null:
+		return true
 	if computer == null:
 		computer = ShipComputer.get_shared()
 	if computer.machine == null:
 		hud.toast("The ship's computer did not start (no TrsComputer in this build)", 3.0)
-		return
+		return false
 	_desk = CanvasLayer.new()
 	_desk.layer = 120  # over the HUD and the map
-	# the desktop fills the screen (a Control straight under a CanvasLayer
-	# has no parent to take its size from, so it is given the viewport's)
-	var holder := Control.new()
-	holder.name = "DeskHolder"
-	holder.position = Vector2.ZERO
-	holder.size = get_viewport().get_visible_rect().size
-	get_viewport().size_changed.connect(func():
-		if is_instance_valid(holder):
-			holder.size = get_viewport().get_visible_rect().size)
-	var de: Control = load("res://scripts/os/de.gd").new()
-	de.machine = computer.machine
-	de.ship = self
-	holder.add_child(de)
-	_desk.add_child(holder)
+	_desk.visible = false
+	_desk_box = SubViewportContainer.new()
+	_desk_box.name = "DeskHolder"
+	_desk_box.stretch = true
+	_desk_box.visible = false
+	_desk_vp = SubViewport.new()
+	_desk_vp.name = "Desk"
+	_desk_vp.transparent_bg = false
+	_desk_vp.handle_input_locally = true
+	_desk_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_desk_box.add_child(_desk_vp)
+	_desk.add_child(_desk_box)
 	add_child(_desk)
-	de.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	Sfx.play("click")
+	_desk_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_de = load("res://scripts/os/de.gd").new()
+	_de.machine = computer.machine
+	_de.ship = self
+	_desk_vp.add_child(_de)
+	_de.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	return true
+
+
+## The desktop is drawn while someone can see it: full screen, or on the
+## cabin's screen in the penguins' view.
+func _screen_live() -> void:
+	if hud and hud.instruments:
+		hud.instruments.visible = _inside == null  # (they would cover the cabin's screen)
+	if _desk_vp == null:
+		return
+	var seen := _desk_open or (_inside != null and _inside.screen != null)
+	_desk_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if seen else SubViewport.UPDATE_DISABLED
+
+
+## ~ goes round the views: the rocket, the penguins inside it, the ship's
+## computer, and back to the rocket.
+func _cycle_view() -> void:
+	if _desk_open:
+		_toggle_desk()
+		if _inside:
+			_leave_inside()
+		hud.toast("Rocket view (~: the penguins' view)", 2.0)
+		return
+	if _inside:
+		_toggle_desk()
+		return
+	_toggle_inside()
+	if _inside == null:
+		_toggle_desk()  # nobody aboard to look through: straight to the computer
+		return
+	hud.toast("Penguin view. Click the ship's computer screen (or ~) for the computer; ~ again for the rocket view.", 5.0)
 
 
 ## Enter: one of the crew gets up and walks about inside (a room of a
@@ -1404,6 +1486,9 @@ func _toggle_inside() -> void:
 	_inside.setup(session.core, session.active)
 	add_child(_inside)
 	_inside.rebuild(parts)
+	if _ensure_desk():
+		_inside.set_screen_texture(_desk_vp.get_texture())
+	_screen_live()
 	_in_dist = 3.0
 	_in_reframe = true
 	_in_looked = false
@@ -1418,6 +1503,7 @@ func _leave_inside() -> void:
 		session.core.walker_leave(_inside.vessel_id)
 		_inside.queue_free()
 	_inside = null
+	_screen_live()
 
 
 ## Home: the spin hold, turning the craft about its long axis at the rate
@@ -1495,6 +1581,8 @@ func _inside_view(t: Dictionary, delta: float) -> void:
 		return
 	var frame: PackedFloat64Array = session.core.vessel_frame(session.active, session.active)
 	_inside.rebuild(JSON.parse_string(session.core.vessel_parts(session.active)))
+	if _desk_vp != null:
+		_inside.set_screen_texture(_desk_vp.get_texture())
 	_inside.update(frame, wk, delta)
 	var felt := DMath.to_v3(wk.felt)
 	var want_up := -felt.normalized() if felt.length() > 0.3 else _in_cam_up
@@ -1526,6 +1614,9 @@ func _inside_view(t: Dictionary, delta: float) -> void:
 		var look := head - dir
 		if not _inside.windows.is_empty() and not _in_looked:
 			look = _inside.windows[0]
+			# and the computer's screen under it, in the same view
+			if _inside.screen != null:
+				look = look.lerp(_inside.screen.position, 0.55)
 		_cam.look_at(g * look, (g.basis * u).normalized())
 	else:
 		_cam.global_position = g * (target + dir * d)
@@ -2123,7 +2214,11 @@ var _front_ids: Array = []  # per rendered part: [radius, half height]
 var _front_key := ""  # which vessel (and how many parts) _front_ids describes
 var _inside: InteriorView  # a penguin walking about inside the active craft
 var computer: ShipComputer  # the ship's computer (F2 opens its desktop)
-var _desk: CanvasLayer
+var _desk: CanvasLayer        # the ship's desktop, full screen (hidden when not)
+var _desk_box: SubViewportContainer
+var _desk_vp: SubViewport      # where the desktop is drawn: full screen and the cabin's screen
+var _de: Control               # NOMINAL's desktop (scripts/os/de.gd)
+var _desk_open := false
 var _in_who := ""
 var _in_yaw := 0.0
 var _in_pitch := 0.25

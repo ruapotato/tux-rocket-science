@@ -191,6 +191,26 @@ typedef unsigned long      uint64_t;
  * because that is a familiar shape, and it is not HTTP. Request in, response
  * out. There is no wire.
  */
+#define SYS_math     1090   /* (op, x, y) -> f(x, y): the bits of doubles
+                             * in and out. TUX ROCKET SCIENCE: the CPU has
+                             * F and D now (cpu_fp.inc), and these are the
+                             * functions a libm would be: MATH_* below.    */
+#define SYS_yield    1091   /* () -> 1: the rest of this slice is given up
+                             * (a background script waiting for the ship to
+                             * move on); 0, and nothing happens, in the
+                             * foreground, where the ship cannot move on
+                             * until the command is done.                  */
+#define MATH_SIN 0
+#define MATH_COS 1
+#define MATH_TAN 2
+#define MATH_ASIN 3
+#define MATH_ACOS 4
+#define MATH_ATAN 5
+#define MATH_ATAN2 6
+#define MATH_EXP 7
+#define MATH_LOG 8
+#define MATH_POW 9
+#define MATH_LOG10 10
 #define SYS_rbapi    1080   /* (line, buf, len) -> bytes of response, or -1 */
 
 #define SYS_netinfo  1064   /* (op, buf, len) -> bytes of text, or -1       */

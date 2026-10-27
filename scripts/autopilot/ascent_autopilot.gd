@@ -150,8 +150,10 @@ func step(dt: float) -> bool:
 ## Burn time for the circularization delta-v at apoapsis.
 func _circ_burn_time(t: Dictionary) -> float:
 	var orb: Dictionary = t.orbit
-	var mu := 3.528e12
-	var R := 600000.0
+	var core = api.session.core
+	var b: Dictionary = JSON.parse_string(core.body_info(int(t.get("body_index", core.body_find("floe")))))
+	var mu := float(b.get("mu", 3.528e12))
+	var R := float(b.get("radius", 600000.0))
 	var ra: float = orb.ap_alt + R
 	var a: float = orb.sma
 	var v_ap := sqrt(mu * (2.0 / ra - 1.0 / a))

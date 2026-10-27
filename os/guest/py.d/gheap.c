@@ -24,6 +24,7 @@
  * this job rather than lifted, because there was nothing to lift: the host's
  * versions are three lines each on top of libc, and there is no libc here.
  */
+#include "gsys.h"
 #include "nom.h"
 
 /* ------------------------------------------------------------------ heap */
@@ -179,21 +180,46 @@ void *nom_memmove(void *d, const void *s, size_t n)
     return d;
 }
 
-/* THE NUMBER PARSER, AND THERE IS NO POINT IN IT.
- *
- * strtod's whole job is the fractional part, and this machine has no reals
- * (see nom.h). A literal like 1.5 lexes to 1, which is what integer division
- * does to it everywhere else in the language, so the behaviour is at least
- * consistent -- and a script that wanted 1.5 was going to be disappointed by
- * the arithmetic anyway. */
+/* The number parser: digits, a point, more digits, an exponent. Exact for
+ * every literal anybody types (it builds the digits as an integer and
+ * scales once), which is all a script's 0.5 and 9.81 need. */
 double nom_strtod(const char *s, char **end)
 {
-    i64 sign = 1, v = 0;
+    double sign = 1.0;
     while (*s == ' ' || *s == '\t') s++;
-    if (*s == '-') { sign = -1; s++; }
+    if (*s == '-') { sign = -1.0; s++; }
     else if (*s == '+') s++;
-    while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); s++; }
-    if (*s == '.') { s++; while (*s >= '0' && *s <= '9') s++; }
+    u64 digits = 0;
+    int scale = 0, any = 0;
+    while (*s >= '0' && *s <= '9') {
+        if (digits < 100000000000000000ull) digits = digits * 10 + (u64)(*s - '0');
+        else scale++;
+        s++; any = 1;
+    }
+    if (*s == '.') {
+        s++;
+        while (*s >= '0' && *s <= '9') {
+            if (digits < 100000000000000000ull) { digits = digits * 10 + (u64)(*s - '0'); scale--; }
+            s++; any = 1;
+        }
+    }
+    if (any && (*s == 'e' || *s == 'E')) {
+        const char *q = s + 1;
+        int es = 1, ev = 0;
+        if (*q == '-') { es = -1; q++; }
+        else if (*q == '+') q++;
+        if (*q >= '0' && *q <= '9') {
+            while (*q >= '0' && *q <= '9') { if (ev < 400) ev = ev * 10 + (*q - '0'); q++; }
+            scale += es * ev;
+            s = q;
+        }
+    }
+    double v = (double)digits;
+    double p10 = 1.0;
+    int k = scale < 0 ? -scale : scale;
+    double b = 10.0;
+    while (k) { if (k & 1) p10 *= b; b *= b; k >>= 1; }
+    v = scale < 0 ? v / p10 : v * p10;
     if (end) *end = (char *)s;
     return sign * v;
 }
@@ -307,13 +333,55 @@ void buf_printf(Buf *b, const char *fmt, ...)
     va_end(ap);
 }
 
-/* The language calls this to print a number. There are no reals here, so it
- * prints the integer and ignores the decimals -- which is honest, because
- * there is nothing after the point to print. */
+/* The language calls this to print a number: ten significant figures,
+ * trailing zeros dropped but never the point (2.0 is a real, 2 is an
+ * integer, as in Python), and an exponent outside 1e-5 .. 1e15. */
 void buf_putnum(Buf *b, double v, int decimals)
 {
     (void)decimals;
-    buf_putll(b, (i64)v);
+    if (v != v) { buf_puts(b, "nan"); return; }
+    if (v < 0 || (v == 0 && 1.0 / v < 0)) { buf_putc(b, '-'); v = -v; }
+    if (v > 1.7e308) { buf_puts(b, "inf"); return; }
+    if (v == 0) { buf_puts(b, "0.0"); return; }
+    int e = 0;
+    double m = v;
+    while (m >= 10.0) { m /= 10.0; e++; }
+    while (m < 1.0) { m *= 10.0; e--; }
+    if (e >= -5 && e < 15) {
+        int dec = 9 - e;
+        if (dec < 1) dec = 1;
+        if (dec > 15) dec = 15;
+        double p10 = 1.0;
+        for (int i = 0; i < dec; i++) p10 *= 10.0;
+        double whole = nom_floor(v);
+        double frac = v - whole;
+        u64 f = (u64)(frac * p10 + 0.5);
+        u64 w = (u64)whole;
+        u64 lim = 1;
+        for (int i = 0; i < dec; i++) lim *= 10;
+        if (f >= lim) { f -= lim; w++; }
+        buf_putll(b, (i64)w);
+        buf_putc(b, '.');
+        char t[20];
+        for (int i = dec - 1; i >= 0; i--) { t[i] = (char)('0' + f % 10); f /= 10; }
+        int n = dec;
+        while (n > 1 && t[n - 1] == '0') n--;
+        buf_put(b, t, (size_t)n);
+        return;
+    }
+    /* m in [1, 10): nine decimals of it, then the exponent */
+    u64 f = (u64)(m * 1e9 + 0.5);
+    if (f >= 10000000000ull) { f /= 10; e++; }
+    char t[12];
+    for (int i = 9; i >= 0; i--) { t[i] = (char)('0' + f % 10); f /= 10; }
+    buf_putc(b, t[0]);
+    int n = 10;
+    while (n > 2 && t[n - 1] == '0') n--;
+    buf_putc(b, '.');
+    buf_put(b, t + 1, (size_t)(n - 1));
+    buf_putc(b, 'e');
+    if (e < 0) { buf_putc(b, '-'); e = -e; } else buf_putc(b, '+');
+    buf_putll(b, e);
 }
 
 /* A cut-down (v)snprintf over the same formatter the buffer uses, so there is
@@ -343,15 +411,28 @@ int nom_snprintf(char *out, size_t cap, const char *fmt, ...)
     return r;
 }
 
-/* ------------------------------------------------------------------ math
- * `double` is a typedef for int64 in this build (see nom.h), so these are
- * the integer operations the names describe. */
-double nom_floor(double x) { return x; }
+/* ------------------------------------------------------------------ math */
+double nom_floor(double x)
+{
+    if (x != x || x > 4.5e15 || x < -4.5e15) return x; /* already whole */
+    double t = (double)(i64)x;
+    return t > x ? t - 1.0 : t;
+}
+
+static double host_math(int op, double x, double y)
+{
+    i64 a, c, r;
+    double out;
+    nom_memcpy(&a, &x, 8);
+    nom_memcpy(&c, &y, 8);
+    r = sysc(SYS_math, op, a, c);
+    nom_memcpy(&out, &r, 8);
+    return out;
+}
 
 double nom_pow(double b, double e)
 {
-    if (e < 0) return 0;
-    double r = 1;
-    for (double i = 0; i < e; i++) r *= b;
-    return r;
+    return host_math(MATH_POW, b, e);
 }
+
+double nom_math(int op, double x, double y) { return host_math(op, x, y); }

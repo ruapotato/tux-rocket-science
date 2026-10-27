@@ -133,6 +133,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-spaceship", "M27", NULL },
 	{ "test-computer", "M28", trs_gate_computer },
 	{ "test-computer-flight", "M28", NULL },
+	{ "test-flight-programs", "M28", NULL },
 	{ "test-mining", "M22", trs_gate_mining },
 	{ "test-relativity", "M23", trs_gate_relativity },
 	{ "test-interstellar", "M23", trs_gate_interstellar },

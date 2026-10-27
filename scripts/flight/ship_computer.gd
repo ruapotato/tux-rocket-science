@@ -46,7 +46,23 @@ const VERBS := [
 	["drive", "n", "the Stillwater Drive's throttle, 0 to 1"],
 	["mining", "w", "drills and refineries on or off (C)"],
 	["say", "t", "puts a line on the flight screen"],
+	["autostage", "w", "on: the programs stage when a stage is spent (the default); off: never"],
+	["target", "t", "picks a vessel to target, by name (none: no target)"],
+	["abort", "", "stops the program running and closes the throttle"],
+	# the programs: started here, flown a frame at a time by the game (FlightPrograms)
+	["launch", "n?", "PROGRAM: off the ground to an orbit with this apoapsis (m; 80 km on Floe)"],
+	["circularize", "w?", "PROGRAM: rounds the orbit off at the apoapsis (or: periapsis)"],
+	["burn", "t", "PROGRAM: burn prograde 120 (m/s), or burn prograde until apoapsis > 2000000"],
+	["transfer", "wn?", "PROGRAM: plans and flies the burn to a moon or planet (pass height, m)"],
+	["window", "w", "PROGRAM: warps to where the burn to that body starts, pointing prograde"],
+	["warp", "w", "PROGRAM: time warp: seconds, apoapsis, periapsis, soi, node, or a body"],
+	["capture", "n?", "PROGRAM: brakes at the periapsis into orbit (to this apoapsis, m)"],
+	["land", "", "PROGRAM: down onto the ground below, on the engines (or the chutes)"],
+	["hover", "nn?", "PROGRAM: holds a height above the ground (m), for seconds"],
+	["node", "", "PROGRAM: flies the next maneuver node on the map"],
 ]
+
+const PROGRAMS := ["launch", "circularize", "burn", "transfer", "window", "warp", "capture", "land", "hover", "node"]
 
 static var _shared: ShipComputer  # the game's one computer
 
@@ -55,6 +71,9 @@ var log: Array[String] = []   # what scripts have printed, and what was done, ne
 var _verbs_tsv := ""
 var _said: Array[String] = []  # say lines waiting for the flight screen
 var _frame := 0
+var programs := FlightPrograms.new()
+var _enc := {}     # the path ahead, looked at now and then: encounter, encounter_pe, time_to_soi
+var _enc_t := -1e9
 
 
 static func get_shared() -> ShipComputer:
@@ -76,57 +95,108 @@ func _init() -> void:
 	_restore()
 
 
-## The ship's readings, as the machine sees them: whole metres, seconds,
-## kilograms and m/s (the shell has no decimals), and words.
-static func readings(t: Dictionary) -> Dictionary:
+## The ship's readings, as the machine sees them: metres, seconds,
+## kilograms and m/s (two places: the shell's tests read the whole part),
+## and words. With the programs and the session, also what the program is
+## doing and what the path ahead meets.
+static func readings(t: Dictionary, progs: FlightPrograms = null, session: FlightSession = null, fresh := false) -> Dictionary:
 	var o: Dictionary = t.get("orbit", {})
 	var r := {}
 	r["name"] = str(t.get("name", "")).replace("\t", " ")
 	r["body"] = str(t.get("body", ""))
 	r["situation"] = str(t.get("situation", ""))
 	r["biome"] = str(t.get("biome", ""))
-	r["altitude"] = roundi(float(t.get("altitude", 0.0)))
-	r["altitude_terrain"] = roundi(float(t.get("altitude_terrain", 0.0)))
-	r["apoapsis"] = roundi(float(o.get("ap_alt", 0.0))) if o.has("ap_alt") and o.ap_alt != null else -1
-	r["periapsis"] = roundi(float(o.get("pe_alt", 0.0)))
-	r["time_to_apoapsis"] = roundi(float(o.get("t_to_ap", 0.0))) if o.get("t_to_ap") != null else -1
-	r["time_to_periapsis"] = roundi(float(o.get("t_to_pe", 0.0))) if o.get("t_to_pe") != null else -1
-	r["inclination"] = roundi(float(o.get("inc_deg", 0.0)))
-	r["vertical_speed"] = roundi(float(t.get("vertical_speed", 0.0)))
-	r["surface_speed"] = roundi(float(t.get("surface_speed", 0.0)))
-	r["orbital_speed"] = roundi(float(t.get("orbital_speed", 0.0)))
-	r["pitch"] = roundi(float(t.get("pitch_deg", 0.0)))
-	r["heading"] = roundi(float(t.get("heading_deg", 0.0)))
-	r["mass"] = roundi(float(t.get("mass", 0.0)))
-	r["thrust_kn"] = roundi(float(t.get("thrust", 0.0)) / 1000.0)
-	r["throttle_pct"] = roundi(float(t.get("throttle", 0.0)) * 100.0)
-	r["g_force"] = "%.2f" % float(t.get("g_force", 0.0))
-	r["liquid"] = roundi(float(t.get("liquid", 0.0)))
-	r["liquid_capacity"] = roundi(float(t.get("liquid_capacity", 0.0)))
-	r["mono"] = roundi(float(t.get("mono", 0.0)))
-	r["ec"] = roundi(float(t.get("ec", 0.0)))
-	r["ec_capacity"] = roundi(float(t.get("ec_capacity", 0.0)))
-	r["engines_lit"] = int(t.get("engines_lit", 0))
-	r["next_stage"] = int(t.get("next_stage", -1))
+	r["altitude"] = _n(t.get("altitude", 0.0))
+	r["altitude_terrain"] = _n(t.get("altitude_terrain", 0.0))
+	r["apoapsis"] = _n(o.ap_alt) if o.get("ap_alt") != null else "-1"
+	r["periapsis"] = _n(o.get("pe_alt", 0.0))
+	r["time_to_apoapsis"] = _n(o.t_to_ap) if o.get("t_to_ap") != null else "-1"
+	r["time_to_periapsis"] = _n(o.t_to_pe) if o.get("t_to_pe") != null else "-1"
+	r["period"] = _n(o.period) if o.get("period") != null else "-1"
+	r["eccentricity"] = "%.4f" % float(o.get("ecc", 0.0))
+	r["inclination"] = _n(o.get("inc_deg", 0.0))
+	r["vertical_speed"] = _n(t.get("vertical_speed", 0.0))
+	r["horizontal_speed"] = _n(t.get("horizontal_speed", 0.0))
+	r["surface_speed"] = _n(t.get("surface_speed", 0.0))
+	r["orbital_speed"] = _n(t.get("orbital_speed", 0.0))
+	r["pitch"] = _n(t.get("pitch_deg", 0.0))
+	r["heading"] = _n(t.get("heading_deg", 0.0))
+	r["mass"] = _n(t.get("mass", 0.0))
+	r["thrust_kn"] = _n(float(t.get("thrust", 0.0)) / 1000.0)
+	r["max_thrust_kn"] = _n(float(t.get("thrust_max", 0.0)) / 1000.0)
+	r["twr"] = _n(t.get("twr", 0.0))
+	r["throttle_pct"] = _n(float(t.get("throttle", 0.0)) * 100.0)
+	r["g_force"] = _n(t.get("g_force", 0.0))
+	r["liquid"] = _n(t.get("liquid", 0.0))
+	r["liquid_capacity"] = _n(t.get("liquid_capacity", 0.0))
+	r["mono"] = _n(t.get("mono", 0.0))
+	r["ec"] = _n(t.get("ec", 0.0))
+	r["ec_capacity"] = _n(t.get("ec_capacity", 0.0))
+	r["heat_pct"] = _n(float(t.get("heat_frac", 0.0)) * 100.0)
+	r["dynamic_pressure"] = _n(t.get("dynamic_pressure", 0.0))
+	r["in_atmosphere"] = "yes" if t.get("in_atmosphere", false) else "no"
+	r["engines_lit"] = str(int(t.get("engines_lit", 0)))
+	r["next_stage"] = str(int(t.get("next_stage", -1)))
+	r["crew"] = str(int(t.get("crew", 0)))
 	r["sas"] = str(t.get("sas", "off"))
 	r["rcs"] = "on" if t.get("rcs", false) else "off"
 	r["landed"] = "yes" if t.get("landed", false) else "no"
-	r["lat"] = "%.3f" % float(t.get("lat_deg", 0.0))
-	r["lon"] = "%.3f" % float(t.get("lon_deg", 0.0))
-	r["dv_left"] = roundi(float(t.get("dv_total", 0.0)))
+	r["lat"] = "%.4f" % float(t.get("lat_deg", 0.0))
+	r["lon"] = "%.4f" % float(t.get("lon_deg", 0.0))
+	r["dv_left"] = _n(t.get("dv_total", 0.0))
 	var stages: Array = t.get("stages", [])
-	r["stage_dv"] = roundi(float(stages[0].get("dv_vac", 0.0))) if not stages.is_empty() else 0
+	r["stage_dv"] = _n(stages[0].get("dv_vac", 0.0)) if not stages.is_empty() else "0.00"
+	if session != null:
+		var b = JSON.parse_string(session.core.body_info(int(t.get("body_index", -1))))
+		if b is Dictionary and not b.is_empty():
+			var rr := float(t.get("altitude", 0.0)) + float(b.radius)
+			r["gravity"] = _n(float(b.mu) / (rr * rr))
+			r["surface_gravity"] = _n(b.surface_gravity)
+			r["body_radius"] = _n(b.radius)
+			r["atmosphere_height"] = _n(b.atmosphere_height)
+		r["target"] = str(session.target_info().get("name", "none"))
+		var shared := get_shared()
+		var now := float(t.get("t", 0.0))
+		if fresh or absf(now - shared._enc_t) > 2.0:
+			shared._enc = _path_ahead(session, now)
+			shared._enc_t = now
+		r.merge(shared._enc, true)
+	if progs != null:
+		r["program"] = progs.name if progs.name != "" else "none"
+		r["program_status"] = progs.status
+		r["program_phase"] = progs.phase if progs.phase != "" else "-"
+		r["program_note"] = progs.note.replace("\n", " ") if progs.note != "" else "-"
+		r["program_id"] = str(progs.id)
+		r["autostage"] = "on" if progs.autostage else "off"
 	return r
+
+
+static func _n(x) -> String:
+	return "%.2f" % float(x)
+
+
+## Where the path goes next: the body whose sphere it enters (encounter),
+## how high it passes there, and how long until it gets there.
+static func _path_ahead(session: FlightSession, now: float) -> Dictionary:
+	var d := {"encounter": "none", "encounter_pe": "-1", "time_to_soi": "-1"}
+	if session.telemetry().get("landed", false):
+		return d
+	var patches := session.predict(4, 6.0e6)
+	if patches.size() > 1 and str(patches[0].get("end", "")) in ["soi_enter", "soi_exit"]:
+		d.encounter = str(patches[1].body)
+		d.encounter_pe = _n(patches[1].get("pe_alt", -1.0))
+		d.time_to_soi = _n(float(patches[0].t_end) - now)
+	return d
 
 
 func update(scene: Node, t: Dictionary) -> void:
 	if machine == null or t.is_empty():
 		return
 	var rows := PackedStringArray()
-	var r := readings(t)
+	var r := readings(t, programs, scene.session)
 	_frame += 1
 	r["frame"] = _frame  # which update this is: a script can tell a fresh reading from one it already acted on
-	r["time"] = roundi(float(t.get("t", 0.0)))
+	r["time"] = _n(t.get("t", 0.0))
 	for k in r:
 		rows.append("%s\t%s" % [k, str(r[k])])
 	machine.set_state("\n".join(rows) + "\n")
@@ -138,6 +208,13 @@ func update(scene: Node, t: Dictionary) -> void:
 	var acts: String = machine.take_actions()
 	for line in acts.split("\n", false):
 		_do(scene, t, line)
+	var was := programs.status
+	programs.step(scene, t)
+	for line in programs.said:
+		_note(line)
+	programs.said.clear()
+	if was == "running" and not programs.running():
+		_note("%s %s: %s" % [programs.name, programs.status, programs.note])
 
 
 ## Runs one line on the machine's shell, as a person at a terminal would.
@@ -208,6 +285,22 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 			s.core.vessel_set_mining(s.active, _on(arg))
 		"say":
 			_said.append(line.substr(4))
+		"autostage":
+			programs.autostage = _on(arg)
+		"abort":
+			programs.stop("aborted")
+			scene._throttle = 0.0
+			s.set_throttle(0.0)
+		"target":
+			var want := line.substr(7).strip_edges().to_lower()
+			s.target = -1
+			if want != "none" and want != "":
+				for v in JSON.parse_string(s.core.vessel_list()):
+					if int(v.id) != s.active and str(v.name).to_lower().begins_with(want):
+						s.target = int(v.id)
+						break
+		_ when w[0] in PROGRAMS:
+			programs.start(scene, w, t)
 	_note("> " + line)
 
 

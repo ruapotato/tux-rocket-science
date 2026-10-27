@@ -78,7 +78,11 @@ for p in init rc svcinit login sh ls cat ps ns pkg stat chmod mount umount chroo
     # LANGUAGE compile here. Include order is the only thing that decides
     # which, and getting it wrong produced a fatal error about a header the
     # guest has no business seeing.
-    if ! $CC -Iguest/$p.d $CFLAGS -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none \
+    # TUX ROCKET SCIENCE: /bin/py has reals (machine/cpu_fp.inc), so it is
+    # built for the F and D extensions; everything else stays rv64im.
+    FP=""
+    [ "$p" = py ] && FP="-march=rv64imfd -mabi=lp64d -fno-math-errno"
+    if ! $CC -Iguest/$p.d $CFLAGS $FP -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none \
              -o "$TMP/$p.elf" "guest/$p.c" $EXTRA; then
         echo "mkguest: FAILED to build guest/$p.c -- $OUT left UNCHANGED" >&2
         exit 1

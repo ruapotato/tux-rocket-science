@@ -55,6 +55,7 @@ const SHOWN := [
 	["throttle_pct", "%", "throttle"], ["thrust_kn", "kN", "thrust"], ["g_force", "g", "felt"],
 	["mass", "kg", "mass"], ["liquid", "kg", "propellant"], ["dv_left", "m/s", "delta-v left"],
 	["ec", "kJ", "battery"], ["sas", "", "SAS"], ["rcs", "", "RCS"],
+	["encounter", "", "path meets"], ["program", "", "program"], ["program_status", "", "  status"],
 ]
 
 ## label, the line it runs
@@ -65,7 +66,13 @@ const BUTTONS := [
 	["Radial out", "ship sas radial_out"], ["Normal", "ship sas normal"], ["SAS off", "ship sas off"],
 	["Point up", "ship point 90 0"], ["Point 45 E", "ship point 45 90"], ["RCS on", "ship rcs on"],
 	["RCS off", "ship rcs off"], ["Spin on", "ship spin on"], ["Spin off", "ship spin off"],
+	# the programs: the computer flies these itself (any flying key takes over)
+	["LAUNCH", "ship launch"], ["Circularize", "ship circularize"], ["Warp to Ap", "ship warp apoapsis"],
+	["To Krill", "ship transfer krill"], ["Capture", "ship capture"], ["LAND", "ship land"],
+	["Hover 20 m", "ship hover 20 20"], ["Burn node", "ship node"], ["ABORT", "ship abort"],
 ]
+
+const PROGRAMS := ["launch", "circularize", "warp", "transfer", "capture", "land", "hover", "node"]
 
 var _state := {}
 var _console: Array[String] = []
@@ -166,7 +173,7 @@ func _script_rect(i: int) -> Rect2:
 
 
 func _console_rect() -> Rect2:
-	var h := maxf(110.0, size.y * 0.26)
+	var h := maxf(100.0, size.y * 0.17)
 	return Rect2(PAD, size.y - h - PAD, size.x - 2 * PAD, h)
 
 
@@ -187,13 +194,16 @@ func _draw() -> void:
 		draw_string(mono, Vector2(c[0] + 130, y), v + (" " + row[1] if row[1] != "" and v != "-" else ""),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, FS, INK)
 		y += 17.0
+	var pn := str(_state.get("program_note", "-"))
+	if pn != "-" and y < lim:
+		draw_string(mono, Vector2(c[0], y), pn, HORIZONTAL_ALIGNMENT_LEFT, c[1] - c[0], FS - 1, SEL)
 	# controls
 	draw_string(mono, Vector2(c[2], PAD + 12), "TELL IT", HORIZONTAL_ALIGNMENT_LEFT, -1, FS, SEL)
 	for i in BUTTONS.size():
 		var r := _button_rect(i)
 		_bevel(r, i == _hot)
 		draw_string(mono, Vector2(r.position.x + 4, r.position.y + 16), BUTTONS[i][0], HORIZONTAL_ALIGNMENT_CENTER,
-			r.size.x - 8, FS, BAD if BUTTONS[i][0] == "STAGE" else INK)
+			r.size.x - 8, FS, BAD if BUTTONS[i][0] in ["STAGE", "ABORT"] else (SEL if BUTTONS[i][1].split(" ")[1] in PROGRAMS else INK))
 	# scripts
 	var st := _scripts_top()
 	draw_string(mono, Vector2(c[2], st - 6), "SCRIPTS  (click to run, again to stop)", HORIZONTAL_ALIGNMENT_LEFT, -1, FS, SEL)

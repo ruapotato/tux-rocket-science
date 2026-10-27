@@ -226,6 +226,8 @@ static bool store_mem(Cpu *c, uint64_t addr, int bytes, uint64_t v)
     return true;
 }
 
+#include "cpu_fp.inc"
+
 CpuTrap cpu_run(Cpu *c, uint64_t budget)
 {
     c->trap = TRAP_NONE;
@@ -482,6 +484,10 @@ CpuTrap cpu_run(Cpu *c, uint64_t budget)
         case 0x0f:  /* fence: this machine has one hart and no store buffer */
             break;
 
+        case 0x07: case 0x27: case 0x43: case 0x47: case 0x4b: case 0x4f: case 0x53:
+            if (!fp_exec(c, ins, op)) return c->trap;
+            break;
+
         case 0x73: { /* system */
             if (ins == 0x00000073) {          /* ecall */
                 if (!c->syscall) { c->trap = TRAP_HOST; return c->trap; }
@@ -502,6 +508,9 @@ CpuTrap cpu_run(Cpu *c, uint64_t budget)
                 }
             } else if (ins == 0x00100073) {   /* ebreak */
                 c->trap = TRAP_EBREAK; c->pc = next; return c->trap;
+            } else if (F3(ins) != 0 && F3(ins) != 4) {
+                /* csrrw/s/c(i): the floating-point CSRs only */
+                if (!fp_csr(c, ins)) return c->trap;
             } else {
                 goto illegal;
             }

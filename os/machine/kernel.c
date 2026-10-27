@@ -33,6 +33,7 @@
  * separately-breakable binary.
  */
 #include <string.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include "nom.h"
@@ -665,6 +666,8 @@ static int64_t sys_getarg(Proc *p, Cpu *c, uint64_t buf, int64_t len)
 
 /* ------------------------------------------------------------- syscall -- */
 
+static struct Daemon *daemons(Machine *m);
+
 static int64_t kernel_syscall(Cpu *c, int64_t n, int64_t a0, int64_t a1,
                               int64_t a2, void *ctx)
 {
@@ -938,6 +941,39 @@ static int64_t kernel_syscall(Cpu *c, int64_t n, int64_t a0, int64_t a1,
      * gate with no world behind it), the call fails rather than inventing an
      * answer, because a script that gets a plausible reply from a game that
      * is not there is worse than one that gets an error. */
+    case SYS_yield: {
+        struct Daemon *d = daemons(p->m);
+        for (int i = 0; d && i < p->m->ndaemon; i++)
+            if (&d[i].proc == p) {
+                c->x[10] = 1;
+                c->trap = TRAP_BUDGET; /* cpu_run returns as if the slice ran out */
+                return 1;
+            }
+        return 0;
+    }
+    case SYS_math: {
+        double x, y, r;
+        memcpy(&x, &a1, 8);
+        memcpy(&y, &a2, 8);
+        switch (a0) {
+        case MATH_SIN: r = sin(x); break;
+        case MATH_COS: r = cos(x); break;
+        case MATH_TAN: r = tan(x); break;
+        case MATH_ASIN: r = asin(x); break;
+        case MATH_ACOS: r = acos(x); break;
+        case MATH_ATAN: r = atan(x); break;
+        case MATH_ATAN2: r = atan2(x, y); break;
+        case MATH_EXP: r = exp(x); break;
+        case MATH_LOG: r = log(x); break;
+        case MATH_POW: r = pow(x, y); break;
+        case MATH_LOG10: r = log10(x); break;
+        default: return -1;
+        }
+        int64_t out;
+        memcpy(&out, &r, 8);
+        c->charge += 40; /* about what a libm call costs */
+        return out;
+    }
     case SYS_rbapi: {
         char line[NOM_ARG_MAX];
         if (!guest_str(c, (uint64_t)a0, line, sizeof line)) return -1;

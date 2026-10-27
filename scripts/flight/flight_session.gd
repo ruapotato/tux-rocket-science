@@ -141,7 +141,10 @@ func time() -> float:
 
 # ---- controls --------------------------------------------------------------
 
+var throttle_set := 0.0  # the last throttle asked for
+
 func set_throttle(x: float) -> void:
+	throttle_set = x
 	core.vessel_set_throttle(active, x)
 	core.vessel_set_drive(active, x)  # a Stillwater Drive aboard follows the throttle
 	_telemetry_tick = -1

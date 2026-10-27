@@ -36,6 +36,7 @@ const SAS_BUTTONS := [
 const BOTTOM_H := 330
 const TOP_H := 105  # the clock and warp panel along the top
 var navball: Navball
+var instruments: Control  # the throttle, navball and g-meter, and the SAS row (hidden in the penguins' view)
 var speed_mode := "surface"  # or "orbit"
 var maneuver_active := false
 var follow_mode := ""  # SAS following a moving direction: maneuver, target, antirel, dock
@@ -123,6 +124,7 @@ func _ready() -> void:
 
 	# bottom centre: throttle | navball | g-meter, SAS row beneath
 	var bottom := VBoxContainer.new()
+	instruments = bottom
 	bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	bottom.offset_left = -230
 	bottom.offset_right = 230
@@ -404,9 +406,10 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
    against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
 [b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in)   [b]O[/b] science
-[b]F2[/b] the ship's computer: its desktop, a terminal (`ship help`), scripts that fly the ship, and games for the long trips
+[b]~[/b] the views: the rocket, the penguins inside (click the computer's screen), the ship's computer, and back
+[b]F2[/b] the ship's computer: its desktop, a terminal (`ship help`), scripts that fly the ship (launch, transfer, land...), and games for the long trips
 [b]Enter[/b] one of the crew walks about inside (habs, spin rings: WASD, Space jumps or pushes off, Enter again back to the controls)   [b]Home[/b] spin hold
-[b]B[/b] wheel brakes (planes start on the runway with them on)   [b]F5[/b] quicksave   [b]F9[/b] quickload   [b]1-9[/b] action groups   [b]`[/b] steer by the craft / by the view   [b]C[/b] mining on / off
+[b]B[/b] wheel brakes (planes start on the runway with them on)   [b]F5[/b] quicksave   [b]F9[/b] quickload   [b]1-9[/b] action groups   [b]F3[/b] steer by the craft / by the view   [b]C[/b] mining on / off
 [b]V[/b] surface / orbital speed
 
 [b]. ,[/b] or the [b]▶▶ ◀◀[/b] buttons: faster / slower time   [b]/[/b] or [b]■[/b] normal time

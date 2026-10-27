@@ -131,6 +131,25 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 		trs_log_printf(out, "     (would not start: %s)\n", err);
 	buf_free(&said);
 
+	/* real numbers, and the maths: on the machine's own floating point */
+	{
+		const char *m = "print(10 / 4, 2 ** 0.5, round(sqrt(2) * 1000) / 1000, round(deg(atan2(1, 1))), 9.81 * 3, int(\"75432.9\"), float(\"1.5e3\") + 1)\n";
+		computer_write(c, "/root/maths.py", m, strlen(m));
+	}
+	sh(c, "py /root/maths.py", &b);
+	ok = has(&b, "2.5 1.414213562 1.414 45 29.43 75432 1501.0");
+	failed += !ok;
+	trs_log_printf(out, "%s numbers are real and the maths is there: %s", ok ? "ok  " : "FAIL", b.p);
+	computer_set_state(c, "altitude\t12400.25\napoapsis\t91000\nsituation\tflying\nframe\t3\n");
+	sh(c, "py -c 'print(get(\"altitude\") + 0.75, get(\"apoapsis\") + 1, get(\"situation\"), get(\"nothing\"))'", &b);
+	ok = has(&b, "12401.0 91001 flying nil");
+	failed += !ok;
+	trs_log_printf(out, "%s get() reads a reading as the number it is (or the word): %s", ok ? "ok  " : "FAIL", b.p);
+	sh(c, "py -c 'wait(5)'", &b);
+	ok = has(&b, "run the script in the background");
+	failed += !ok;
+	trs_log_printf(out, "%s a call that waits for the ship, typed at a terminal, says to run it in the background (and does not hang)\n", ok ? "ok  " : "FAIL");
+
 	/* a second computer (the desktop's own, off a ship) comes and goes:
 	 * this one still answers */
 	computer_free(computer_new(8));

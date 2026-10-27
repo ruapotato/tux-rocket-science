@@ -62,10 +62,10 @@ func run(runner: Node) -> Dictionary:
 	# 1. what it reads is what the HUD says
 	var t := s.telemetry()
 	comp.update(scene, t)
-	var r := ShipComputer.readings(t)
+	var r := ShipComputer.readings(t, comp.programs, s)
 	var got := comp.sh("cat /dev/ship/altitude").strip_edges()
 	var st := comp.sh("ship status")
-	_check(got == str(r.altitude) and got == str(roundi(float(t.altitude))) and st.contains("prelaunch") and st.contains(str(r.mass)),
+	_check(got == str(r.altitude) and got == "%.2f" % float(t.altitude) and st.contains("prelaunch") and st.contains(str(r.mass)),
 		"readings: /dev/ship/altitude %s m = the HUD's %.1f m; ship status shows the situation and the mass" % [got, float(t.altitude)])
 
 	# 2. a command at its shell is the throttle
@@ -79,7 +79,7 @@ func run(runner: Node) -> Dictionary:
 	# 3. the desktop and every app on it
 	scene._toggle_desk()
 	await _frames(tree, 3)
-	var de: Control = scene._desk.get_child(0).get_child(0)
+	var de: Control = scene._de
 	var opened := []
 	var missed := []
 	for app in de.LAUNCHERS:

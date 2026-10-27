@@ -1477,6 +1477,11 @@ static const Package PKG_SHELL = {
       { "/root/examples/ascent.py", NULL, 0644, NULL },
       { "/root/examples/circularize.py", NULL, 0644, NULL },
       { "/root/examples/apoapsis.sh", NULL, 0755, NULL },
+      { "/root/examples/orbit.py", NULL, 0644, NULL },
+      { "/root/examples/krill.py", NULL, 0644, NULL },
+      { "/root/examples/window.py", NULL, 0644, NULL },
+      { "/root/examples/land.py", NULL, 0644, NULL },
+      { "/root/examples/hop.py", NULL, 0644, NULL },
       { "/bin/ed", NULL, 0755, NULL },
       { "/bin/echo", NULL, 0755, NULL },
       { "/bin/wc", NULL, 0755, NULL },
@@ -1689,7 +1694,7 @@ static const Package PKG_SHELL = {
         "\n"
         "1.4  -- find and netstat, because everybody reached for them and they were\n"
         "       not there.\n", 0644, NULL },
-    }, 67   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own seven */
+    }, 72   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own twelve */
 };
 
 
@@ -3714,7 +3719,12 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "/root/examples -- scripts that work.\n"
         "\n"
         "  sh /root/examples/watch.sh            what the ship is doing\n"
-        "  ship run /root/examples/ascent.py     flies a rocket off the pad to orbit\n"
+        "  ship run /root/examples/orbit.py      the pad to orbit in one line: launch(80000)\n"
+        "  ship run /root/examples/krill.py      to Krill and down onto it, by itself\n"
+        "  ship run /root/examples/window.py     to Krill: wait_for_window, until_orbit_crosses\n"
+        "  ship run /root/examples/land.py       down onto whatever is below\n"
+        "  ship run /root/examples/hop.py        up 30 m on the engine and down again\n"
+        "  ship run /root/examples/ascent.py     the pad to orbit by hand: pitch, throttle, stage\n"
         "  ship run /root/examples/circularize.py  rounds out an orbit at apoapsis\n"
         "  ship run /root/examples/apoapsis.sh   cuts the engines at 80 km apoapsis\n"
         "  py /root/examples/selftest.py         does the language work?\n"
@@ -3722,7 +3732,28 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "\n"
         "`ship run` starts one in the background, where it keeps going while you\n"
         "fly (or play). `ps` lists them and `kill <pid>` stops one. Copy one into\n"
-        "/root/scripts and make it yours.\n");
+        "/root/scripts and make it yours.\n"
+        "\n"
+        "THE FLIGHT LIBRARY (py: run `py` for the whole list). Each waits until\n"
+        "the ship has done it; one that fails stops the script and says why.\n"
+        "\n"
+        "  launch(80000)             off the ground to an orbit, staging itself\n"
+        "  circularize()             round at the apoapsis (\"periapsis\": there)\n"
+        "  burn(\"prograde\", 120)     a delta-v: prograde retrograde normal antinormal\n"
+        "                            radial_out radial_in surface_retrograde up\n"
+        "  burn_until(\"prograde\", \"apoapsis\", \">\", 2000000)\n"
+        "  wait_for_window(\"krill\")  warps to when the burn to it starts\n"
+        "  until_orbit_crosses(\"krill\")   burns prograde until the path meets it\n"
+        "  transfer(\"krill\")         both of those, planned and trimmed\n"
+        "  warp_to(\"krill\")          or \"apoapsis\" \"periapsis\" \"soi\" \"node\" or seconds\n"
+        "  capture(30000)            brake into orbit at the periapsis\n"
+        "  land()  hover(30, 10)  node()  abort()  autostage(False)\n"
+        "  wait(5)  wait_until(\"altitude\", \"<\", 5000)  get(\"apoapsis\")\n"
+        "  throttle(1) stage() sas(\"prograde\") point(45, 90) chutes() legs()\n"
+        "  say(\"hi\")  countdown(5)\n"
+        "\n"
+        "Numbers are real (2.5 is 2.5), with sqrt sin cos atan2 ... pi.\n"
+        "Every program is a ship command too: `ship launch 80000`, `ship land`.\n");
     else if (strcmp(path, "/root/examples/watch.sh") == 0)
         buf_puts(out,
         "# /root/examples/watch.sh -- what the ship is doing, once.\n"
@@ -3820,6 +3851,82 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "            print(\"stage spent at \" + s[\"altitude\"] + \" m: staging\")\n"
         "            do(\"stage\")\n"
         "            staged = f\n");
+else if (strcmp(path, "/root/examples/orbit.py") == 0)
+        buf_puts(out,
+        "# /root/examples/orbit.py -- the pad to orbit, in one line.\n"
+        "#\n"
+        "#   ship run /root/examples/orbit.py\n"
+        "#\n"
+        "# launch() is a program the ship flies itself: straight up, over to the\n"
+        "# east as the air thins, staging as each stage runs dry, the engine off at\n"
+        "# the apoapsis, and round at the top. It waits until it is done, then the\n"
+        "# next line runs. Give it the apoapsis you want, in metres.\n"
+        "\n"
+        "countdown(5)\n"
+        "launch(80000)\n"
+        "say(\"In orbit: \" + str(round(get(\"periapsis\") / 1000, 1)) + \" x \" + str(round(get(\"apoapsis\") / 1000, 1)) + \" km\")\n");
+    else if (strcmp(path, "/root/examples/krill.py") == 0)
+        buf_puts(out,
+        "# /root/examples/krill.py -- to Krill and down onto it, by itself.\n"
+        "#\n"
+        "#   ship run /root/examples/krill.py\n"
+        "#\n"
+        "# Fly the Krill Lander (or anything with the fuel: about 4300 m/s of it).\n"
+        "# Each line is a program that waits until it is done, so this reads like\n"
+        "# the flight plan it is. If one fails (out of fuel, no way there), the\n"
+        "# script stops and says why, rather than trying to land after a capture\n"
+        "# that never happened.\n"
+        "\n"
+        "countdown(5)\n"
+        "launch(80000)              # to an 80 km orbit of Floe\n"
+        "transfer(\"krill\")          # the burn that meets Krill, planned and flown\n"
+        "warp_to(\"krill\")           # coast into Krill's sphere (time warp)\n"
+        "capture(30000)             # brake at the low point, into orbit\n"
+        "land()                     # and down, on the engine\n"
+        "say(\"The penguin has landed!\")\n"
+        "print(\"down at\", get(\"lat\"), get(\"lon\"), \"with\", round(get(\"dv_left\")), \"m/s left\")\n");
+    else if (strcmp(path, "/root/examples/window.py") == 0)
+        buf_puts(out,
+        "# /root/examples/window.py -- to Krill the long way: by hand, nearly.\n"
+        "#\n"
+        "#   ship run /root/examples/window.py      (from an orbit of Floe)\n"
+        "#\n"
+        "# What transfer(\"krill\") does for you, in the words you would use:\n"
+        "# wait until Krill is in the right place, burn prograde until the path\n"
+        "# crosses it, and coast there.\n"
+        "\n"
+        "wait_for_window(\"krill\")           # warps to the moment, pointing prograde\n"
+        "until_orbit_crosses(\"krill\")       # burns until the path meets Krill\n"
+        "print(\"the path meets Krill\", round(get(\"encounter_pe\") / 1000, 1), \"km up, in\", round(get(\"time_to_soi\") / 3600, 1), \"h\")\n"
+        "warp_to(\"krill\")\n"
+        "capture(30000)\n");
+    else if (strcmp(path, "/root/examples/land.py") == 0)
+        buf_puts(out,
+        "# /root/examples/land.py -- down onto whatever is below.\n"
+        "#\n"
+        "#   ship run /root/examples/land.py\n"
+        "#\n"
+        "# From an orbit or on the way down. With air (Floe, Kelp) it drops the low\n"
+        "# point into the air, holds the heat shield forward, opens the chutes and\n"
+        "# lands on the engine if it has one left. Without air (Krill) it brakes and\n"
+        "# comes down on the engine, the sideways drift nulled.\n"
+        "\n"
+        "land()\n"
+        "print(\"down:\", get(\"situation\"), \"on\", get(\"body\"))\n");
+    else if (strcmp(path, "/root/examples/hop.py") == 0)
+        buf_puts(out,
+        "# /root/examples/hop.py -- a hop on the engine, the way landers are tested.\n"
+        "#\n"
+        "#   ship run /root/examples/hop.py         (on the ground, engine ready)\n"
+        "#\n"
+        "# Up to 30 m, hold it for ten seconds, down again. hover() holds a height\n"
+        "# above the ground; land() puts it back down gently. Try a longer hop, or\n"
+        "# drift east first with point() and throttle().\n"
+        "\n"
+        "legs()\n"
+        "hover(30, 10)\n"
+        "land()\n"
+        "say(\"Hop done\")\n");
     else if (strcmp(path, "/root/examples/apoapsis.sh") == 0)
         buf_puts(out,
         "# /root/examples/apoapsis.sh -- cut the engines at 80 km of apoapsis.\n"

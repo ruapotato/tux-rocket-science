@@ -47,8 +47,8 @@ func run(runner: Node) -> Dictionary:
 	for i in 30:
 		await tree.process_frame
 	print("MARK 30 frames")
-	var de: Control = scene._desk.get_child(0).get_child(0)
-	log.append("holder %s, desk %s, wall %s, panel %s" % [scene._desk.get_child(0).size, de.size, de.wall.size, de.panel.size])
+	var de: Control = scene._de
+	log.append("holder %s, desk %s, wall %s, panel %s" % [scene._desk_box.size, de.size, de.wall.size, de.panel.size])
 	await _shot(scene, "desk_flight", log)
 	de._launch("term")
 	for i in 5:

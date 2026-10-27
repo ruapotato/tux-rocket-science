@@ -1130,7 +1130,7 @@ func _launch(kind0: String) -> void:
 			fl.mono = mono
 			fl.machine = machine
 			fl.ship = ship
-			_win("flight", _cascade_at(760, 540), fl)
+			_win("flight", _cascade_at(860, 700), fl)
 
 
 # ENERGISE USED TO LIVE HERE, and it does not any more.

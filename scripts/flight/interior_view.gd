@@ -64,6 +64,9 @@ var up := Vector3.UP       # the penguin's up, craft-local
 var _fwd := Vector3.BACK   # where it faces, craft-local
 var _air := false
 var windows: Array = []  # craft-local centres of the capsule windows (a cockpit view looks out of the first)
+var screen: MeshInstance3D  # the ship's computer's screen (on a capsule's console, or a hab's wall)
+var _screen_tex: Texture2D
+var _screen_mat: StandardMaterial3D
 
 
 func setup(c: TrsSim, id: int) -> void:
@@ -99,6 +102,7 @@ func rebuild(parts: Array) -> void:
 		if c is OmniLight3D or c.name.begins_with("Fit"):
 			c.queue_free()
 	windows.clear()
+	screen = null
 	var feed: PackedFloat64Array = core.room_mesh(vessel_id, CELL)
 	if feed.is_empty():
 		return
@@ -159,6 +163,13 @@ func rebuild(parts: Array) -> void:
 					_lamp(xf * Vector3(0, (y0 + y1) * 0.5, 0), maxf(r, y1 - y0) * 2.2, 1.4 if r > 0.8 else 0.6)
 					if v.has("radius_top"):
 						_cockpit(xf, v, CraftModel.size_of(p))
+					elif screen == null:
+						# a hab: the computer on the wall, at a penguin's eye
+						var sz := CraftModel.size_of(p)
+						var rw: float = r * (float(sz[0]) + float(sz[2])) * 0.5 - 0.06
+						var yc: float = clampf((y0 + y1) * 0.5 * float(sz[1]) + 0.1, y0 * float(sz[1]) + 0.3, y1 * float(sz[1]) - 0.3)
+						var wsz := Vector2(minf(0.8, rw * 0.9), minf(0.8, rw * 0.9) * 0.5625)
+						_add_screen(xf * Transform3D(Basis(Vector3.UP, PI), Vector3(0, yc, rw)), wsz)
 				"annulus":
 					var rm: float = (float(v.get("r0", 0.0)) + float(v.get("r1", 0.0))) * 0.5
 					var y: float = (float(v.get("y0", 0.0)) + float(v.get("y1", 0.0))) * 0.5
@@ -169,6 +180,49 @@ func rebuild(parts: Array) -> void:
 					var lo := DMath.to_v3(v.get("min", [0, 0, 0]))
 					var hi := DMath.to_v3(v.get("max", [0, 0, 0]))
 					_lamp(xf * ((lo + hi) * 0.5), (hi - lo).length() * 1.2)
+
+
+## The computer's screen: a quad showing the desktop, facing along its +Z.
+func _add_screen(xf: Transform3D, size: Vector2) -> void:
+	screen = _fit(MeshInstance3D.new(), xf)
+	screen.name = "FitScreen"
+	var qm := QuadMesh.new()
+	qm.size = size
+	screen.mesh = qm
+	_screen_mat = StandardMaterial3D.new()
+	_screen_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_screen_mat.albedo_color = Color(0.05, 0.06, 0.08)
+	screen.material_override = _screen_mat
+	if _screen_tex:
+		_screen_mat.albedo_texture = _screen_tex
+		_screen_mat.albedo_color = Color.WHITE
+
+
+## What the screen shows (the desktop's viewport).
+func set_screen_texture(tex: Texture2D) -> void:
+	_screen_tex = tex
+	if _screen_mat and _screen_mat.albedo_texture != tex:
+		_screen_mat.albedo_texture = tex
+		_screen_mat.albedo_color = Color.WHITE
+
+
+## Whether a click at `pos` on the camera's view lands on the screen.
+func screen_hit(cam: Camera3D, pos: Vector2) -> bool:
+	if screen == null or not is_instance_valid(screen) or cam == null:
+		return false
+	var o := cam.project_ray_origin(pos)
+	var d := cam.project_ray_normal(pos)
+	var g := screen.global_transform
+	var n := g.basis.z.normalized()
+	var den := d.dot(n)
+	if absf(den) < 1e-6:
+		return false
+	var k := (g.origin - o).dot(n) / den
+	if k <= 0.0 or k > 6.0:
+		return false
+	var l := g.affine_inverse() * (o + d * k)
+	var half := (screen.mesh as QuadMesh).size * 0.5
+	return absf(l.x) <= half.x * 1.1 and absf(l.y) <= half.y * 1.1
 
 
 ## A capsule's cabin: a console under each window, its screens lit, and the
@@ -194,6 +248,11 @@ func _cockpit(xf: Transform3D, v: Dictionary, size: Array) -> void:
 			bm.size = Vector3(0.3, 0.16, 0.05)
 			con.mesh = bm
 			con.material_override = dark
+			if screen == null:
+				# the first console carries the ship's computer
+				bm.size = Vector3(0.3, 0.19, 0.05)
+				_add_screen(con.transform * Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.0, -0.028)), Vector2(0.27, 0.152))
+				continue
 			for k in 3:
 				var scr := _fit(MeshInstance3D.new(), con.transform * Transform3D(Basis.IDENTITY, Vector3(-0.09 + 0.09 * k, 0.01, -0.03)))
 				var qm := QuadMesh.new()

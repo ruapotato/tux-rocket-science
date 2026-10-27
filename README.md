@@ -206,19 +206,44 @@ Hearth Core's 40 MW: it gives what the power pays for) and **Glasswing** hulls a
 the weight and good to 4000 K. The stock **Skua** is a single-stage spaceship on them: from the
 pad to orbit, to Krill and on, its thrust weight in the cabin.
 
-**The ship's computer**: press **F2** in flight and the ship's computer comes up on the
-screen: a whole little machine (an RV64 CPU, a kernel, a disk, a shell, a MATE-style desktop,
-from NOMINAL by way of RUNBOOK) aboard every ship. Its **Flight** app shows what the panels say
-and has a button for each thing the ship can be told; every button is the shell line it runs, so
-you can copy it into a script. At its terminal, `ship status` prints the readings, `ship get
-apoapsis` one of them, `ship throttle 0.5`, `ship stage`, `ship sas prograde`, `ship point 45
-90` (pitch, heading) and the rest fly the ship (`ship help` lists them); every reading is also a
-file (`cat /dev/ship/apoapsis`) and every command too (`echo 0 > /dev/ship/throttle`). Scripts
-in its Python or its shell, `ship run /root/examples/ascent.py`, keep running while you fly,
-through the same controls the keys use: the two examples on its disk take the Orbiter off the
-pad to orbit with nobody at the keys. Your own go in `/root/scripts`, which is kept between
-games. For the long coast, it has its games: 2048, snake, worms, mines, solitaire, a falling-sand
-box and more.
+**The ship's computer**: every ship carries a whole little machine: an RV64 CPU (now with
+floating point), a kernel, a disk, a shell, and NOMINAL's MATE-style desktop with its games,
+by way of RUNBOOK. **~** goes round the views: the rocket, the penguins inside (where the
+computer's screen is lit on the capsule's console, or on a hab's wall: click it), the computer
+full screen, and back to the rocket. **F2** goes straight to the computer.
+
+Its **Flight** app shows what the panels say and has a button for each thing the ship can be
+told. Every button is the shell line it runs, so you can copy it into a script. At the terminal,
+`ship status` prints the readings and `ship help` lists the commands. Every reading is also a
+file (`cat /dev/ship/apoapsis`), and so is every command (`echo 0 > /dev/ship/throttle`).
+
+The computer also flies **programs** for you, a frame at a time, through the same controls the
+keys use: `ship launch 80000`, `ship transfer krill`, `ship land`. Any flying key takes the
+controls back. In its Python they read like a flight plan; each call waits until it is done,
+and one that fails stops the script and says why:
+
+```python
+countdown(5)
+launch(80000)          # off the pad to orbit, staging itself
+transfer("krill")      # the burn that meets Krill, planned, flown and corrected
+warp_to("krill")       # coast into its sphere
+capture(30000)         # brake into orbit
+land()                 # and down on the engine
+```
+
+The rest of the library:
+
+- **Programs:** `circularize()`, `burn("prograde", 120)`, `burn_until("prograde", "apoapsis",
+  ">", 2000000)`, `wait_for_window("krill")`, `until_orbit_crosses("krill")`, `hover(30, 10)`,
+  `node()` (flies the map's maneuver node).
+- **Waiting and reading:** `wait(5)`, `wait_until("altitude", "<", 5000)`, `get("apoapsis")`.
+- **Quick commands:** `throttle`, `stage`, `sas`, `point`, `chutes`, `legs`, `say` and `abort`.
+- **Maths:** real numbers, with `sqrt`, `sin`, `cos`, `atan2` and `pi`.
+
+`/root/examples` has scripts that work: `orbit.py`, `krill.py` (pad to Krill's surface),
+`window.py`, `land.py`, `hop.py` and `ascent.py` (by hand). Your own go in `/root/scripts`,
+which is kept between games. For the long coast, it has its games: 2048, snake, worms, mines,
+solitaire, a falling-sand box and more.
 
 **Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
 wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and

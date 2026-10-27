@@ -120,6 +120,14 @@ func run(runner: Node) -> Dictionary:
 	_check(r0.has("distance") and n_hidden > 10 and n_heard > 10 and heard_at >= 0.0 and unpowered == 0 and mismatch == 0 and worst_d < 1e-9 and worst_b < 1e-6,
 		"one orbit, every 20 s: heard %d times, hidden behind Krill %d; powered throughout (%d samples not); heard exactly when above its horizon and in range (%d mismatches); distance and heading against the formulas: worst %s, %s rad" % [
 			n_heard, n_hidden, unpowered, mismatch, str(worst_d), str(worst_b)])
+	# the HUD while the Chime is in sight (the orbit may end with Krill
+	# between them, wherever the world's clock has got to)
+	for k in 60:
+		if Career.relic_in(s.telemetry(), "krill_chime").get("heard", false):
+			break
+		s.warp_to(s.time() + 20.0)
+		await tree.process_frame
+	await _frames(tree, 2)
 	var sig: String = scene.hud._signal.text
 	_check("krill_chime" in Career.heard and "hum" in Career.done and scene.hud.story_showing() and sig.contains("Krill Chime") and sig.contains("signal!"),
 		"'The Hum' done, the Chime charted, its story told; the HUD reads '%s'" % sig.replace("\n", " | "))

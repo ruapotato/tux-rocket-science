@@ -30,6 +30,10 @@
  *
  * WHAT IS DELIBERATELY ABSENT, and why:
  *
+ *   (TUX ROCKET SCIENCE has since added F and D: cpu_fp.c says why, and
+ *   what it costs the determinism claim below: basic arithmetic and sqrt are
+ *   IEEE-exact everywhere; the transcendental functions the host computes
+ *   for /bin/py's math may differ in the last bit between platforms.)
  *   no floating point   — the F/D extensions are the single largest source of
  *                         cross-platform result divergence. Integer-only means
  *                         determinism is structural rather than maintained.
@@ -85,6 +89,11 @@ typedef int64_t (*CpuSyscall)(Cpu *c, int64_t num, int64_t a0, int64_t a1,
 
 struct Cpu {
     uint64_t   x[32];          /* x0 is hardwired to zero */
+    /* TUX ROCKET SCIENCE: the F and D extensions (see cpu_fp.c). A ship's
+     * computer that flies orbits needs reals; RV64IMFD is still the
+     * published standard, so the compiler still targets it unchanged. */
+    uint64_t   f[32];          /* singles NaN-boxed in the low 32 bits */
+    uint32_t   fcsr;           /* frm in bits 7:5, fflags in 4:0 */
     uint64_t   pc;
     uint8_t   *mem;
     uint64_t   memsz;

@@ -127,22 +127,15 @@ int    nom_memcmp(const void *a, const void *b, size_t n);
 #define memcmp  nom_memcmp
 
 /* ------------------------------------------------------------------ math
- * THERE IS NO `double` ON THIS MACHINE, so it is a name for an integer here.
- * That one macro is what lets the four language files compile unchanged:
- * every `double` in them becomes an int64, VAL_NUM becomes VAL_INT, and
- * arithmetic that would have produced 2.5 produces 2. A language for
- * provisioning users does not miss the difference, and cpu.h explains at
- * length why the alternative -- soft-float from a compiler-rt that a
- * -nostdlib program does not have -- is worse.
- *
- * A MACRO rather than a typedef, because `double` is a keyword and you
- * cannot typedef one. There are no system headers here for it to collide
- * with; that is what -nostdlib means.
- */
-#define double int64_t
-
+ * TUX ROCKET SCIENCE: THERE ARE REALS NOW. RUNBOOK's machine had no floating
+ * point, so this header used to `#define double int64_t` and every 2.5 was
+ * a 2. A ship's computer flies orbits, so the CPU has the F and D extensions
+ * (machine/cpu_fp.inc), /bin/py is built for rv64imfd, and the language's own
+ * V_NUM -- always in the lifted files -- is a real double again. The
+ * functions a libm would give are a syscall away (SYS_math). */
 double nom_floor(double x);
 double nom_pow(double b, double e);
+double nom_math(int op, double x, double y); /* SYS_math: MATH_* in abi.h */
 
 /* --------------------------------------------------------------- buffers */
 typedef __builtin_va_list va_list;
@@ -208,12 +201,6 @@ typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE } OKind;
 
 typedef struct {
     uint8_t k;
-    /* NO DOUBLE IN THE UNION. V_NUM survives as a kind so the lifted files
-     * still compile, and nothing ever produces one: every number in this
-     * language is an int64. */
-    /* `d` and `i` are the same field under two names: `double` is int64_t in
-     * this build (see above), and value.c refers to both. Naming it twice
-     * costs nothing and saves editing a lifted file. */
     union { int64_t i; double d; Obj *o; } as;
 } Value;
 
@@ -226,7 +213,7 @@ typedef struct { Obj o; uint32_t len, cap; Value *k; Value *v; } Dict;
 #define VAL_NIL      ((Value){ .k = V_NIL,  .as.i = 0 })
 #define VAL_BOOL(b)  ((Value){ .k = V_BOOL, .as.i = (b) ? 1 : 0 })
 #define VAL_INT(n)   ((Value){ .k = V_INT,  .as.i = (n) })
-#define VAL_NUM(x)   ((Value){ .k = V_INT,  .as.i = (int64_t)(x) })
+#define VAL_NUM(x)   ((Value){ .k = V_NUM,  .as.d = (double)(x) })
 #define VAL_OBJ(p)   ((Value){ .k = V_OBJ,  .as.o = (Obj *)(p) })
 
 #define IS_STR(v)   ((v).k == V_OBJ && (v).as.o->kind == O_STR)
