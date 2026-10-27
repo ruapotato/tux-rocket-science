@@ -130,6 +130,28 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 				bi->near_radius = trs_json_num(n, "radius_km", 10) * 1000.0;
 			}
 		}
+		const trs_json *lj = trs_json_get(j, "life");
+		for (size_t k = 0; lj && k < lj->count && b->nlife < TRS_MAX_LIFE; k++) {
+			const trs_json *e = trs_json_at(lj, k);
+			trs_life *L = &b->life[b->nlife++];
+			snprintf(L->id, sizeof L->id, "%s", trs_json_str(e, "id", "?"));
+			L->fauna = trs_json_bool(e, "animal", 0);
+			L->density = trs_json_num(e, "per_km2", 0);
+			L->min_up = cos(trs_json_num(e, "max_slope_deg", 30) * DEG);
+			L->height_min = trs_json_num(e, "height_min", -INFINITY);
+			L->height_max = trs_json_num(e, "height_max", INFINITY);
+			L->herd = (int)trs_json_num(e, "herd", 1);
+			L->spread = trs_json_num(e, "spread", 10);
+			L->loop = trs_json_num(e, "loop", 0);
+			L->fly = trs_json_num(e, "fly", 0);
+			const trs_json *bl = trs_json_get(e, "biomes");
+			for (size_t q = 0; bl && q < bl->count; q++) {
+				const trs_json *s = trs_json_at(bl, q);
+				for (int bi = 0; bi < b->nbiomes; bi++)
+					if (s && s->type == TRS_JSON_STRING && !strcmp(s->str, b->biomes[bi].id))
+						L->biomes |= 1u << bi;
+			}
+		}
 		const trs_json *rj = trs_json_get(j, "relics");
 		for (size_t k = 0; rj && k < rj->count && b->nrelics < TRS_MAX_RELICS; k++) {
 			const trs_json *e = trs_json_at(rj, k);

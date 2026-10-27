@@ -14,6 +14,16 @@
     },
     {
       "id": "floe",
+      "life": [
+        {"id": "frost_pine", "shape": "pine", "biomes": ["snowfields", "tundra", "highlands", "brinewall"], "per_km2": 5, "herd": 14, "spread": 60, "max_slope_deg": 25, "height_min": 160, "size": [5, 13], "color": [0.13, 0.27, 0.22], "color2": [0.93, 0.95, 0.98], "range": 3000},
+        {"id": "crowberry", "shape": "shrub", "biomes": ["tundra", "highlands"], "per_km2": 2500, "max_slope_deg": 30, "size": [0.4, 0.9], "color": [0.22, 0.3, 0.2], "color2": [0.55, 0.12, 0.2], "range": 500},
+        {"id": "boulder", "shape": "rock", "per_km2": 90, "max_slope_deg": 40, "size": [0.6, 3.0], "color": [0.32, 0.33, 0.37], "color2": [0.9, 0.92, 0.96], "range": 1800},
+        {"id": "ice_spire", "shape": "crystal", "biomes": ["spires", "peaks"], "per_km2": 25, "herd": 5, "spread": 12, "size": [3, 10], "color": [0.65, 0.85, 1.0], "range": 2500},
+        {"id": "shelf_penguins", "animal": true, "shape": "penguin", "biomes": ["shelf"], "per_km2": 2.0, "herd": 18, "spread": 22, "loop": 4, "max_slope_deg": 20, "size": [0.6, 0.9], "speed": 0.35, "range": 800},
+        {"id": "wild_penguins", "animal": true, "shape": "penguin", "biomes": ["snowfields", "seas"], "per_km2": 0.4, "herd": 12, "spread": 22, "loop": 4, "max_slope_deg": 20, "size": [0.6, 0.9], "speed": 0.35, "range": 800},
+        {"id": "seals", "animal": true, "shape": "seal", "biomes": ["seas", "shelf"], "per_km2": 0.8, "herd": 5, "spread": 18, "loop": 3, "max_slope_deg": 15, "size": [1.6, 2.4], "color": [0.42, 0.44, 0.48], "color2": [0.62, 0.64, 0.68], "speed": 0.2, "range": 700},
+        {"id": "puffins", "animal": true, "shape": "bird", "biomes": ["spires", "brinewall", "shelf"], "per_km2": 1.5, "herd": 7, "spread": 50, "loop": 30, "fly": 35, "size": [0.3, 0.4], "color": [0.08, 0.08, 0.1], "color2": [1.0, 0.45, 0.1], "speed": 9, "range": 900}
+      ],
       "name": "Floe",
       "kind": "planet",
       "parent": "austra",
@@ -51,6 +61,9 @@
     },
     {
       "id": "krill",
+      "life": [
+        {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.17, 0.165, 0.17], "color2": [0.3, 0.295, 0.3], "range": 1800}
+      ],
       "relics": [{ "id": "krill_chime", "name": "the Krill Chime", "lat_deg": -10, "lon_deg": -24 }],
       "name": "Krill",
       "kind": "moon",
@@ -72,6 +85,15 @@
     },
     {
       "id": "kelp",
+      "life": [
+        {"id": "frond_tree", "shape": "frond", "biomes": ["meadows", "basins", "highlands"], "per_km2": 30, "herd": 18, "spread": 70, "max_slope_deg": 28, "size": [8, 20], "color": [0.35, 0.18, 0.12], "color2": [0.3, 0.62, 0.25], "range": 3000},
+        {"id": "puffball", "shape": "puffball", "biomes": ["meadows", "highlands"], "per_km2": 900, "size": [0.5, 1.4], "color": [0.85, 0.9, 0.5], "color2": [0.55, 1.0, 0.75], "range": 700},
+        {"id": "kelp_grass", "shape": "grass", "biomes": ["meadows", "basins"], "per_km2": 60000, "max_slope_deg": 35, "size": [0.4, 1.0], "color": [0.28, 0.5, 0.2], "range": 170},
+        {"id": "moss_mound", "shape": "shrub", "biomes": ["poles", "highlands", "mountains"], "per_km2": 1500, "size": [0.5, 1.5], "color": [0.3, 0.42, 0.18], "color2": [0.45, 0.55, 0.25], "range": 500},
+        {"id": "rock", "shape": "rock", "per_km2": 80, "max_slope_deg": 45, "size": [0.5, 2.5], "color": [0.3, 0.27, 0.22], "color2": [0.36, 0.42, 0.24], "range": 1500},
+        {"id": "grazers", "animal": true, "shape": "grazer", "legs": 6, "horns": false, "biomes": ["meadows"], "per_km2": 1.2, "herd": 8, "spread": 30, "loop": 6, "max_slope_deg": 25, "size": [1.2, 1.8], "color": [0.55, 0.45, 0.62], "color2": [0.9, 0.85, 0.7], "speed": 0.5, "range": 900},
+        {"id": "drifters", "animal": true, "shape": "drifter", "biomes": ["meadows", "basins"], "per_km2": 2, "herd": 5, "spread": 40, "loop": 12, "fly": 14, "size": [1.0, 2.2], "color": [0.7, 0.85, 1.0], "color2": [0.9, 0.5, 0.95], "speed": 0.7, "range": 1200}
+      ],
       "relics": [{ "id": "kelp_hearth", "name": "the Kelp Hearth", "lat_deg": -8, "lon_deg": -128 }],
       "name": "Kelp",
       "kind": "planet",
@@ -102,6 +124,9 @@
     },
     {
       "id": "pebble",
+      "life": [
+        {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.18, 0.16, 0.14], "color2": [0.36, 0.32, 0.28], "range": 1800}
+      ],
       "name": "Pebble",
       "kind": "moon",
       "parent": "kelp",
@@ -121,6 +146,11 @@
     },
     {
       "id": "narwhal",
+      "life": [
+        {"id": "brine_mat", "shape": "mat", "biomes": ["brine"], "per_km2": 1800, "size": [1.5, 5], "color": [0.75, 0.35, 0.5], "color2": [0.95, 0.6, 0.4], "range": 900},
+        {"id": "ice_spike", "shape": "crystal", "biomes": ["spikes", "highlands"], "per_km2": 25, "herd": 6, "spread": 15, "size": [2, 9], "color": [0.7, 0.88, 1.0], "range": 2500},
+        {"id": "boulder", "shape": "rock", "per_km2": 100, "size": [0.6, 3], "color": [0.28, 0.3, 0.36], "color2": [0.85, 0.9, 0.95], "range": 1800}
+      ],
       "relics": [{ "id": "narwhal_keel", "name": "the Narwhal Keel", "lat_deg": 18, "lon_deg": -166 }],
       "name": "Narwhal",
       "kind": "planet",
@@ -150,6 +180,9 @@
     },
     {
       "id": "tusk",
+      "life": [
+        {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.26, 0.26, 0.28], "color2": [0.62, 0.62, 0.64], "range": 1800}
+      ],
       "name": "Tusk",
       "kind": "moon",
       "parent": "narwhal",

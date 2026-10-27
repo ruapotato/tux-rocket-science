@@ -199,6 +199,56 @@ static void m_biome_at(void *self, const trs_val *a, trs_val *r) {
 	r->s = trs_strdup_printf("%s", k >= 0 ? b->biomes[k].id : "");
 }
 
+/* life_cells(body, eye[3] body-fixed, range) -> [face, level, i, j] per
+ * cell of life within range m of the ground under the eye */
+static void m_life_cells(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!h->world || a[0].i < 0 || a[0].i >= h->world->sys.count || a[1].arr.n < 3 || h->world->sys.bodies[a[0].i].nlife == 0) {
+		ret_arr(r, NULL, 0);
+		return;
+	}
+	const trs_body *b = &h->world->sys.bodies[a[0].i];
+	trs_patch_id ids[512];
+	int n = trs_life_cells_near(b, v3_norm(v3(a[1].arr.data[0], a[1].arr.data[1], a[1].arr.data[2])), a[2].f, ids, 512);
+	double *d = malloc(sizeof(double) * 4 * (size_t)(n ? n : 1));
+	for (int k = 0; k < n; k++)
+		d[k * 4] = ids[k].face, d[k * 4 + 1] = ids[k].level, d[k * 4 + 2] = ids[k].i, d[k * 4 + 3] = ids[k].j;
+	ret_arr(r, d, n * 4);
+	free(d);
+}
+
+/* life_cell(body, [face, level, i, j], kinds: a bit per kind) -> [cx, cy, cz, n, then per one:
+ * kind, x, y, z, ux, uy, uz, scale, yaw, nloop, nloop x (x, y, z)]: body
+ * axes, relative to the cell centre (c) */
+static void m_life_cell(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!h->world || a[0].i < 0 || a[0].i >= h->world->sys.count || a[1].arr.n < 4) {
+		ret_arr(r, NULL, 0);
+		return;
+	}
+	const trs_body *b = &h->world->sys.bodies[a[0].i];
+	trs_patch_id p = { (int)a[1].arr.data[0], (int)a[1].arr.data[1], (int)a[1].arr.data[2], (int)a[1].arr.data[3] };
+	int max = 60000;
+	trs_life_instance *li = malloc(sizeof(trs_life_instance) * (size_t)max);
+	trs_v3 c;
+	int n = trs_life_cell(b, p, (unsigned)a[2].i, &c, li, max);
+	double *d = malloc(sizeof(double) * (4 + (size_t)n * (10 + 3 * TRS_LIFE_LOOP)));
+	int k = 0;
+	d[k++] = c.x, d[k++] = c.y, d[k++] = c.z, d[k++] = n;
+	for (int i = 0; i < n; i++) {
+		const trs_life_instance *o = &li[i];
+		d[k++] = o->kind;
+		d[k++] = o->pos.x, d[k++] = o->pos.y, d[k++] = o->pos.z;
+		d[k++] = o->up.x, d[k++] = o->up.y, d[k++] = o->up.z;
+		d[k++] = o->scale, d[k++] = o->yaw, d[k++] = o->nloop;
+		for (int e = 0; e < o->nloop; e++)
+			d[k++] = o->loop[e].x, d[k++] = o->loop[e].y, d[k++] = o->loop[e].z;
+	}
+	ret_arr(r, d, k);
+	free(d);
+	free(li);
+}
+
 /* body_state(i) -> [rx,ry,rz, vx,vy,vz, rotation] in the galaxy (the home star at the origin) */
 static void m_body_state(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -380,6 +430,8 @@ const trs_method_def TRS_SIM_WORLD_METHODS[] = {
 	{ "body_info", m_body_info, S, 1, { I }, { "index" } },
 	{ "body_state", m_body_state, A, 1, { I }, { "index" } },
 	{ "biome_at", m_biome_at, S, 3, { I, F, F }, { "body", "lat_deg", "lon_deg" } },
+	{ "life_cells", m_life_cells, A, 3, { I, A, F }, { "body", "eye", "range" } },
+	{ "life_cell", m_life_cell, A, 3, { I, A, I }, { "body", "cell", "kinds" } },
 	{ "vessel_add", m_vessel_add, I, 2, { I, A }, { "body", "state" } },
 	{ "vessel_remove", m_vessel_remove, V, 1, { I }, { "id" } },
 	{ "vessel_state", m_vessel_state, A, 1, { I }, { "id" } },

@@ -60,6 +60,7 @@ func _init() -> void:
 		push_error("trs_core: " + err)
 	for b in system_bodies():
 		_looks[b.id] = b.get("look", {})
+		_life[b.id] = b.get("life", [])
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(CATALOG_PATH))
 	for p in data.parts:
 		catalog[p.id] = p
@@ -67,6 +68,7 @@ func _init() -> void:
 
 
 var _looks := {}
+var _life := {}
 
 
 ## How a body looks (data/bodies "look"): style, sky, tau, clouds, colours.
@@ -82,6 +84,11 @@ static func system_bodies() -> Array:
 
 func look(body_id: String) -> Dictionary:
 	return _looks.get(body_id, {})
+
+
+## What grows and lives on a body (data/bodies "life"), in the core's order.
+func life(body_id: String) -> Array:
+	return _life.get(body_id, [])
 
 
 static func col(a, fallback := Color(0.5, 0.5, 0.5)) -> Color:

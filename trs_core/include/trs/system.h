@@ -51,6 +51,27 @@ typedef struct {
 	double near_radius; /* m, along the surface */
 } trs_biome;
 
+#define TRS_MAX_LIFE 12
+
+/* Something that grows or lives on a body's surface (life.c): `density`
+ * groups per square km of `herd` (a grove of plants, a herd of animals)
+ * within `spread` m of the group's middle; an animal also
+ * wanders a loop `loop` m round its own spot, `fly` m above the ground
+ * if it flies. Only in the biomes in `biomes` (a bit per biome; 0 = any),
+ * on ground no steeper than acos(min_up) from level and between height_min
+ * and height_max (m of terrain height). How it looks is the game's
+ * business (the same entry in the data). */
+typedef struct {
+	char id[24];
+	int fauna;
+	double density;
+	unsigned biomes;
+	double min_up;
+	double height_min, height_max;
+	int herd;
+	double spread, loop, fly;
+} trs_life;
+
 #define TRS_MAX_RELICS 4
 
 /* Something left on a body's surface by whoever came before: it hums on a
@@ -89,6 +110,8 @@ typedef struct {
 	int nbiomes;
 	trs_relic relics[TRS_MAX_RELICS];
 	int nrelics;
+	trs_life life[TRS_MAX_LIFE];
+	int nlife;
 	/* stars: several systems can share one world, each star fixed at its
 	 * galactic position (m, the home star at the origin, shared axes);
 	 * every body knows its star. A star's soi is its heliopause, past which
@@ -137,6 +160,33 @@ int trs_body_biome(const trs_body *b, trs_v3 dir);
 trs_relic_view trs_relic_from(const trs_body *b, int k, trs_v3 p);
 /* Relic k's body-fixed position: on the ground, at its terrain height. */
 trs_v3 trs_relic_position(const trs_body *b, int k);
+/* Life on the ground (life.c). One plant, or one animal of a herd, in a
+ * cell: body-fixed position relative to the cell's centre (on the ground,
+ * or `fly` over it), the ground's normal, random 0..1 picks for its size
+ * and heading, and an animal's wander loop (relative to the cell centre). */
+#define TRS_LIFE_LOOP 8
+typedef struct {
+	int kind;
+	trs_v3 pos, up;
+	double scale, yaw;
+	int nloop;
+	trs_v3 loop[TRS_LIFE_LOOP];
+} trs_life_instance;
+/* The cube-sphere patch level life is scattered on for body b (cells
+ * about 400 m across), and the patch at that level under a direction. */
+int trs_life_level(const trs_body *b);
+trs_patch_id trs_patch_from_dir(trs_v3 dir, int level);
+/* A patch's area on the body's sphere, m^2. */
+double trs_life_cell_area(const trs_body *b, trs_patch_id p);
+/* Whether kind L can live at body-fixed direction dir (and the ground's
+ * normal there into n). */
+int trs_life_fits(const trs_body *b, const trs_life *L, trs_v3 dir, trs_v3 *n);
+/* The kinds in `kinds` (a bit per kind) living in cell p: writes up to
+ * max, returns how many; the cell's centre (on the ground, body-fixed)
+ * into centre. Each kind's are the same whichever others are asked for. */
+int trs_life_cell(const trs_body *b, trs_patch_id p, unsigned kinds, trs_v3 *centre, trs_life_instance *out, int max);
+/* The cells within `range` m (along the ground) of the point under eye_dir. */
+int trs_life_cells_near(const trs_body *b, trs_v3 eye_dir, double range, trs_patch_id *out, int max);
 /* Atmosphere at altitude (m above surface): pressure (Pa), density (kg/m^3). */
 void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, double *density);
 

@@ -39,10 +39,15 @@ var _site_node: Node3D
 var _site_pos := Vector3.ZERO
 var _site_d: Array = [0.0, 0.0, 0.0]  # the same, Godot axes, doubles
 var _relics: Array = []  # [{id, node, pos (Godot, body-fixed), d (doubles)}]
+var life: TerrainLife
+var _life_t := -1
 
 
 func setup(c: TrsSim) -> void:
 	core = c
+	life = TerrainLife.new()
+	life.setup(c)
+	add_child(life)
 	_noise.frequency = 1.0 / 18000.0
 	_noise.fractal_octaves = 3
 	_build_indices()
@@ -63,6 +68,7 @@ func set_body(b: int) -> void:
 		_style = {"kind": 0 if lk.get("style", "") == "ice" else 1, "low": Sim.col(lk.low), "high": Sim.col(lk.high),
 			"slope": Sim.col(lk.slope), "rock": Sim.col(lk.rock), "range": float(lk.get("range", 1500.0))}
 	_style["radius"] = info.radius
+	life.set_body(b, info.id)
 	_material = TerrainShader.make(_style, PlanetBake.textures(core, b))
 	_noise.seed = hash(info.id)
 	if _site_node:
@@ -185,6 +191,9 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void
 	if _site_node:
 		_site_node.transform = Transform3D(basis * LaunchSite.site_basis(_site_pos),
 			_place(body_rel, cr, sr, _site_d[0], _site_d[1], _site_d[2]))
+	var now := Time.get_ticks_msec()
+	life.refresh(eye_fixed, body_rel, rot, clampf((now - _life_t) / 1000.0, 0.0, 0.1) if _life_t >= 0 else 0.0)
+	_life_t = now
 
 
 ## Relic `id`'s node (null if it isn't on this body).

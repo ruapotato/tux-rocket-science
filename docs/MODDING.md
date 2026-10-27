@@ -105,6 +105,7 @@ gates check the stock parts still behave.
 | `ore` | ore abundance 0..1: drills dig `drill_kg_s` x this |
 | `biomes` | `[{id, name, abs_lat_min_deg, abs_lat_max_deg, height_min, height_max, near: {lat_deg, lon_deg, radius_km}}]`: a point is in the first biome whose every condition holds; the last one, with none, catches the rest. Landed and low-flying science counts separately per biome |
 | `relics` | `[{id, name, lat_deg, lon_deg}]`: signal sources standing on the ground there; a scanner hears one when it is above the relic's horizon and in range. A visual for each id is in `scripts/flight/relic_visual.gd` (an unknown id gets a plain standing stone) |
+| `life` | plants and animals (up to 12 kinds): `{id, shape, per_km2, herd, spread, biomes, max_slope_deg, height_min, height_max, size: [min, max] m, color, color2, range}`; `per_km2` groups (a grove, a herd) of `herd` within `spread` m; only in the listed `biomes` (none = anywhere), on ground no steeper than `max_slope_deg`, never by the launch site or a relic. Animals add `"animal": true`, `loop` (m they wander round their spot), `fly` (m above the ground), `speed` m/s, and for grazers `legs`, `horns`. Shapes: `pine`, `broadleaf`, `frond`, `shrub`, `grass`, `flower`, `puffball`, `crystal`, `mat`, `rock`; animals `penguin`, `seal`, `bird`, `grazer`, `drifter`. `range` is how far away it is drawn. Scenery: nothing collides with it |
 
 Spheres of influence come from the masses. Adding a body after the existing
 ones keeps old saves loadable.

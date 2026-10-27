@@ -26,6 +26,9 @@
     },
     {
       "id": "cinder",
+      "life": [
+        {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.2, 0.12, 0.09], "color2": [0.42, 0.24, 0.16], "range": 1800}
+      ],
       "name": "Cinder",
       "kind": "planet",
       "parent": "lantern",
@@ -109,6 +112,15 @@
     },
     {
       "id": "haven",
+      "life": [
+        {"id": "broadleaf", "shape": "broadleaf", "biomes": ["grasslands", "uplands", "lakes"], "per_km2": 25, "herd": 20, "spread": 80, "max_slope_deg": 28, "size": [7, 15], "color": [0.38, 0.26, 0.16], "color2": [0.26, 0.5, 0.2], "range": 3000},
+        {"id": "upland_pine", "shape": "pine", "biomes": ["uplands", "mountains"], "per_km2": 20, "herd": 16, "spread": 60, "size": [6, 14], "color": [0.12, 0.3, 0.18], "color2": [0.18, 0.38, 0.22], "range": 3000},
+        {"id": "grass", "shape": "grass", "biomes": ["grasslands", "lakes", "uplands"], "per_km2": 60000, "size": [0.4, 0.9], "color": [0.35, 0.55, 0.22], "range": 170},
+        {"id": "flowers", "shape": "flower", "biomes": ["grasslands"], "per_km2": 3000, "size": [0.3, 0.6], "color": [0.3, 0.55, 0.2], "color2": [0.95, 0.85, 0.2], "range": 200},
+        {"id": "rock", "shape": "rock", "per_km2": 60, "size": [0.5, 2.5], "color": [0.4, 0.38, 0.35], "color2": [0.4, 0.5, 0.3], "range": 1500},
+        {"id": "hornbucks", "animal": true, "shape": "grazer", "biomes": ["grasslands"], "per_km2": 1, "herd": 9, "spread": 35, "loop": 7, "size": [1.4, 2.0], "color": [0.55, 0.38, 0.22], "color2": [0.9, 0.85, 0.75], "speed": 0.6, "range": 900},
+        {"id": "skybirds", "animal": true, "shape": "bird", "biomes": ["grasslands", "lakes"], "per_km2": 1.5, "herd": 6, "spread": 60, "loop": 35, "fly": 45, "size": [0.35, 0.5], "color": [0.95, 0.95, 0.98], "color2": [0.2, 0.25, 0.35], "speed": 10, "range": 1000}
+      ],
       "relics": [{ "id": "haven_archive", "name": "the Haven Archive", "lat_deg": 32, "lon_deg": 16 }],
       "name": "Haven",
       "kind": "planet",
@@ -213,6 +225,9 @@
     },
     {
       "id": "wisp",
+      "life": [
+        {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.2, 0.2, 0.24], "color2": [0.5, 0.52, 0.58], "range": 1800}
+      ],
       "name": "Wisp",
       "kind": "moon",
       "parent": "haven",

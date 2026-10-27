@@ -194,6 +194,15 @@ a deck 16 m out). Ships that big are built in orbit: the hangar's **From: Orbita
 craft in a 250 km circular orbit of Floe (a career opens it with Orbital Shipyard in R&D). The
 stock **Waddle Ark** has all of it.
 
+**Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
+wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and
+puffins wheel over the Puffin Spires; Kelp has meadows of grass and glowing puffballs under
+frond trees, six-legged grazers and drifting jellies in the air; Haven, round Lantern, has
+broadleaf woods, flowers and herds of hornbucks under flocks of birds; Narwhal's brine flats are
+crusted with pink mats; every world has its boulders. Where each one is follows from the world's
+data alone (`life` in `data/bodies`), so it is the same every visit. It is scenery: a lander
+comes down through a tree.
+
 **Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak
 Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
 of it, and keeps the tank behind it cool. It also cuts the drag.
