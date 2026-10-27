@@ -51,6 +51,7 @@
     },
     {
       "id": "krill",
+      "relics": [{ "id": "krill_chime", "name": "the Krill Chime", "lat_deg": -10, "lon_deg": -24 }],
       "name": "Krill",
       "kind": "moon",
       "parent": "floe",
@@ -71,6 +72,7 @@
     },
     {
       "id": "kelp",
+      "relics": [{ "id": "kelp_hearth", "name": "the Kelp Hearth", "lat_deg": -8, "lon_deg": -128 }],
       "name": "Kelp",
       "kind": "planet",
       "parent": "austra",
@@ -119,6 +121,7 @@
     },
     {
       "id": "narwhal",
+      "relics": [{ "id": "narwhal_keel", "name": "the Narwhal Keel", "lat_deg": 18, "lon_deg": -166 }],
       "name": "Narwhal",
       "kind": "planet",
       "parent": "austra",

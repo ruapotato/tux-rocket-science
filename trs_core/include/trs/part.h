@@ -96,6 +96,9 @@ typedef struct {
 	 * one point of research (it gets antenna_fraction of a result's worth) */
 	double ec_capacity, ec_draw, torque_kw_per_knm, solar_kw, solar_ref_m;
 	double antenna_kj_per_point, antenna_fraction;
+	/* signal scanner: hears a relic's hum out to scanner_range m, in sight
+	 * of it and with the power on */
+	double scanner_range;
 
 	/* a penguin out on a walk (EVA): its feet carry it at up to eva_walk m/s
 	 * over the ground (as far as friction lets them), it jumps off at

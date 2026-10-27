@@ -51,6 +51,26 @@ typedef struct {
 	double near_radius; /* m, along the surface */
 } trs_biome;
 
+#define TRS_MAX_RELICS 4
+
+/* Something left on a body's surface by whoever came before: it hums on a
+ * radio band a Signal Scanner hears. dir is body-fixed (unit); it stands
+ * on the ground there. */
+typedef struct {
+	char id[32];
+	char name[48];
+	trs_v3 dir;
+} trs_relic;
+
+/* Where a relic is from a point: straight-line distance (m), distance
+ * along the surface between the two ground points (m), the initial
+ * great-circle heading to it (rad, clockwise from north), and whether it is
+ * above the point's horizon (nothing between them but space). */
+typedef struct {
+	double distance, surface_distance, bearing;
+	int in_sight;
+} trs_relic_view;
+
 typedef struct {
 	char id[32];
 	char name[48];
@@ -67,6 +87,8 @@ typedef struct {
 	double ore; /* ore abundance, 0..1: scales what drills dig */
 	trs_biome biomes[TRS_MAX_BIOMES];
 	int nbiomes;
+	trs_relic relics[TRS_MAX_RELICS];
+	int nrelics;
 	/* stars: several systems can share one world, each star fixed at its
 	 * galactic position (m, the home star at the origin, shared axes);
 	 * every body knows its star. A star's soi is its heliopause, past which
@@ -105,8 +127,16 @@ trs_v3 trs_body_from_fixed(const trs_body *b, double t, trs_v3 v);
 double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r);
 /* Position and velocity relative to the home star's galactic origin. */
 void trs_body_state_galactic(const trs_system *sys, int i, double t, trs_v3 *r, trs_v3 *v);
+/* Position and velocity relative to star `star` (galactic axes). Within
+ * one system this never goes near the huge numbers of the galactic origin:
+ * a double there (4e16 m out) resolves only metres. */
+void trs_body_state_from(const trs_system *sys, int i, int star, double t, trs_v3 *r, trs_v3 *v);
 /* Biome under body-fixed direction dir (unit), or -1 if the body has none. */
 int trs_body_biome(const trs_body *b, trs_v3 dir);
+/* Relic k of body b seen from body-fixed position p (m). */
+trs_relic_view trs_relic_from(const trs_body *b, int k, trs_v3 p);
+/* Relic k's body-fixed position: on the ground, at its terrain height. */
+trs_v3 trs_relic_position(const trs_body *b, int k);
 /* Atmosphere at altitude (m above surface): pressure (Pa), density (kg/m^3). */
 void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, double *density);
 

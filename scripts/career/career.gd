@@ -30,6 +30,7 @@ const MISSIONS_PATH := "res://data/career/missions.json"
 signal changed  # funds, research, tech or missions moved
 signal mission_done(m: Dictionary)
 signal survey_done(s: Dictionary)
+signal relic_heard(r: Dictionary)  # a Signal Scanner picked up a relic for the first time
 
 var science: Dictionary = {}
 var tech: Array = []
@@ -45,7 +46,11 @@ var aboard: Dictionary = {}   # part uid (string) -> [{subject, exp, body, situa
 var visited: Dictionary = {}  # vessel serial (string) -> [bodies landed on]
 var surveys: Array = []       # standing contracts: [{subject, exp, body, situation, funds, research}]
 var surveys_done := 0
+var heard: Array = []         # relic ids a Signal Scanner has heard (their place is known)
 var path := ""
+
+## how close (m along the ground) a penguin on foot must come to a relic
+const INVESTIGATE_M := 25.0
 
 
 var _body_names := {}
@@ -90,6 +95,7 @@ func load_from(file: String, new_mode := "sandbox") -> void:
 	visited = d.get("visited", {})
 	surveys = d.get("surveys", [])
 	surveys_done = int(d.get("surveys_done", 0))
+	heard = d.get("heard", [])
 	refresh_surveys()
 	changed.emit()
 
@@ -104,7 +110,7 @@ func save() -> void:
 
 func state() -> Dictionary:
 	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
-		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done}
+		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done, "heard": heard}
 
 
 ## Puts the program back as `s` (a revert undoes the flight's results).
@@ -119,6 +125,7 @@ func restore(s: Dictionary) -> void:
 	visited = s.visited.duplicate(true)
 	surveys = s.get("surveys", []).duplicate(true)
 	surveys_done = int(s.get("surveys_done", 0))
+	heard = s.get("heard", []).duplicate()
 	save()
 	changed.emit()
 
@@ -162,11 +169,13 @@ func tech_refusal(id: String) -> String:
 		return "no such node"
 	if id in unlocked:
 		return "already researched"
+	if n.has("found_by"):
+		return "found, not researched: %s" % mission(n.found_by).get("title", n.found_by)
 	for r in n.requires:
 		if not r in unlocked:
 			return "needs %s first" % tech_node(r).get("name", r)
-	if research < float(n.cost):
-		return "needs %d research (have %d)" % [int(n.cost), int(research)]
+	if research < float(n.get("cost", 0)):
+		return "needs %d research (have %d)" % [int(n.get("cost", 0)), int(research)]
 	return ""
 
 
@@ -174,7 +183,7 @@ func unlock(id: String) -> String:
 	var why := tech_refusal(id)
 	if why != "":
 		return why
-	research -= float(tech_node(id).cost)
+	research -= float(tech_node(id).get("cost", 0))
 	unlocked.append(id)
 	refresh_surveys()
 	save()
@@ -448,6 +457,21 @@ func recover(id: int, serial: int) -> Dictionary:
 	return {"research": got, "funds": refund, "results": n}
 
 
+# ---- relics -------------------------------------------------------------------------
+
+## Relic `id` as telemetry `t` sees it ({} if it isn't on t's body).
+static func relic_in(t: Dictionary, id: String) -> Dictionary:
+	for r in t.get("relics", []):
+		if r.id == id:
+			return r
+	return {}
+
+
+## The relics on t's body whose place PASA knows, as telemetry sees them.
+func known_relics(t: Dictionary) -> Array:
+	return (t.get("relics", []) as Array).filter(func(r): return r.id in heard)
+
+
 # ---- surveys -----------------------------------------------------------------------
 
 const SURVEYS := 3
@@ -544,6 +568,9 @@ func complete(m: Dictionary) -> void:
 	if m.id in done:
 		return
 	done.append(m.id)
+	for n in tech:
+		if n.get("found_by", "") == m.id and not n.id in unlocked:
+			unlocked.append(n.id)  # what the relic taught is PASA's now
 	refresh_surveys.call_deferred()  # new worlds may join the pool
 	research += float(m.research)
 	if is_career():
@@ -565,6 +592,11 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 			v.append(t.body)
 			visited[str(serial)] = v
 			save()
+	for r in t.get("relics", []):
+		if r.heard and not r.id in heard:
+			heard.append(r.id)
+			save()
+			relic_heard.emit(r)
 	var atm := float(t.get("atmosphere_height", 0.0))
 	for m in active_missions():
 		var g: Dictionary = m.goal
@@ -591,6 +623,11 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 				hit = extra.get("docked", false)
 			"refine":
 				hit = t.body != "floe" and float(t.get("refine_rate", 0.0)) > 0.0
+			"hear":
+				hit = g.relic in heard
+			"investigate":
+				var r := relic_in(t, g.relic)
+				hit = extra.get("eva", false) and t.landed and not r.is_empty() and float(r.surface_distance) <= INVESTIGATE_M
 		if hit:
 			complete(m)
 

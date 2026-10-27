@@ -340,6 +340,53 @@ static func _antenna(root: Node3D, sh: Dictionary) -> void:
 	_mesh(root, tip, mat("red", RED, 0.0, 0.4), Transform3D(Basis.IDENTITY, Vector3(0, 0, h + 0.06)))
 
 
+## The Signal Scanner: a stubby mast off the hull carrying a tilted dish,
+## its feed horn on struts, and a sea-green ring that glows faintly.
+static func _dish(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.get("radius", 0.35)
+	var h: float = sh.get("height", 0.4)
+	var mast := CylinderMesh.new()
+	mast.top_radius = 0.03
+	mast.bottom_radius = 0.05
+	mast.height = h * 0.6
+	_mesh(root, mast, mat("graphite", GRAPHITE, 0.4, 0.5), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, h * 0.3)))
+	# the dish faces out along +Z, tipped 30 deg up the craft
+	var tilt := Basis(Vector3.RIGHT, PI / 2) * Basis(Vector3.RIGHT, -0.52)
+	var at := Vector3(0, 0, h * 0.6)
+	var bowl := CylinderMesh.new()
+	bowl.top_radius = r
+	bowl.bottom_radius = r * 0.25
+	bowl.height = r * 0.35
+	bowl.radial_segments = 32
+	_mesh(root, bowl, mat("dial", WHITE, 0.0, 0.3), Transform3D(tilt, at + tilt * Vector3(0, r * 0.17, 0)))
+	var ring := TorusMesh.new()
+	ring.inner_radius = r * 0.94
+	ring.outer_radius = r * 1.02
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(0.4, 1.0, 0.8)
+	glow.emission_enabled = true
+	glow.emission = Color(0.3, 1.0, 0.75)
+	glow.emission_energy_multiplier = 1.5
+	_mesh(root, ring, glow, Transform3D(tilt, at + tilt * Vector3(0, r * 0.35, 0)))
+	var horn := CylinderMesh.new()
+	horn.top_radius = 0.02
+	horn.bottom_radius = 0.045
+	horn.height = 0.08
+	_mesh(root, horn, mat("steel", STEEL, 0.75, 0.3), Transform3D(tilt, at + tilt * Vector3(0, r * 0.75, 0)))
+	for k in 3:
+		var a := k * TAU / 3.0
+		var foot := Vector3(cos(a) * r * 0.9, r * 0.33, sin(a) * r * 0.9)
+		var top := Vector3(0, r * 0.72, 0)
+		var strut := CylinderMesh.new()
+		strut.top_radius = 0.006
+		strut.bottom_radius = 0.006
+		strut.height = foot.distance_to(top)
+		var mid := (foot + top) * 0.5
+		var up := (top - foot).normalized()
+		var side := up.cross(Vector3.FORWARD if absf(up.z) < 0.9 else Vector3.RIGHT).normalized()
+		_mesh(root, strut, mat("steel", STEEL, 0.75, 0.3), Transform3D(tilt * Basis(side, up, side.cross(up)), at + tilt * mid))
+
+
 ## A jet engine: an intake lip and fan at the front (top), a grey nacelle,
 ## and a tapering hot nozzle behind.
 static func _jet(root: Node3D, sh: Dictionary) -> void:
@@ -548,6 +595,8 @@ static func build(part_id: String, with_pick := true, opts := {}) -> Node3D:
 			_flag(root, sh)
 		"antenna":
 			_antenna(root, sh)
+		"dish":
+			_dish(root, sh)
 		"wheel":
 			_wheel(root, sh)
 		"lab":

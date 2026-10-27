@@ -123,6 +123,9 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->antenna_fraction = trs_json_num(pw, "antenna_fraction", 0);
 	}
 	d->is_ladder = trs_json_get(j, "ladder") != NULL;
+	const trs_json *sc = trs_json_get(j, "scanner");
+	if (sc)
+		d->scanner_range = trs_json_num(sc, "range_km", 0) * 1000.0;
 	const trs_json *dj = trs_json_get(j, "drive");
 	if (dj) {
 		d->drive_accel = trs_json_num(dj, "accel_g", 0) * 9.80665;

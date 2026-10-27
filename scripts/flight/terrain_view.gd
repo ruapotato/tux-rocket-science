@@ -38,6 +38,7 @@ var _pending: Array = []
 var _site_node: Node3D
 var _site_pos := Vector3.ZERO
 var _site_d: Array = [0.0, 0.0, 0.0]  # the same, Godot axes, doubles
+var _relics: Array = []  # [{id, node, pos (Godot, body-fixed), d (doubles)}]
 
 
 func setup(c: TrsSim) -> void:
@@ -67,6 +68,15 @@ func set_body(b: int) -> void:
 	if _site_node:
 		_site_node.queue_free()
 		_site_node = null
+	for r in _relics:
+		r.node.queue_free()
+	_relics.clear()
+	for r in info.get("relics", []):
+		var f: Array = r.fixed
+		var d := [float(f[0]), float(f[2]), -float(f[1])]  # sim -> Godot axes
+		var node := RelicVisual.build(r.id)
+		add_child(node)
+		_relics.append({"id": r.id, "node": node, "pos": Vector3(d[0], d[1], d[2]), "d": d})
 	if info.has("site"):
 		_site_node = LaunchSite.build(info.radius)
 		_site_pos = LaunchSite.site_fixed_godot(core, b)
@@ -170,9 +180,19 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void
 		var p: Dictionary = _patches[key]
 		var c: Array = p.center
 		p.node.transform = Transform3D(basis * _sim_basis(), _place(body_rel, cr, sr, c[0], c[2], -c[1]))
+	for r in _relics:
+		r.node.transform = Transform3D(basis * LaunchSite.site_basis(r.pos), _place(body_rel, cr, sr, r.d[0], r.d[1], r.d[2]))
 	if _site_node:
 		_site_node.transform = Transform3D(basis * LaunchSite.site_basis(_site_pos),
 			_place(body_rel, cr, sr, _site_d[0], _site_d[1], _site_d[2]))
+
+
+## Relic `id`'s node (null if it isn't on this body).
+func relic_node(id: String) -> Node3D:
+	for r in _relics:
+		if r.id == id:
+			return r.node
+	return null
 
 
 ## body_rel + spin(rot) * (x, y, z), all in doubles; only the small result

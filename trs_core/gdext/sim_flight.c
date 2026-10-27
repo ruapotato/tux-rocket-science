@@ -496,6 +496,34 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(j, "drive_kw", trs_json_new_num(dkw));
 		}
 	}
+	/* relics on this body, and whether a scanner aboard hears them */
+	{
+		double range = 0;
+		for (int i = 0; i < vs->craft->count; i++)
+			range = fmax(range, trs_craft_def(vs->craft, i)->scanner_range);
+		double cap_ec;
+		int on = vs->powered || trs_craft_ec(vs->craft, &cap_ec) > 1e-9;
+		if (range > 0) {
+			trs_json_set(j, "scanner_range", trs_json_new_num(range));
+			trs_json_set(j, "scanner_powered", trs_json_new_bool(on));
+		}
+		if (b->nrelics > 0) {
+			trs_json *rl = trs_json_new(TRS_JSON_ARRAY);
+			for (int k = 0; k < b->nrelics; k++) {
+				trs_relic_view rv = trs_relic_from(b, k, bfix);
+				trs_json *e = trs_json_new(TRS_JSON_OBJECT);
+				trs_json_set(e, "id", trs_json_new_str(b->relics[k].id));
+				trs_json_set(e, "name", trs_json_new_str(b->relics[k].name));
+				trs_json_set(e, "distance", trs_json_new_num(rv.distance));
+				trs_json_set(e, "surface_distance", trs_json_new_num(rv.surface_distance));
+				trs_json_set(e, "bearing_deg", trs_json_new_num(rv.bearing * DEG));
+				trs_json_set(e, "in_sight", trs_json_new_bool(rv.in_sight));
+				trs_json_set(e, "heard", trs_json_new_bool(range > 0 && on && rv.in_sight && rv.distance <= range));
+				trs_json_push(rl, e);
+			}
+			trs_json_set(j, "relics", rl);
+		}
+	}
 	int biome = trs_body_biome(b, bdir);
 	if (biome >= 0) {
 		trs_json_set(j, "biome", trs_json_new_str(b->biomes[biome].id));
@@ -865,12 +893,13 @@ static void m_body_render(void *self, const trs_val *a, trs_val *r) {
 	trs_world *w = h->world;
 	trs_v3 ro, vo, bo, bvo;
 	trs_vessel_state(w, (int)a[0].i, &ro, &vo);
-	trs_body_state_galactic(&w->sys, w->vessels[a[0].i].body, w->t, &bo, &bvo);
+	int star = w->sys.bodies[w->vessels[a[0].i].body].star;
+	trs_body_state_from(&w->sys, w->vessels[a[0].i].body, star, w->t, &bo, &bvo);
 	trs_v3 abs_origin = v3_add(ro, bo);
 	double *d = malloc(sizeof(double) * (size_t)(w->sys.count * 5));
 	for (int i = 0; i < w->sys.count; i++) {
 		trs_v3 bp, bv;
-		trs_body_state_galactic(&w->sys, i, w->t, &bp, &bv);
+		trs_body_state_from(&w->sys, i, star, w->t, &bp, &bv);
 		trs_v3 rel = v3_sub(bp, abs_origin);
 		d[i * 5] = rel.x, d[i * 5 + 1] = rel.y, d[i * 5 + 2] = rel.z;
 		d[i * 5 + 3] = trs_body_rotation(&w->sys.bodies[i], w->t);
@@ -970,8 +999,9 @@ static void m_to_body_fixed(void *self, const trs_val *a, trs_val *r) {
 		trs_world *w = h->world;
 		trs_v3 ro, vo, bo, bvo, bp, bv;
 		trs_vessel_state(w, (int)a[1].i, &ro, &vo);
-		trs_body_state_galactic(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
-		trs_body_state_galactic(&w->sys, (int)a[0].i, w->t, &bp, &bv);
+		int star = w->sys.bodies[w->vessels[a[1].i].body].star;
+		trs_body_state_from(&w->sys, w->vessels[a[1].i].body, star, w->t, &bo, &bvo);
+		trs_body_state_from(&w->sys, (int)a[0].i, star, w->t, &bp, &bv);
 		trs_v3 p = v3_add(v3_add(ro, bo), v3(a[2].arr.data[0], a[2].arr.data[1], a[2].arr.data[2]));
 		trs_v3 f = trs_body_to_fixed(&w->sys.bodies[a[0].i], w->t, v3_sub(p, bp));
 		out[0] = f.x, out[1] = f.y, out[2] = f.z;
@@ -989,8 +1019,9 @@ static void m_ground_clearance(void *self, const trs_val *a, trs_val *r) {
 		trs_world *w = h->world;
 		trs_v3 ro, vo, bo, bvo, bp, bv;
 		trs_vessel_state(w, (int)a[1].i, &ro, &vo);
-		trs_body_state_galactic(&w->sys, w->vessels[a[1].i].body, w->t, &bo, &bvo);
-		trs_body_state_galactic(&w->sys, (int)a[0].i, w->t, &bp, &bv);
+		int star = w->sys.bodies[w->vessels[a[1].i].body].star;
+		trs_body_state_from(&w->sys, w->vessels[a[1].i].body, star, w->t, &bo, &bvo);
+		trs_body_state_from(&w->sys, (int)a[0].i, star, w->t, &bp, &bv);
 		trs_v3 p = v3_sub(v3_add(v3_add(ro, bo), v3(a[2].arr.data[0], a[2].arr.data[1], a[2].arr.data[2])), bp);
 		const trs_body *b = &w->sys.bodies[a[0].i];
 		double g = trs_body_terrain_at(b, w->t, p);
@@ -1464,8 +1495,9 @@ static void m_subpoint(void *self, const trs_val *a, trs_val *r) {
 	double out[2] = { 0, 0 };
 	if (ok_body(h, a[0].i) && ok_body(h, a[1].i)) {
 		trs_v3 bp, bv, tp, tv;
-		trs_body_state_galactic(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
-		trs_body_state_galactic(&h->world->sys, (int)a[1].i, h->world->t, &tp, &tv);
+		int star = h->world->sys.bodies[a[0].i].star;
+		trs_body_state_from(&h->world->sys, (int)a[0].i, star, h->world->t, &bp, &bv);
+		trs_body_state_from(&h->world->sys, (int)a[1].i, star, h->world->t, &tp, &tv);
 		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_sub(tp, bp)));
 		out[0] = asin(d.z) * DEG;
 		out[1] = atan2(d.y, d.x) * DEG;
@@ -1473,14 +1505,15 @@ static void m_subpoint(void *self, const trs_val *a, trs_val *r) {
 	ret_doubles(r, out, 2);
 }
 
-/* subsolar_point(body) -> [lat_deg, lon_deg] where the star is overhead now */
+/* subsolar_point(body) -> [lat_deg, lon_deg] where its star is overhead now */
 static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	double out[2] = { 0, 0 };
 	if (ok_body(h, a[0].i)) {
 		trs_v3 bp, bv;
-		trs_body_state_galactic(&h->world->sys, (int)a[0].i, h->world->t, &bp, &bv);
-		trs_v3 d = v3_norm(trs_body_to_fixed(&h->world->sys.bodies[a[0].i], h->world->t, v3_neg(bp)));
+		const trs_body *b = &h->world->sys.bodies[a[0].i];
+		trs_body_state_from(&h->world->sys, (int)a[0].i, b->star, h->world->t, &bp, &bv);
+		trs_v3 d = v3_norm(trs_body_to_fixed(b, h->world->t, v3_neg(bp)));
 		out[0] = asin(d.z) * DEG;
 		out[1] = atan2(d.y, d.x) * DEG;
 	}

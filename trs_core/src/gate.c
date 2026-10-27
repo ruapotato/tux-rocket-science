@@ -94,6 +94,7 @@ trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_planes(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_power(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_biomes(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_relics(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_mining(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_relativity(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_interstellar(trs_log *log, const char *data_dir);
@@ -120,6 +121,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-power", "M18", trs_gate_power },
 	{ "test-actions", "M19", trs_gate_actions },
 	{ "test-biomes", "M21", trs_gate_biomes },
+	{ "test-relics", "M24", trs_gate_relics },
 	{ "test-mining", "M22", trs_gate_mining },
 	{ "test-relativity", "M23", trs_gate_relativity },
 	{ "test-interstellar", "M23", trs_gate_interstellar },
@@ -131,6 +133,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-warp", "M13", NULL },
 	{ "test-spacewalk", "M14", NULL },
 	{ "test-career", "M16", NULL },
+	{ "test-signals", "M24", NULL },
 	{ "screens", "M6", NULL },
 };
 

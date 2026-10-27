@@ -1,5 +1,5 @@
 {
-  "_doc": "R&D: each node costs research and needs the nodes it lists. Parts in no node are always available.",
+  "_doc": "R&D: each node costs research and needs the nodes it lists. A node with found_by is no research of PASA's: it opens when that mission is done. Parts in no node are always available.",
   "nodes": [
     { "id": "basics", "name": "Basic Rocketry", "cost": 0, "requires": [],
       "parts": ["pod_1", "tank_s", "tank_m", "engine_lifter", "decoupler_stack", "fin", "parachute", "nosecone", "thermometer", "ladder"] },
@@ -22,6 +22,12 @@
     { "id": "docking", "name": "Docking", "cost": 60, "requires": ["control"],
       "parts": ["dock_port"] },
     { "id": "mining", "name": "Living off the Land", "cost": 80, "requires": ["power", "landing"],
-      "parts": ["ore_bin", "drill", "refinery"] }
+      "parts": ["ore_bin", "drill", "refinery"] },
+    { "id": "listening", "name": "Listening Post", "cost": 10, "requires": ["orbits"],
+      "parts": ["signal_scanner"] },
+    { "id": "hearth", "name": "The Hearth", "found_by": "hearth", "requires": [],
+      "parts": ["hearth_core"] },
+    { "id": "stillwater", "name": "The Stillwater Drive", "found_by": "keel", "requires": [],
+      "parts": ["stillwater_drive"] }
   ]
 }

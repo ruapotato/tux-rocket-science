@@ -111,6 +111,17 @@ coast on a Hohmann transfer), 0.6x Floe's gravity under thin air that tops out a
 parachute slows you but won't land you, so bring an engine for the last of it. Its moon **Tusk**
 is small and bright. Research there is worth 10-12x Floe's.
 
+**The signals**: once you reach orbit, PASA's dish hears a hum from Krill that nothing natural
+makes. Research the **Listening Post** and fly an **Earhole Signal Scanner** (3,000 km range, a
+trickle of power) anywhere Krill's surface is in sight: when the source rises over the horizon the
+scanner picks it up, gives its distance and heading, and charts it for good (it shows on the map and
+on the HUD whenever you're at that world). Land beside it and walk a penguin up to it. What the
+penguins find on Krill answers from Kelp and Narwhal, and what they find there is no research of
+PASA's: the **Hearth Core** and the **Stillwater Drive**, the alien parts that can take penguins to
+another star. The last tone comes from a world around Lantern. Mission Control tells the story as
+you go; the relics' places are data (`"relics"` in `data/bodies/`), and the geometry (distance,
+heading, horizon) is checked by `test-relics`, the chain itself by `test-signals`.
+
 **Between the stars**: Austra has neighbours. **Lantern**, 4.2 light-years away (`data/bodies/lantern_system.json`),
 has three worlds: hot **Cinder**, green **Haven** with air like Floe's, and Haven's moon **Wisp**.
 Past a star's heliopause (Austra's is 40 Gm out, beyond Narwhal) a ship flies by special

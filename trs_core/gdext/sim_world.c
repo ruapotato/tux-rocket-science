@@ -159,6 +159,26 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 		}
 		trs_json_set(j, "biomes", bl);
 	}
+	if (b->nrelics > 0) {
+		trs_json *rl = trs_json_new(TRS_JSON_ARRAY);
+		for (int k = 0; k < b->nrelics; k++) {
+			const trs_relic *re = &b->relics[k];
+			trs_v3 p = trs_relic_position(b, k);
+			trs_json *e = trs_json_new(TRS_JSON_OBJECT);
+			trs_json_set(e, "id", trs_json_new_str(re->id));
+			trs_json_set(e, "name", trs_json_new_str(re->name));
+			trs_json_set(e, "lat_deg", trs_json_new_num(asin(re->dir.z) * DEG));
+			trs_json_set(e, "lon_deg", trs_json_new_num(atan2(re->dir.y, re->dir.x) * DEG));
+			trs_json_set(e, "height", trs_json_new_num(v3_len(p) - b->radius));
+			trs_json *pj = trs_json_new(TRS_JSON_ARRAY);
+			trs_json_push(pj, trs_json_new_num(p.x));
+			trs_json_push(pj, trs_json_new_num(p.y));
+			trs_json_push(pj, trs_json_new_num(p.z));
+			trs_json_set(e, "fixed", pj);
+			trs_json_push(rl, e);
+		}
+		trs_json_set(j, "relics", rl);
+	}
 	if (b->parent >= 0) {
 		trs_json_set(j, "sma", trs_json_new_num(b->orbit.a));
 		trs_json_set(j, "period", trs_json_new_num(b->orbit.period));
@@ -286,7 +306,8 @@ static const char *event_name(trs_event_kind k) {
 }
 
 /* warp(dt, stop_on_vessel) -> JSON {"event","t","body"}. Refused (event
- * "refused") unless every live vessel is on rails. */
+ * "refused") while any live vessel is flying in physics mode; vessels on
+ * rails, resting landed or between the stars all move on through it. */
 static void m_warp(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
@@ -296,7 +317,7 @@ static void m_warp(void *self, const trs_val *a, trs_val *r) {
 		return;
 	}
 	for (int i = 0; i < h->world->nvessels; i++)
-		if (h->world->vessels[i].alive && h->world->vessels[i].mode != TRS_MODE_RAILS) {
+		if (h->world->vessels[i].alive && h->world->vessels[i].mode == TRS_MODE_PHYSICS) {
 			trs_json_set(j, "event", trs_json_new_str("refused"));
 			trs_json_set(j, "reason", trs_json_new_str("vessel in physics mode"));
 			ret_json(r, j);

@@ -109,6 +109,7 @@
     },
     {
       "id": "haven",
+      "relics": [{ "id": "haven_archive", "name": "the Haven Archive", "lat_deg": 32, "lon_deg": 16 }],
       "name": "Haven",
       "kind": "planet",
       "parent": "lantern",

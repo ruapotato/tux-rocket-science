@@ -749,6 +749,26 @@ func _draw_overlay() -> void:
 			continue
 		var p := _cam.unproject_position(p3)
 		ov.draw_string(font, p + Vector2(10, 18), b.info.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0, 0.85))
+	# charted relics, on the side of their world facing the camera
+	for b in _bodies:
+		if not b.node.visible:
+			continue
+		for r in b.info.get("relics", []):
+			if not r.id in Career.heard:
+				continue
+			var f: Array = r.fixed
+			var n := Vector3(float(f[0]), float(f[2]), -float(f[1])).normalized()  # sim -> Godot axes
+			var w: Vector3 = b.node.transform * (n * 1.01)
+			var out: Vector3 = (w - b.node.position).normalized()
+			if _cam.is_position_behind(w) or out.dot((_cam.position - w).normalized()) < 0.05:
+				continue
+			var p := _cam.unproject_position(w)
+			if p.distance_to(_cam.unproject_position(b.node.position)) < 6.0:
+				continue  # the world is a dot: no room for a mark
+			var c := Color(0.5, 1.0, 0.82)
+			ov.draw_rect(Rect2(p - Vector2(4, 4), Vector2(8, 8)), c, false, 2.0)
+			var nm := str(r.name)
+			ov.draw_string(font, p + Vector2(8, -6), nm.left(1).to_upper() + nm.substr(1), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c)
 
 
 ## A plan still running when the map goes away finishes first: it reads

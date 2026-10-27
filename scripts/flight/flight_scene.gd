@@ -438,6 +438,9 @@ func _build() -> void:
 	hud.throttle_set.connect(func(x: float): _throttle = x)
 	hud.action_pressed.connect(_on_action)
 	Career.mission_done.connect(_on_mission_done)
+	Career.relic_heard.connect(func(r: Dictionary):
+		Sfx.play("click")
+		hud.toast("Signal! The scanner hears %s, %s away, heading %03d°" % [r.name, FlightHUD.fmt_dist(r.distance), int(roundf(float(r.bearing_deg))) % 360], 4.0))
 	Career.survey_done.connect(func(sv: Dictionary): hud.toast("Survey done: %s! +%.1f research%s" % [Career.describe_survey(sv), sv.research,
 		" · +%s" % Career.money(float(sv.funds)) if Career.is_career() else ""], 4.0))
 
@@ -878,6 +881,8 @@ func _on_mission_done(m: Dictionary) -> void:
 	Sfx.play("stage")
 	_react("orbit", 3.0)
 	hud.toast("Mission complete: %s! +%d research%s" % [m.title, int(m.research), " · +%s" % Career.money(float(m.funds)) if Career.is_career() else ""], 4.0)
+	if m.has("story"):
+		hud.show_story(m.title.to_upper(), m.story)
 
 
 ## O: the science panel: each experiment aboard, what it would bring home
@@ -1544,6 +1549,7 @@ func _render(delta: float) -> void:
 	hud.navball.update_attitude(up, north, east, nose, q_top, markers)
 	hud.follow_mode = _sas_follow
 	hud.set_target_text(_target_text())
+	hud.set_signal_text(FlightHUD.relic_text(t, Career.heard))
 	# crew and mission bookkeeping
 	_mission.max_altitude = maxf(_mission.max_altitude, t.altitude)
 	_mission.max_g = maxf(_mission.max_g, t.g_force)

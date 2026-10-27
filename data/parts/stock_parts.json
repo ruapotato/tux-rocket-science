@@ -726,6 +726,22 @@
       "surface_attach": true
     },
     {
+      "id": "signal_scanner",
+      "name": "Earhole Signal Scanner",
+      "category": "science",
+      "description": "A little dish tuned to the strange hum. With the power on it hears a signal source in sight of it up to 3,000 km away and gives its distance and heading.",
+      "mass": 40,
+      "cost": 2500,
+      "scanner": { "range_km": 3000 },
+      "power": { "draw_kw": 0.05 },
+      "crash_tolerance": 8,
+      "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.1, "area_side": 0.08 },
+      "shape": { "type": "dish", "radius": 0.35, "height": 0.4 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
       "id": "ladder",
       "name": "Waddle Ladder",
       "category": "utility",

@@ -60,6 +60,10 @@ var _node_label: Label
 var _warp_label: Label
 var _action_buttons := {}
 var _hint: Label
+var _signal: RichTextLabel
+var _story: PanelContainer
+var _story_title: Label
+var _story_body: RichTextLabel
 var _fail: PanelContainer
 var _fail_title: Label
 var _fail_body: Label
@@ -112,7 +116,10 @@ func _ready() -> void:
 	# stacked in columns, so a panel that grows a line pushes the next down
 	# instead of running under it
 	_column([_left, _stages], false)
-	_column([_right, _target_text], true)
+	_signal = _panel_text(Vector2(-280, 250), Vector2(270, 0), true)
+	_signal.get_parent().visible = false
+	_column([_right, _target_text, _signal], true)
+	_build_story()
 
 	# bottom centre: throttle | navball | g-meter, SAS row beneath
 	var bottom := VBoxContainer.new()
@@ -493,6 +500,83 @@ func hide_failure() -> void:
 func set_target_text(s: String) -> void:
 	_target_text.text = s
 	_target_text.get_parent().visible = s != ""
+
+
+## The signal panel: the relics here a scanner hears or PASA knows of,
+## from relic_text().
+func set_signal_text(s: String) -> void:
+	_signal.text = s
+	_signal.get_parent().visible = s != ""
+
+
+## What the Signal Scanner hears and where the known relics are, from
+## telemetry `t`; `known` lists the relic ids whose place PASA knows.
+static func relic_text(t: Dictionary, known: Array) -> String:
+	var lines := []
+	var heard_any := false
+	for r in t.get("relics", []):
+		var is_heard: bool = r.get("heard", false)
+		if not is_heard and not r.id in known:
+			continue
+		heard_any = heard_any or is_heard
+		var where := "%s away · heading %03d°" % [fmt_dist(r.distance), int(roundf(float(r.bearing_deg))) % 360]
+		if float(r.distance) > float(r.surface_distance) * 1.02 + 2000.0:
+			where += "\n   %s over the ground" % fmt_dist(r.surface_distance)
+		var name: String = str(r.name)
+		lines.append("%s [b]%s[/b]%s\n   %s" % ["[color=#7fffd0]◉[/color]" if is_heard else "[color=#9fb4cc]◇[/color]",
+			name.left(1).to_upper() + name.substr(1), "" if is_heard else "  [color=#6f86a6](charted)[/color]", where])
+	if t.has("scanner_range"):
+		var head := "[color=#7fffd0]SCANNER[/color]  "
+		if not t.get("scanner_powered", false):
+			head += "[color=#ff9a7a]no power[/color]"
+		elif heard_any:
+			head += "[b]signal![/b]"
+		else:
+			head += "listening, nothing in sight within %s" % fmt_dist(t.scanner_range)
+		lines.push_front(head)
+	return "\n".join(lines)
+
+
+func _build_story() -> void:
+	_story = PanelContainer.new()
+	_story.add_theme_stylebox_override("panel", HangarTheme.box(Color(0.03, 0.07, 0.1, 0.94), 8, Color(0.5, 1.0, 0.82), 2))
+	_story.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_story.offset_left = -330
+	_story.offset_right = 330
+	_story.offset_top = 120
+	_story.visible = false
+	add_child(_story)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	_story.add_child(v)
+	_story_title = Label.new()
+	_story_title.add_theme_color_override("font_color", Color(0.5, 1.0, 0.82))
+	_story_title.add_theme_font_size_override("font_size", 18)
+	v.add_child(_story_title)
+	_story_body = RichTextLabel.new()
+	_story_body.bbcode_enabled = true
+	_story_body.fit_content = true
+	_story_body.scroll_active = false
+	_story_body.custom_minimum_size = Vector2(630, 0)
+	_story_body.add_theme_font_size_override("normal_font_size", 15)
+	v.add_child(_story_body)
+	var ok := Button.new()
+	ok.text = "Carry on"
+	ok.focus_mode = Control.FOCUS_NONE
+	ok.size_flags_horizontal = Control.SIZE_SHRINK_END
+	ok.pressed.connect(func(): _story.visible = false)
+	v.add_child(ok)
+
+
+## A mission's story, told when it is done (until "Carry on").
+func show_story(title: String, text: String) -> void:
+	_story_title.text = title
+	_story_body.text = text
+	_story.visible = true
+
+
+func story_showing() -> bool:
+	return _story.visible
 
 
 func set_hint(s: String) -> void:

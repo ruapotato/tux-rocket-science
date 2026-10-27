@@ -96,7 +96,7 @@ static func rnd(on_change: Callable) -> PanelContainer:
 		b.custom_minimum_size = Vector2(150, 0)
 		var why := Career.tech_refusal(n.id)
 		var have: bool = n.id in Career.unlocked
-		b.text = "Researched" if have else "Research (%d)" % int(n.cost)
+		b.text = "Researched" if have else ("Found by a relic" if n.has("found_by") else "Research (%d)" % int(n.cost))
 		b.disabled = why != ""
 		var id: String = n.id
 		b.pressed.connect(func():

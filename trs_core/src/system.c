@@ -130,6 +130,15 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 				bi->near_radius = trs_json_num(n, "radius_km", 10) * 1000.0;
 			}
 		}
+		const trs_json *rj = trs_json_get(j, "relics");
+		for (size_t k = 0; rj && k < rj->count && b->nrelics < TRS_MAX_RELICS; k++) {
+			const trs_json *e = trs_json_at(rj, k);
+			trs_relic *r = &b->relics[b->nrelics++];
+			snprintf(r->id, sizeof r->id, "%s", trs_json_str(e, "id", "?"));
+			snprintf(r->name, sizeof r->name, "%s", trs_json_str(e, "name", r->id));
+			double la = trs_json_num(e, "lat_deg", 0) * DEG, lo = trs_json_num(e, "lon_deg", 0) * DEG;
+			r->dir = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {
 			b->has_site = 1;
@@ -231,6 +240,12 @@ void trs_body_state_galactic(const trs_system *sys, int i, double t, trs_v3 *r, 
 	*r = v3_add(*r, sys->bodies[i].galactic);
 }
 
+void trs_body_state_from(const trs_system *sys, int i, int star, double t, trs_v3 *r, trs_v3 *v) {
+	trs_body_state_abs(sys, i, t, r, v);
+	if (sys->bodies[i].star != star) /* the stars' offset; never added within one system */
+		*r = v3_add(*r, v3_sub(sys->bodies[i].galactic, sys->bodies[star].galactic));
+}
+
 double trs_body_rotation(const trs_body *b, double t) {
 	if (b->rotation_period == 0)
 		return b->rotation_at_epoch;
@@ -272,6 +287,37 @@ double trs_body_terrain_at(const trs_body *b, double t, trs_v3 r) {
 	if (!b->terrain.enabled)
 		return 0;
 	return trs_terrain_height(&b->terrain, b->radius, v3_norm(trs_body_to_fixed(b, t, r)));
+}
+
+trs_v3 trs_relic_position(const trs_body *b, int k) {
+	trs_v3 d = b->relics[k].dir;
+	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, d) : 0.0;
+	return v3_scale(d, b->radius + h);
+}
+
+trs_relic_view trs_relic_from(const trs_body *b, int k, trs_v3 p) {
+	trs_relic_view out;
+	trs_v3 s = trs_relic_position(b, k), d = b->relics[k].dir, u = v3_norm(p);
+	out.distance = v3_len(v3_sub(p, s));
+	out.surface_distance = atan2(v3_len(v3_cross(u, d)), v3_dot(u, d)) * b->radius;
+	/* heading: the direction to it in the point's local east/north plane */
+	trs_v3 z = v3(0, 0, 1);
+	trs_v3 east = v3_cross(z, u);
+	if (v3_len2(east) < 1e-24)
+		east = v3(0, 1, 0); /* at a pole every way is south (or north) */
+	east = v3_norm(east);
+	trs_v3 north = v3_cross(u, east);
+	out.bearing = atan2(v3_dot(d, east), v3_dot(d, north));
+	if (out.bearing < 0)
+		out.bearing += TRS_TAU;
+	/* in sight: the point is above the relic's horizon, and the straight
+	 * line between them clears the round body (terrain may still be in
+	 * the way; the signal is strong enough not to mind) */
+	trs_v3 ps = v3_sub(s, p);
+	double L2 = v3_len2(ps), tt = L2 > 0 ? fmax(0.0, fmin(1.0, -v3_dot(p, ps) / L2)) : 0;
+	double clear = fmin(b->radius, v3_len(s)) * (1 - 1e-9);
+	out.in_sight = v3_dot(v3_sub(p, s), d) > 0 && (tt <= 0 || tt >= 1 || v3_len(v3_madd(p, ps, tt)) >= clear);
+	return out;
 }
 
 int trs_body_biome(const trs_body *b, trs_v3 dir) {

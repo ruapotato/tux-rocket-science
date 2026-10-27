@@ -79,6 +79,7 @@ tapering leading end takes less heating than a flat one (see
 | `drive` | the Stillwater Drive: `accel_g`, `kw` (the whole ship is pushed alike, whatever it weighs); `power.generator_kw` is a reactor's steady output |
 | `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
+| `scanner` | `range_km`: a Signal Scanner hears a relic in sight of it this far away (with the power on) |
 
 After changing parts, run `./build/linux/trs_tests --data data --all`: the
 gates check the stock parts still behave.
@@ -102,6 +103,7 @@ gates check the stock parts still behave.
 | `look` | `style` (`ice`, `rock`, `moss`), `sky` [r,g,b], `tau` (haze per colour), `clouds`, and colours `low`, `high`, `slope`, `rock`, `basin`, `range`; `tint` multiplies the far-view colours of the `ice` and `rock` styles |
 | `ore` | ore abundance 0..1: drills dig `drill_kg_s` x this |
 | `biomes` | `[{id, name, abs_lat_min_deg, abs_lat_max_deg, height_min, height_max, near: {lat_deg, lon_deg, radius_km}}]`: a point is in the first biome whose every condition holds; the last one, with none, catches the rest. Landed and low-flying science counts separately per biome |
+| `relics` | `[{id, name, lat_deg, lon_deg}]`: signal sources standing on the ground there; a scanner hears one when it is above the relic's horizon and in range. A visual for each id is in `scripts/flight/relic_visual.gd` (an unknown id gets a plain standing stone) |
 
 Spheres of influence come from the masses. Adding a body after the existing
 ones keeps old saves loadable.
@@ -111,12 +113,15 @@ ones keeps old saves loadable.
 - `science.json`: `situations` (`value`, `phrase`, `biome`: counted per biome), `bodies` (`value`, the
   heights that split low from high), `experiments` (`base`, `situations`,
   `eva`), and `repeat_factor`.
-- `tech.json`: R&D `nodes`: `{id, name, cost, requires, parts}`. Parts in no
-  node are always available.
+- `tech.json`: R&D `nodes`: `{id, name, cost, requires, parts}`. A node with
+  `found_by` (a mission id) can't be bought: it opens when that mission is
+  done. Parts in no node are always available.
 - `missions.json`: `start_funds`, `recovery_refund`, and `missions`:
-  `{id, title, text, goal: {kind, body, value}, funds, research, after}`.
+  `{id, title, text, goal: {kind, body, value, relic}, funds, research, after, story}`.
   Goal kinds: `altitude`, `space`, `orbit`, `soi`, `landed`, `eva_space`,
-  `eva_landed`, `recover_from`, `rendezvous`, `docked`.
+  `eva_landed`, `recover_from`, `flag`, `rendezvous`, `docked`, `refine`, `hear`
+  (a scanner has heard `relic`) and `investigate` (a penguin on foot within
+  25 m of `relic`). `story` is shown when the mission is done.
 
 ## Stock craft: `data/craft/*.craft.json`
 

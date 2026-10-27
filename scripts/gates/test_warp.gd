@@ -22,7 +22,8 @@
 ## that clears the moon is never slowed); throttling
 ## up during warp hands back to normal time so the engine really burns;
 ## slowing down is always allowed, engines or not; and a skip ahead stops
-## a minute short of an impact on the way.
+## a minute short of an impact on the way; a craft resting on another
+## world doesn't hold warp up.
 extends RefCounted
 
 var _log := PackedStringArray()
@@ -155,4 +156,26 @@ func run(_runner: Node) -> Dictionary:
 	_check(i1 == 0 and i2 == 0 and absf(later - t_node - period) < 1e-6 and absf(back - t_node) < 1e-6 and i3 == -1 and s.shift_why.contains("behind"),
 		"node 300 s ahead: an orbit later at +%.3f s (period %.3f), back again (%+.6f s), an orbit earlier refused ('%s')" % [
 			later - t_node, period, back - t_node, s.shift_why])
+	# 5. something left landed elsewhere (a lander, a flag, a mining base)
+	#    doesn't stop warp: it rests where it is while the rest moves on
+	var pod := FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "hopper.craft.json")
+	var lid: int = s.core.flight_place_landed(pod, "krill", 5.0, 40.0)
+	var tl0: Dictionary = JSON.parse_string(s.core.telemetry(lid))
+	var w0 := s.time()
+	var why_r := s.set_warp("rails", 3)
+	for i in 30:
+		s.advance(dt)
+	var skipped := s.warp_to(s.time() + 3600.0)
+	var tl1: Dictionary = JSON.parse_string(s.core.telemetry(lid))
+	var gone := s.time() - w0
+	s.switch_to(lid)
+	var w1 := s.time()
+	var skipped2 := s.warp_to(s.time() + 7200.0)
+	var tl2: Dictionary = JSON.parse_string(s.core.telemetry(lid))
+	_check(skipped2 == "" and absf(s.time() - w1 - 7200.0) < 1e-6 and tl2.landed and absf(float(tl2.lat_deg) - float(tl0.lat_deg)) < 1e-9,
+		"flying the resting Hopper: a two-hour skip runs the full two hours ('%s', %.1f s), still landed" % [skipped2, s.time() - w1])
+	_check(why_r == "" and gone > 3600.0 + 30 * dt * 10.0 and skipped == "" and tl1.landed and
+		absf(float(tl1.lat_deg) - float(tl0.lat_deg)) < 1e-9 and absf(float(tl1.lon_deg) - float(tl0.lon_deg)) < 1e-9,
+		"with a Hopper resting on Krill: rails warp and an hour's skip run on (%.0f s gone, '%s'); the Hopper still landed at %.6f, %.6f" % [
+			gone, skipped, float(tl1.lat_deg), float(tl1.lon_deg)])
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}

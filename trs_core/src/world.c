@@ -214,8 +214,8 @@ void trs_rebase_state(const trs_system *sys, int from, int to, double t, trs_v3 
 		*v = v3_sub(*v, vt);
 		return;
 	}
-	trs_body_state_abs(sys, from, t, &rf, &vf);
-	trs_body_state_abs(sys, to, t, &rt, &vt);
+	trs_body_state_from(sys, from, sys->bodies[to].star, t, &rf, &vf);
+	trs_body_state_from(sys, to, sys->bodies[to].star, t, &rt, &vt);
 	*r = v3_sub(v3_add(*r, rf), rt);
 	*v = v3_sub(v3_add(*v, vf), vt);
 }

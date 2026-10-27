@@ -524,7 +524,8 @@ func warp_to(t_target: float) -> String:
 		return reason
 	var stopped := ""
 	# a path that meets the ground (or the air) first: stop well short of it
-	for p in trajectory([], 8, maxf(t_target - time(), 1.0)):
+	# (a craft resting on the ground is going nowhere)
+	for p in [] if telemetry().get("landed", false) else trajectory([], 8, maxf(t_target - time(), 1.0)):
 		if p.end in ["surface", "atmosphere"] and float(p.t_end) < t_target:
 			t_target = maxf(time(), float(p.t_end) - WARP_TO_LEAD)
 			stopped = "%s ahead" % ("the ground" if p.end == "surface" else "the atmosphere")
