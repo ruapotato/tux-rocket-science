@@ -98,6 +98,7 @@ trs_gate_status trs_gate_relics(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_interior(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_life(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_shapes(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_computer(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_mining(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_relativity(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_interstellar(trs_log *log, const char *data_dir);
@@ -130,6 +131,8 @@ static const trs_gate_def GATES[] = {
 	{ "test-life", "M26", trs_gate_life },
 	{ "test-shapes", "M27", trs_gate_shapes },
 	{ "test-spaceship", "M27", NULL },
+	{ "test-computer", "M28", trs_gate_computer },
+	{ "test-computer-flight", "M28", NULL },
 	{ "test-mining", "M22", trs_gate_mining },
 	{ "test-relativity", "M23", trs_gate_relativity },
 	{ "test-interstellar", "M23", trs_gate_interstellar },

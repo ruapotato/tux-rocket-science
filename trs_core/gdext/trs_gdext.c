@@ -33,6 +33,11 @@
 #define TRS_EXPORT __attribute__((visibility("default")))
 #endif
 
+extern const trs_method_def TRS_COMPUTER_METHODS[];
+extern const int TRS_COMPUTER_METHOD_COUNT;
+void *trs_computer_create(void);
+void trs_computer_destroy(void *self);
+
 static void *sim_create(void) {
 	return calloc(1, sizeof(trs_sim_handle));
 }
@@ -157,6 +162,11 @@ static void initialize(void *ud, GDExtensionInitializationLevel level) {
 	static trs_class_def sim_class;
 	sim_class = (trs_class_def){ "TrsSim", "RefCounted", sim_create, sim_destroy, all, n };
 	trs_binder_register(&sim_class);
+	/* the ship's computer (os/), its own class */
+	static trs_class_def computer_class;
+	computer_class = (trs_class_def){ "TrsComputer", "RefCounted", trs_computer_create, trs_computer_destroy,
+		TRS_COMPUTER_METHODS, TRS_COMPUTER_METHOD_COUNT };
+	trs_binder_register(&computer_class);
 }
 
 static void deinitialize(void *ud, GDExtensionInitializationLevel level) {

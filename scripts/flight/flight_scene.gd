@@ -493,6 +493,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _key(k: InputEventKey) -> void:
+	if k.keycode == KEY_F2:
+		_toggle_desk()
+		return
+	if _desk != null:
+		return  # the keyboard is the computer's while its desktop is up
 	if hud.menu_visible() and k.keycode != KEY_ESCAPE:
 		return
 	if k.keycode != KEY_F1:
@@ -874,8 +879,17 @@ func _process(delta: float) -> void:
 	if hud.menu_visible():
 		Sfx.silence_beds()  # paused: the engines and wind go quiet too
 		return
-	_controls(delta)
+	if _desk == null:
+		_controls(delta)
+	else:
+		session.set_input(0.0, 0.0, 0.0)  # (typing at the computer is not flying)
+		session.set_translate(0.0, 0.0, 0.0)
 	session.advance(delta)
+	if computer == null:
+		computer = ShipComputer.get_shared()
+	computer.update(self, session.telemetry())
+	for line in computer.take_said():
+		hud.toast(line, 4.0)
 	_render(delta)
 	_update_course_panel()
 	_mission_tick += delta
@@ -1061,6 +1075,8 @@ func _fill_science() -> void:
 
 ## Leaving flight (hangar, menu, revert) takes its engine roar with it.
 func _exit_tree() -> void:
+	if computer:
+		computer.save()
 	Sfx.silence_beds()
 
 
@@ -1310,6 +1326,41 @@ func _eva_key() -> void:
 		hud.toast("%s steps outside. WASD walk, Space jump, R jetpack, F climbs back in" % who, 4.0)
 		return
 	hud.toast("Nobody aboard to go outside", 2.0)
+
+
+## F2: the ship's computer, its desktop over the flight. The ship flies on
+## underneath; scripts started from it keep running when it closes.
+func _toggle_desk() -> void:
+	if _desk != null:
+		_desk.queue_free()
+		_desk = null
+		if computer:
+			computer.save()
+		return
+	if computer == null:
+		computer = ShipComputer.get_shared()
+	if computer.machine == null:
+		hud.toast("The ship's computer did not start (no TrsComputer in this build)", 3.0)
+		return
+	_desk = CanvasLayer.new()
+	_desk.layer = 120  # over the HUD and the map
+	# the desktop fills the screen (a Control straight under a CanvasLayer
+	# has no parent to take its size from, so it is given the viewport's)
+	var holder := Control.new()
+	holder.name = "DeskHolder"
+	holder.position = Vector2.ZERO
+	holder.size = get_viewport().get_visible_rect().size
+	get_viewport().size_changed.connect(func():
+		if is_instance_valid(holder):
+			holder.size = get_viewport().get_visible_rect().size)
+	var de: Control = load("res://scripts/os/de.gd").new()
+	de.machine = computer.machine
+	de.ship = self
+	holder.add_child(de)
+	_desk.add_child(holder)
+	add_child(_desk)
+	de.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	Sfx.play("click")
 
 
 ## Enter: one of the crew gets up and walks about inside (a room of a
@@ -2071,6 +2122,8 @@ var _reentry: ReentryFX
 var _front_ids: Array = []  # per rendered part: [radius, half height]
 var _front_key := ""  # which vessel (and how many parts) _front_ids describes
 var _inside: InteriorView  # a penguin walking about inside the active craft
+var computer: ShipComputer  # the ship's computer (F2 opens its desktop)
+var _desk: CanvasLayer
 var _in_who := ""
 var _in_yaw := 0.0
 var _in_pitch := 0.25

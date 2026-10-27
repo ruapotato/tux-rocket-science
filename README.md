@@ -206,6 +206,20 @@ Hearth Core's 40 MW: it gives what the power pays for) and **Glasswing** hulls a
 the weight and good to 4000 K. The stock **Skua** is a single-stage spaceship on them: from the
 pad to orbit, to Krill and on, its thrust weight in the cabin.
 
+**The ship's computer**: press **F2** in flight and the ship's computer comes up on the
+screen: a whole little machine (an RV64 CPU, a kernel, a disk, a shell, a MATE-style desktop,
+from NOMINAL by way of RUNBOOK) aboard every ship. Its **Flight** app shows what the panels say
+and has a button for each thing the ship can be told; every button is the shell line it runs, so
+you can copy it into a script. At its terminal, `ship status` prints the readings, `ship get
+apoapsis` one of them, `ship throttle 0.5`, `ship stage`, `ship sas prograde`, `ship point 45
+90` (pitch, heading) and the rest fly the ship (`ship help` lists them); every reading is also a
+file (`cat /dev/ship/apoapsis`) and every command too (`echo 0 > /dev/ship/throttle`). Scripts
+in its Python or its shell, `ship run /root/examples/ascent.py`, keep running while you fly,
+through the same controls the keys use: the two examples on its disk take the Orbiter off the
+pad to orbit with nobody at the keys. Your own go in `/root/scripts`, which is kept between
+games. For the long coast, it has its games: 2048, snake, worms, mines, solitaire, a falling-sand
+box and more.
+
 **Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
 wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and
 puffins wheel over the Puffin Spires; Kelp has meadows of grass and glowing puffballs under
@@ -248,6 +262,8 @@ remember their records, and spend a flight in the infirmary if a landing goes ba
 | `data/` | Data-driven content: celestial bodies, parts, and stock craft (JSON). |
 | `scripts/`, `scenes/` | GDScript glue and Godot scenes. These are views only. |
 | `scripts/gates/` | Scripted gates that drive the game blind. |
+| `os/` | The ship's computer: NOMINAL's machine (`os/machine`), the bridge to the ship (`os/core`), its guest programs (`os/guest`, built with `os/tools/mkguest.sh`). |
+| `scripts/os/` | The computer's desktop and apps (NOMINAL's), and the Flight app. |
 | `bin/` | Built extension libraries and `trs_core.gdextension`. |
 
 ## Build

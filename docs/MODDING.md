@@ -137,3 +137,27 @@ ones keeps old saves loadable.
 Built in the hangar and saved (Ctrl+S); copy the file from
 `~/.local/share/godot/app_userdata/Tux Rocket Science/craft/` into
 `data/craft/` to make it stock.
+
+## The ship's computer: scripts, readings, commands
+
+The computer (F2 in flight) sees the ship and asks; it can't reach past the
+verbs the game declares.
+
+- **Readings** come from `ShipComputer.readings()` in
+  `scripts/flight/ship_computer.gd`: whole metres, seconds, kilograms and m/s
+  (the guest languages have integers only), plus words. Each is
+  `/dev/ship/<key>`, and `ship status` / `ship json` prints them all. `frame`
+  counts the game's updates. A script loops many times inside one frame, so
+  wait for a new `frame` before doing something you want done once.
+- **Commands** are `ShipComputer.VERBS`: a name, the argument kinds (`n` a
+  number, `w` a word, `t` the rest of the line; a trailing `?` makes the last
+  one optional) and a help line. The machine checks the arguments and queues
+  the line, the same line said twice in one frame is done once, and
+  `ShipComputer._do()` carries it out through the flight scene's own
+  controls. A new verb takes a row in `VERBS` and a branch in `_do()`.
+- **Scripts:** `/bin/py` or `/bin/sh` (for `*.sh`). In py, `ship()` returns
+  the JSON, `json()` parses it, and `do("verb args")` sends a command. The
+  examples on the disk are in `os/machine/image.c` (search for
+  `/root/examples`). The guest programs are C in `os/guest/`; rebuild
+  `os/machine/guestbin.h` with `cd os && tools/mkguest.sh` (clang with the
+  riscv64 target, and ld.lld).
