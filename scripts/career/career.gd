@@ -166,6 +166,29 @@ func site_unlocked(site: String) -> bool:
 	return false
 
 
+## Whether the ship's computer has `feature` ("planner": when_to_leave and
+## what_if; "guidance": the programs that fly themselves): always in the
+## sandbox, once researched in a career. The language, the parts, aiming,
+## burning and the orbit's maths are the computer's from the start.
+func computer_unlocked(feature: String) -> bool:
+	if not is_career():
+		return true
+	for n in tech:
+		if n.get("computer", "") == feature and n.id in unlocked:
+			return true
+	return false
+
+
+## Why not, in words, for the script that asked ("" if it may).
+func computer_refusal(feature: String) -> String:
+	if computer_unlocked(feature):
+		return ""
+	for n in tech:
+		if n.get("computer", "") == feature:
+			return "the ship's computer needs the %s for that (R&D, %d research)" % [n.name, int(n.get("cost", 0))]
+	return ""
+
+
 func tech_node(id: String) -> Dictionary:
 	for n in tech:
 		if n.id == id:

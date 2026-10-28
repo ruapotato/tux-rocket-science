@@ -83,6 +83,123 @@ while ship.orbit.bottom < 70 * km and tries < 3:
 print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
 """
 
+const KRILL := """# krill_by_hand.py -- up by the guidance computer, then to Krill and down by you
+launch(80000)
+
+trip = when_to_leave("krill")
+print(f"leave in {trip.wait:.0f} s: {trip.dv:.0f} m/s, {trip.travel / 3600:.1f} h out, passing {trip.closest / km:.0f} km up")
+if trip.dv > ship.delta_v:
+    print("not enough fuel for Krill")
+    exit(1)
+sleep(trip.wait - burn_time(trip.dv) / 2)
+aim("prograde")
+burn(trip.dv)
+
+# a long burn is never exact: try pushes for free with what_if, keep the best
+goal = 30 * km
+def miss(p):
+    if p.meets != "Krill":
+        return 1000000000
+    return abs(p.closest - goal)
+
+def find_fix(at):
+    # step along each way while it gets closer, halving the step when
+    # nothing does: [forward, sideways, outward, how far off]
+    best = [0, 0, 0]
+    here = miss(what_if(0, 0, 0, at))
+    step = 8
+    while step > 0.1 and here > 1 * km:
+        better = False
+        for d in [[step, 0, 0], [-step, 0, 0], [0, step, 0], [0, -step, 0], [0, 0, step], [0, 0, -step]]:
+            t = [best[0] + d[0], best[1] + d[1], best[2] + d[2]]
+            m = miss(what_if(t[0], t[1], t[2], at))
+            if m < here:
+                here = m
+                best = t
+                better = True
+        if not better:
+            step = step / 2
+    return [best[0], best[1], best[2], here]
+
+# look, fix, and look again: the closer the fix, the smaller the next one
+tries = 0
+off = miss(what_if(0, 0, 0, ship.time + 600))
+while off > 5 * km and tries < 3:
+    tries += 1
+    at = ship.time + 600
+    fix = find_fix(at)
+    dv = sqrt(fix[0] ** 2 + fix[1] ** 2 + fix[2] ** 2)
+    print(f"fix {tries}: {off / km:.0f} km off; {fix[0]:.1f} forward, {fix[1]:.1f} sideways, {fix[2]:.1f} out = {dv:.1f} m/s should make it {fix[3] / km:.1f}")
+    if dv < 0.2:
+        break
+    sleep(at - ship.time - burn_time(dv) / 2)
+    aim_along(fix[0], fix[1], fix[2])
+    burn(dv)
+    off = miss(what_if(0, 0, 0, ship.time + 600))
+print(f"the pass: {off / km:.1f} km off the {goal / km:.0f} km I want")
+
+while ship.orbit.body != "krill":
+    sleep(600)
+low = ship.orbit.bottom
+print(f"in Krill's pull, passing {low / km:.1f} km up")
+
+# caught: at the bottom, slow to a circle's speed there
+slow = speed_at(low) - speed_needed(low)
+sleep(ship.orbit.time_to_bottom - burn_time(slow) / 2)
+aim("retrograde")
+burn(slow)
+print(f"caught: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km, {ship.delta_v:.0f} m/s left")
+
+# land on the lander: drop the transfer stage, light the lander's own engine
+lander = ship.part("Puffling")
+while not lander.lit:
+    stage()
+print(f"on the lander's own engine: {ship.delta_v:.0f} m/s left")
+
+# down: drop the bottom to 8 km, fall to it, and brake to the ground
+aim("retrograde")
+throttle(100)
+while ship.orbit.bottom > 8 * km:
+    sleep(0.1)
+throttle(0)
+print(f"the bottom is {ship.orbit.bottom / km:.1f} km now ({ship.delta_v:.0f} m/s left)")
+sleep(ship.orbit.time_to_bottom - 60)
+legs()
+# at the bottom, burn off the sideways speed: then it only falls
+aim("surface_retrograde")
+throttle(100)
+while ship.horizontal_speed > 20:
+    if ship.max_thrust == 0:
+        print(f"no thrust at {ship.height:.0f} m: staging")
+        stage()            # this stage is dry: on to the next
+    sleep(0.1)
+throttle(0)
+print(f"sideways speed gone at {ship.height:.0f} m: falling ({ship.delta_v:.0f} m/s left)")
+# fall until stopping takes most of the height left (with some to spare)
+while ship.height > stopping_distance() * 1.5 + 100:
+    chart("height", ship.height)
+    sleep(0.1)
+print(f"braking at {ship.height:.0f} m, falling {ship.falling_speed:.0f} m/s ({ship.delta_v:.0f} m/s left)")
+# then down no faster than it could still stop in the height left (with a
+# margin), to a walking pace at the end: the throttle that holds it still,
+# and more (or less) for how far off that speed it is
+upright = False
+while not ship.landed:
+    if not upright and ship.height < 150:
+        aim("up")          # the last of it straight down, legs first
+        upright = True
+    if ship.max_thrust == 0:
+        print(f"out of fuel at {ship.height:.0f} m")
+        break
+    push = ship.max_thrust * 1000 / ship.mass       # m/s2 the engine gives, flat out
+    hover = 100 * ship.body.gravity / push
+    want = 1.5 + 0.6 * sqrt(2 * max(push - ship.body.gravity, 0.1) * max(ship.height - 8, 0))
+    throttle(clamp(hover + (ship.falling_speed - want) * 40, 0, 100))
+    chart("height", ship.height)
+throttle(0)
+print(f"down on Krill with {ship.delta_v:.0f} m/s left")
+"""
+
 const BY_SPACE := """# each stage on the pilot's space
 lifter = ship.part("Walrus")
 drop = ship.part("Crack-1 Stack Decoupler 1")
@@ -146,6 +263,8 @@ func _fly(scene: Node3D, path: String, text: String, max_s: float, presses := 0)
 	comp.machine.write_file(path, text)
 	comp.log.clear()
 	var why := str(comp.machine.start(path))
+	var heard := []
+	var seen := comp.log_count
 	var t0 := s.time()
 	var running := true
 	var guard := 0
@@ -158,11 +277,14 @@ func _fly(scene: Node3D, path: String, text: String, max_s: float, presses := 0)
 		var tw := s.telemetry()
 		var wake := comp.wake_at()
 		var before := s.time()
-		if wake - s.time() > 30.0 and float(tw.get("thrust", 0.0)) == 0.0 and float(tw.get("altitude", 0.0)) > 72000.0:
+		if wake - s.time() > 30.0 and float(tw.get("thrust", 0.0)) == 0.0 and not tw.get("in_atmosphere", true) \
+				and float(tw.get("altitude_terrain", 0.0)) > 5000.0 and not comp.programs.running():
 			s.warp_to(wake - 10.0)
 		if s.time() - before < 0.01:
-			# coasting, the pilot runs time at 4x (the physics warp)
-			s.step_ticks(20 if float(tw.get("thrust", 0.0)) == 0.0 and wake - s.time() > 5.0 else 5)
+			# coasting, the pilot runs time at 4x (the physics warp); near
+			# the ground, a tick at a time
+			var agl := float(tw.get("altitude_terrain", 1e9))
+			s.step_ticks(1 if agl < 300.0 and not tw.get("landed", false) else (20 if float(tw.get("thrust", 0.0)) == 0.0 and wake - s.time() > 5.0 else 5))
 		guard += 1
 		var u0 := Time.get_ticks_usec()
 		comp.update(scene, s.telemetry())
@@ -179,6 +301,11 @@ func _fly(scene: Node3D, path: String, text: String, max_s: float, presses := 0)
 				comp.take_space()
 				pressed += 1
 				waited = 0
+		var fresh := mini(comp.log_count - seen, comp.log.size())
+		for k in range(comp.log.size() - fresh, comp.log.size()):
+			if not str(comp.log[k]).begins_with("> "):
+				heard.append(str(comp.log[k]))
+		seen = comp.log_count
 		if guard % 25 == 0:
 			running = not _scripts(comp).is_empty()
 		if guard % 120 == 0 and OS.has_environment("TRACE"):
@@ -189,11 +316,7 @@ func _fly(scene: Node3D, path: String, text: String, max_s: float, presses := 0)
 			break
 	for pid in _scripts(comp):
 		comp.sh("kill " + str(pid))
-	var said := []
-	for line in comp.log:
-		if not str(line).begins_with("> "):
-			said.append(str(line))
-	return {"started": why == "", "why": why, "ended": not running, "said": said, "t": s.time() - t0, "pressed": pressed}
+	return {"started": why == "", "why": why, "ended": not running, "said": heard, "t": s.time() - t0, "pressed": pressed}
 
 
 func run(runner: Node) -> Dictionary:
@@ -227,6 +350,42 @@ func run(runner: Node) -> Dictionary:
 			and int(s.telemetry().get("next_stage", -1)) == 1,
 		"wait_user_trigger(): the script waited for the pilot's space twice (liftoff, then the drop) and went on each time; the stage list caught up (next stage %d) (started %s %s, pressed %d, %.0f s: %s)" % [int(s.telemetry().get("next_stage", -1)), r.started, r.why, r.pressed, r.t, said])
 
+	scene.queue_free()
+	await _frames(tree, 2)
+
+	# 3. the hangar's "Make script": the Krill lander's stages as a script,
+	# run with a space a stage, does what pressing space does
+	var model := CraftModel.new()
+	model.load_file(Sim.STOCK_CRAFT_DIR + "krill_lander.craft.json")
+	var made: String = preload("res://scripts/os/script_maker.gd").make(model.parts, model.craft_name)
+	var presses := made.count("\nwait_user_trigger()\n")
+	scene = await _scene(tree, "krill_lander", "pad")
+	s = scene.session
+	comp = scene.computer
+	comp.update(scene, s.telemetry())
+	var n_pieces := Sim.vessels().size()
+	r = _fly(scene, "/root/scripts/krill_lander.py", made, 600.0, presses)
+	said = " / ".join(r.said)
+	_check(r.started and r.ended and r.pressed == presses and said.contains("every stage done") and not said.contains("py: error")
+			and int(s.telemetry().get("next_stage", 9)) <= 0 and Sim.vessels().size() > n_pieces + 3,
+		"Make script (the Krill lander, %d stages): run with a space each, every stage went as space does: next stage %d, %d pieces flying (%s)" % [
+			presses, int(s.telemetry().get("next_stage", 9)), Sim.vessels().size(), said])
+	_log.append("     the script it made:\n" + made.indent("        "))
+	scene.queue_free()
+	await _frames(tree, 2)
+
+	# 4. to Krill and down, by your own logic
+	scene = await _scene(tree, "krill_lander", "pad")
+	s = scene.session
+	comp = scene.computer
+	comp.update(scene, s.telemetry())
+	r = _fly(scene, "/root/scripts/krill_by_hand.py", KRILL, 3.0e6)
+	t = s.telemetry()
+	said = " / ".join(r.said)
+	_check(r.started and r.ended and t.get("landed", false) and str(t.get("body", "")) == "krill" and float(t.get("pitch_deg", 0.0)) > 60.0
+			and float(t.get("max_impact", 99.0)) < 6.0 and said.contains("down on Krill"),
+		"krill_by_hand.py: when_to_leave, a what_if search for the fix, a capture worked out, a landing by hand: landed %s on %s, pitch %.0f, worst contact %.1f m/s, %.0f s (%s)" % [
+			t.get("landed", false), t.get("body", "?"), float(t.get("pitch_deg", 0.0)), float(t.get("max_impact", 0.0)), r.t, said])
 	scene.queue_free()
 	await _frames(tree, 2)
 	for v in Sim.vessels():

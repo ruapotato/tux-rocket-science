@@ -55,6 +55,8 @@ func run(runner: Node) -> Dictionary:
 	Career.research = 100.0
 	var why := Career.unlock("yard")
 	_check(locked and why == "" and Career.site_unlocked("orbit"), "the Orbital Yard is closed to a new career, open once Orbital Shipyard is researched ('%s')" % why)
+	# (the file keeps the mode it was saved in: a sandbox again needs a new one)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Sim.save_dir + "career.json"))
 	Career.load_from(Sim.save_dir + "career.json", "sandbox")
 
 	for c in tree.root.get_children():

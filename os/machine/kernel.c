@@ -2125,7 +2125,11 @@ void kernel_tick_some(Machine *m, int slices, Buf *console, const char *name, in
                 int is = strncmp(d[i].name, name, nl) == 0 && (d[i].name[nl] == 0 || d[i].name[nl] == ':');
                 if (is != (want != 0)) continue;
             }
-            d[i].proc.console = console;
+            /* (TUX ROCKET SCIENCE: a ship's script keeps the console it was
+             * started with -- the flight's log -- whoever's command gives it
+             * the slice; a terminal's `ps` was swallowing what it printed) */
+            if (strncmp(d[i].name, "script", 6) != 0)
+                d[i].proc.console = console;
             CpuTrap t = cpu_run(&d[i].cpu, DAEMON_TICK_BUDGET);
             if (d[i].proc.info) d[i].proc.info->icount = d[i].cpu.icount;
             if (t == TRAP_BUDGET) continue;      /* still going, as expected */

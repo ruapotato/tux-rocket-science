@@ -160,6 +160,23 @@ verbs the game declares.
   and a step function the game calls each frame, ending with `_done(note)` or `_fail(why)`.
   The machine reads `program`, `program_status`, `program_note` and `program_id`; the
   flight library's calls in `os/guest/py.c` (`PROGRAM(...)`) start one and wait for it.
+- **The things aboard** (the dot: `ship.part("Walrus").fuel`, `ship.orbit.top`) are the
+  table `ShipComputer.objects()` builds each frame: `path\tvalue\tflags` rows such as
+  `part.12.fuel`, `orbit.top`. A value may be another thing (`@part.12:Walrus`), a list of
+  them (`@[...]`) or `@call` (something it does); `w` marks one a script may set. A set
+  arrives as `set <path> <value>` and a call as `call <path>`, both in `ShipComputer._do()`;
+  the parts are told through `core.part_action(id, uid, what, value)`
+  (`trs_world_part_action`). A new reading is a row in `objects()` (and a line in
+  `scripts/os/pylib.gd`, so the Script Editor suggests it).
+- **Questions the game works out** (`when_to_leave`, `what_if`) are `ask <id> ...` lines:
+  `ShipComputer._ask()` answers into `answer.<id>.*` rows, and the script waits for them.
+- **The debugger:** a script in the background writes `/run/py/<pid>.vars` (its line, its
+  state and every variable) and reads `/run/py/<pid>.ctl` (`break 12 30`, `mode run|pause`,
+  `go <n>`, `step <n>`). `py -i` is the console: it runs what's written to
+  `/run/py/console.in`, one piece per line of `\x1e`. The Script Editor is
+  `scripts/os/codeapp.gd`.
+- **R&D:** a tech node with `"computer": "planner"` or `"guidance"` opens that part of the
+  computer in a career (`Career.computer_unlocked()`).
 - **Numbers:** the CPU has the F and D extensions (`os/machine/cpu_fp.inc`). `/bin/py` is built
   for rv64imfd, and its `sin` and friends are the `SYS_math` syscall.
 - **Scripts:** `/bin/py` or `/bin/sh` (for `*.sh`). In py, `ship()` returns

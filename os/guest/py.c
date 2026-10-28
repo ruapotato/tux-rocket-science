@@ -869,7 +869,15 @@ QUICK(n_stage, "stage")
 QUICK(n_sas, "sas")
 QUICK(n_point, "point")
 QUICK(n_chutes, "chutes")
-QUICK(n_legs, "legs")
+/* legs(): out; legs(False): in (a script says which; a toggle would put
+ * them away if something else had put them out) */
+static VmStatus n_legs(VM *v, Value *a, int n, Value *out)
+{
+    Value w = str_newz(n == 0 || val_truthy(a[0]) ? "on" : "off");
+    VmStatus st = quick(v, "legs", &w, 1, out);
+    val_release(w);
+    return st;
+}
 QUICK(n_rcs, "rcs")
 QUICK(n_say, "say")
 QUICK(n_abort, "abort")
@@ -1225,6 +1233,16 @@ static VmStatus n_aim_at(VM *v, Value *a, int n, Value *out)
     return wait_aimed(v, out);
 }
 
+/* aim_along(forward, sideways, outward): along a burn what_if() found */
+static VmStatus n_aim_along(VM *v, Value *a, int n, Value *out)
+{
+    char line[160];
+    line_of(line, sizeof line, "aim_along", a, n);
+    const char *r = ask(v, line);
+    if (is_err(r)) { vm_runtime_error(v, "%s", r + 5); return VM_ERROR; }
+    return wait_aimed(v, out);
+}
+
 /* throttle(100): every engine, in percent (an engine's own: engine.throttle) */
 static VmStatus n_throttle_pct(VM *v, Value *a, int n, Value *out)
 {
@@ -1333,7 +1351,11 @@ static VmStatus ask_game(VM *v, const char *what, Value *out)
         if (!yield(v)) return VM_ERROR;
         nom_snprintf(line, sizeof line, "obj dict %s", path);
         const char *body = ask(v, line);
-        if (is_err(body) || !body[0]) continue;
+        /* not worked out yet: the game's answer ends with done */
+        bool done = false;
+        for (const char *z = body; *z && !done; z++)
+            done = (z == body || z[-1] == '\n') && !nom_strncmp(z, "done\t", 5);
+        if (is_err(body) || !done) continue;
         Value d = dict_new();
         char k[64], val[512];
         for (const char *q = body; *q; ) {
@@ -1360,7 +1382,7 @@ static VmStatus ask_game(VM *v, const char *what, Value *out)
     }
 }
 
-/* when_to_leave("krill"): {wait, at, dv, travel, pass, body} -- worked out */
+/* when_to_leave("krill"): {wait, at, dv, travel, closest, body} -- worked out */
 static VmStatus n_when_to_leave(VM *v, Value *a, int n, Value *out)
 {
     char line[160];
@@ -1503,7 +1525,7 @@ static const Native NATIVES[] = {
     { "sas",       1, 1, n_sas       },
     { "point",     2, 2, n_point     },
     { "chutes",    0, 0, n_chutes    },
-    { "legs",      0, 0, n_legs      },
+    { "legs",      0, 1, n_legs      },
     { "rcs",       1, 1, n_rcs       },
     { "say",       1, 1, n_say       },
     { "abort",     0, 0, n_abort     },
@@ -1520,6 +1542,7 @@ static const Native NATIVES[] = {
     { "sleep",     1, 1, n_wait      },
     { "aim",       1, 1, n_aim       },
     { "aim_at",    2, 2, n_aim_at    },
+    { "aim_along", 3, 3, n_aim_along },
     { "speed_needed", 1, 1, n_speed_needed },
     { "speed_at",  1, 1, n_speed_at  },
     { "burn_time", 1, 1, n_burn_time },

@@ -713,6 +713,8 @@ func _cycle_vessel(dir: int) -> void:
 
 
 func _on_sas(mode: String) -> void:
+	if computer != null:
+		computer._let_go_aim()  # (a SAS mode picked by hand: the script's aim is let go)
 	_sas_follow = mode if mode in ["maneuver", "target", "antirel", "dock"] else ""
 	if _sas_follow == "maneuver" and session.nodes.is_empty():
 		_sas_follow = ""
@@ -1107,6 +1109,8 @@ func _exit_tree() -> void:
 
 ## A key that flies the ship stops the computer's program.
 func _hands_on() -> void:
+	if computer != null:
+		ShipComputer.engines_follow(session)  # the throttle keys move every engine
 	if computer != null and computer.programs.running():
 		computer.programs.stop("you took the controls")
 		hud.toast("The computer's %s program stopped: you have the controls" % computer.programs.name, 2.5)
@@ -1129,6 +1133,13 @@ func _controls(delta: float) -> void:
 			hud.toast("The computer's %s program stopped: you have the controls" % computer.programs.name, 2.5)
 		else:
 			_throttle = session.throttle_set
+	elif computer != null:
+		if Input.is_key_pressed(KEY_SHIFT) or Input.is_key_pressed(KEY_CTRL):
+			ShipComputer.engines_follow(session)
+		for key in [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]:
+			if Input.is_key_pressed(key):
+				computer._let_go_aim()  # steering by hand
+				break
 	if Input.is_key_pressed(KEY_SHIFT):
 		_throttle = minf(1.0, _throttle + THROTTLE_RATE * delta)
 	if Input.is_key_pressed(KEY_CTRL):

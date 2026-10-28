@@ -351,6 +351,14 @@ func _build_ui() -> void:
 	st.add_theme_color_override("font_color", PartVisual.ICE)
 	st.add_theme_font_size_override("font_size", 13)
 	rv.add_child(st)
+	# the stage list as a flight script for the ship's computer
+	var mk := Button.new()
+	mk.text = "Make script from these stages"
+	mk.tooltip_text = "Writes a flight script: each part these stages fire by name, and each stage waiting for your space.\nOpen it on the ship's computer (Script Editor) and swap any wait for your own logic."
+	mk.focus_mode = Control.FOCUS_NONE
+	mk.add_theme_font_size_override("font_size", 12)
+	mk.pressed.connect(make_script)
+	rv.add_child(mk)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -661,6 +669,28 @@ func _empty_card(g: int) -> Control:
 	panel.set_drag_forwarding(Callable(), _can_drop_chip, func(_pos, data): _drop_on_gap(data, g))
 	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	return panel
+
+
+## "Make script": the stages as /root/scripts/<craft>.py on the ship's
+## computer (a new name if that one is taken: yours are never written over).
+## Returns the path.
+func make_script() -> String:
+	var comp := ShipComputer.get_shared()
+	if comp.machine == null:
+		toast("The ship's computer is off")
+		return ""
+	var base := model.craft_name.to_snake_case().validate_filename()
+	if base == "":
+		base = "my_rocket"
+	var path := "/root/scripts/%s.py" % base
+	var k := 2
+	while str(comp.machine.read_file(path)) != "":
+		path = "/root/scripts/%s_%d.py" % [base, k]
+		k += 1
+	comp.machine.write_file(path, preload("res://scripts/os/script_maker.gd").make(model.parts, model.craft_name))
+	comp.save()
+	toast("Wrote %s on the ship's computer: open it in the Script Editor (F2 in flight)" % path)
+	return path
 
 
 func _stage_card(s: int, st: Dictionary) -> Control:

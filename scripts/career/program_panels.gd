@@ -110,6 +110,8 @@ static func rnd(on_change: Callable) -> PanelContainer:
 		l.scroll_active = false
 		l.custom_minimum_size = Vector2(480, 0)
 		var names := (n.parts as Array).map(func(p): return Sim.part(p).get("name", p))
+		if n.has("about"):
+			names.append(str(n.about))
 		l.text = "[b]%s[/b]%s\n[color=#9fb4cc]%s[/color]" % [n.name, "" if have or why == "" else "  [color=#ff9a7a](%s)[/color]" % why, ", ".join(names)]
 		row.add_child(l)
 		v.add_child(row)

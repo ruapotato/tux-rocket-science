@@ -152,6 +152,13 @@ func _build() -> void:
 	edit.code_completion_enabled = true
 	edit.code_completion_prefixes = [".", "(", "\""]
 	edit.syntax_highlighter = _highlighter()
+	# Python's: # to the end of the line is a comment (so the ' in "we're"
+	# opens no string), and strings end with their line
+	edit.clear_comment_delimiters()
+	edit.add_comment_delimiter("#", "", true)
+	edit.clear_string_delimiters()
+	edit.add_string_delimiter("\"", "\"", true)
+	edit.add_string_delimiter("'", "'", true)
 	edit.code_completion_requested.connect(_complete)
 	edit.text_changed.connect(_on_typed)
 	edit.breakpoint_toggled.connect(func(_l): _write_ctl())
@@ -402,9 +409,12 @@ func _exec(line: int) -> void:
 		return
 	if _exec_line >= 0 and _exec_line < edit.get_line_count():
 		edit.set_line_as_executing(_exec_line, false)
+		if _exec_line != _err_line:
+			edit.set_line_background_color(_exec_line, Color(0, 0, 0, 0))
 	_exec_line = line
 	if line >= 0 and line < edit.get_line_count():
 		edit.set_line_as_executing(line, true)
+		edit.set_line_background_color(line, Color(1.0, 0.8, 0.3, 0.16))  # the line it's on
 
 
 func _clear_marks() -> void:
@@ -449,18 +459,18 @@ func _drain_log() -> void:
 	if ship == null or ship.get("computer") == null:
 		return
 	var lg: Array = ship.computer.log
-	if _seen_log > lg.size():
-		_seen_log = 0
-	for k in range(_seen_log, lg.size()):
+	var fresh := mini(int(ship.computer.log_count) - _seen_log, lg.size())
+	for k in range(lg.size() - maxi(fresh, 0), lg.size()):
 		var line := str(lg[k])
 		if line.begins_with("> "):
 			continue  # (the commands the ship was given: the Flight app shows those)
 		_print(line, BAD if line.begins_with("py: ") or line.begins_with("error: ") or line.begins_with("syntax: ") else INK)
-	_seen_log = lg.size()
+	_seen_log = int(ship.computer.log_count)
 
 
 func _console_line(line: String) -> void:
 	prompt.text = ""
+	_console_up()
 	if line.strip_edges() != "":
 		_history.append(line)
 		_hist_at = _history.size()
@@ -478,7 +488,6 @@ func _console_line(line: String) -> void:
 		_print(">>> " + line, GOOD)
 	if line.strip_edges() == "":
 		return
-	_console_up()
 	var was: String = machine.read_file("/run/py/console.in")
 	machine.write_file("/run/py/console.in", was + line + "\n\u001e\n")
 
@@ -489,7 +498,10 @@ func _console_up() -> void:
 	if not d.is_empty() and _alive(int(d.pid)):
 		return
 	machine.write_file("/run/py/console.in", "")
-	machine.sh_on(0, "ship run -i")
+	var said: String = machine.sh_on(0, "ship run -i")
+	for l in said.split("\n", false):
+		if not l.begins_with("running "):
+			_print(l, DIM)
 
 
 func _prompt_keys(e: InputEvent) -> void:

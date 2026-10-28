@@ -40,7 +40,7 @@ const VERBS := [
 	["point", "nn", "points the nose: pitch above the horizon, heading from north (degrees)"],
 	["rcs", "w", "RCS on or off (R)"],
 	["chutes", "", "arms the parachutes (P)"],
-	["legs", "", "landing legs out / in (G)"],
+	["legs", "w?", "landing legs: on (out) or off (in); nothing: out if in, in if out (G)"],
 	["brakes", "w", "wheel brakes on or off (B)"],
 	["spin", "w", "spin hold on or off (Home)"],
 	["drive", "n", "the Stillwater Drive's throttle, 0 to 1"],
@@ -50,6 +50,7 @@ const VERBS := [
 	["target", "t", "picks a vessel to target, by name (none: no target)"],
 	["abort", "", "stops the program running and closes the throttle"],
 	["aim", "w", "points the nose along a direction and holds it: prograde, retrograde, normal, radial_out, up..."],
+	["aim_along", "nnn", "points the nose along a burn: forward (prograde), sideways (normal), outward (radial) m/s"],
 	["chart", "wn", "a point on the Flight app's graph: chart height 1200"],
 	["ask", "t", "(scripts) a question the game works out: when_to_leave(), what_if()"],
 	["await_space", "", "(scripts) waiting for the pilot's space: wait_user_trigger()"],
@@ -72,7 +73,8 @@ const PROGRAMS := ["launch", "circularize", "burn", "transfer", "window", "warp"
 static var _shared: ShipComputer  # the game's one computer
 
 var machine: Object
-var log: Array[String] = []   # what scripts have printed, and what was done, newest last
+var log: Array[String] = []   # what scripts have printed, and what was done, newest last (the last 200)
+var log_count := 0            # lines ever noted: the log's newest are log[size - (log_count - seen)...]
 var _verbs_tsv := ""
 var _said: Array[String] = []  # say lines waiting for the flight screen
 var _frame := 0
@@ -87,8 +89,12 @@ var _await_space := -100      # the frame a script last waited for space (wait_u
 var space_presses := 0        # spaces a waiting script has had
 var charts := {}              # chart(name, value): name -> [[t, value], ...]
 var aim_word := ""            # what aim() last pointed at (a direction's name)
-var aim_vec := Vector3.ZERO   # or aim_at() (a direction)
+var aim_vec := Vector3.ZERO   # or a direction
+var aim_ph := []              # aim_at(): [pitch, heading], held against the horizon as it turns under the ship
+var aim_fso := []             # aim_along(): [forward, sideways, outward], held to the orbit as it goes
 var _wake := [-100, 0.0]      # [frame said, game time] a sleeping script wakes at
+var _ship_id := [-1, -1]      # the vessel (id, serial) the aim was held for
+var _session: FlightSession = null
 
 
 static func get_shared() -> ShipComputer:
@@ -215,6 +221,13 @@ func update(scene: Node, t: Dictionary) -> void:
 	_parts = JSON.parse_string(scene.session.core.vessel_part_states(scene.session.active))
 	if not _parts is Array:
 		_parts = []
+	_session = scene.session
+	# another ship (a new flight, a switch): what was aimed at was that one's
+	var who := [scene.session.active, scene.session.core.vessel_serial(scene.session.active)]
+	if who != _ship_id:
+		_let_go_aim()
+		_ship_id = who
+	_hold_aim(scene.session, t)
 	r.merge(_aim_readings(t), true)
 	r.merge(_stage_readings(t), true)
 	r["space_presses"] = str(space_presses)
@@ -225,7 +238,7 @@ func update(scene: Node, t: Dictionary) -> void:
 	machine.tick(SLICES)
 	var said: String = machine.take_output()
 	for line in said.split("\n", false):
-		if not line.begins_with("kernel: script died -- exited with status 0"):
+		if not (line.begins_with("kernel: script") and line.ends_with("died -- exited with status 0")):
 			_note(line)
 	var acts: String = machine.take_actions()
 	for line in acts.split("\n", false):
@@ -256,12 +269,49 @@ func take_space() -> void:
 	_note("space: the script goes on")
 
 
+## Where what the script aimed at is now: aim_at's pitch and heading
+## against the horizon here, aim_along's burn against the orbit now, a
+## surface direction as the ship moves (prograde and the rest SAS holds by
+## itself).
+func _aim_dir(t: Dictionary) -> Vector3:
+	if not aim_ph.is_empty():
+		var p := deg_to_rad(float(aim_ph[0]))
+		var h := deg_to_rad(float(aim_ph[1]))
+		var up := FlightPrograms.v3(t.get("up"))
+		var north := FlightPrograms.v3(t.get("north"))
+		var east := FlightPrograms.v3(t.get("east"))
+		return (up * sin(p) + (north * cos(h) + east * sin(h)) * cos(p)).normalized()
+	if not aim_fso.is_empty() and _session != null:
+		# the burn as the game reckons a maneuver node (what_if's very
+		# axes), a second from now
+		var n := [float(t.get("t", 0.0)) + 1.0, float(aim_fso[0]), float(aim_fso[1]), float(aim_fso[2])]
+		return _session.node_vector([n], 0).normalized()
+	if aim_word == "surface_retrograde" and float(t.get("surface_speed", 0.0)) < 1.5:
+		return FlightPrograms.v3(t.get("up"))  # (all but stopped: against the motion is upright)
+	if aim_word != "":
+		return FlightPrograms.dir_of(t, aim_word)
+	return aim_vec
+
+
+## Keeps the SAS on what the script aimed at, frame by frame, unless a
+## program is flying (one that burns where it was aimed, burn(dv), lets it).
+func _hold_aim(s: FlightSession, t: Dictionary) -> void:
+	if aim_word in ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in"]:
+		return
+	if aim_ph.is_empty() and aim_fso.is_empty() and not aim_word in ["surface_prograde", "surface_retrograde", "up"]:
+		return
+	if programs.running() and str(programs._a.get("dir", "")) != "here":
+		return
+	var d := _aim_dir(t)
+	if d != Vector3.ZERO:
+		# (a SAS mode picked by hand, or the keys, let the aim go first)
+		s.set_sas("target", PackedFloat64Array([d.x, d.y, d.z]))
+
+
 ## How far the nose is from where aim()/aim_at() pointed it, and how fast
 ## the ship is turning (degrees, degrees a second).
 func _aim_readings(t: Dictionary) -> Dictionary:
-	var want := aim_vec
-	if aim_word != "":
-		want = FlightPrograms.dir_of(t, aim_word)
+	var want := _aim_dir(t)
 	var nose := FlightPrograms.v3(t.get("nose"))
 	var err := rad_to_deg(nose.angle_to(want)) if want != Vector3.ZERO and nose != Vector3.ZERO else 180.0
 	return {"aim_error": _n(err), "turn_rate": _n(rad_to_deg(float(t.get("spin", 0.0))))}
@@ -441,6 +491,7 @@ func take_said() -> Array[String]:
 
 func _note(line: String) -> void:
 	log.append(line)
+	log_count += 1
 	if log.size() > 200:
 		log = log.slice(log.size() - 200)
 
@@ -482,18 +533,29 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 				charts[w[1]] = c
 			return
 		"aim":
+			if not arg in FlightPrograms.DIRS or arg == "here":
+				_note("aim: '%s' is not a direction (%s)" % [arg, ", ".join(FlightPrograms.DIRS.slice(0, 9))])
+				return
 			aim_word = arg
 			aim_vec = Vector3.ZERO
+			aim_ph = []
+			aim_fso = []
 			scene._sas_follow = ""
 			if arg in ["prograde", "retrograde", "normal", "antinormal", "radial_out", "radial_in"]:
 				s.set_sas(arg)
 			else:
-				var d := FlightPrograms.dir_of(t, arg)
-				s.set_sas("target", PackedFloat64Array([d.x, d.y, d.z]))
+				_hold_aim(s, t)
+		"aim_along":
+			aim_word = ""
+			aim_ph = []
+			aim_fso = [float(w[1]), float(w[2]), float(w[3])]
+			scene._sas_follow = ""
+			_hold_aim(s, t)
 		"stage":
 			scene._stage()
 		"sas":
 			scene._sas_follow = ""
+			_let_go_aim()
 			scene._on_sas(arg)
 		"point":
 			# pitch above the local horizon, heading clockwise from north
@@ -508,6 +570,8 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 			scene._sas_follow = ""
 			s.set_sas("target", d)
 			aim_word = ""
+			aim_fso = []
+			aim_ph = [float(w[1]), float(w[2])]
 			aim_vec = Vector3(d[0], d[1], d[2])
 		"rcs":
 			if _on(arg) != bool(t.get("rcs", false)):
@@ -515,7 +579,10 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 		"chutes":
 			scene._deploy_chutes()
 		"legs":
-			scene._toggle_legs()
+			if arg == "":
+				scene._toggle_legs()
+			else:
+				s.set_legs(_on(arg))
 		"brakes":
 			if _on(arg) != bool(t.get("brakes", false)):
 				scene._toggle_brakes()
@@ -543,8 +610,25 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 						s.target = int(v.id)
 						break
 		_ when w[0] in PROGRAMS:
-			programs.start(scene, w, t)
-	_note("> " + line)
+			# burn(dv) along the nose is aiming and burning, the computer's
+			# from the start; the programs that fly themselves are the
+			# Guidance Computer's (a career researches it)
+			var why := "" if w[0] == "burn" and w.size() > 1 and w[1] == "here" else Career.computer_refusal("guidance")
+			if why != "":
+				programs.refuse(w[0], why)
+			else:
+				programs.start(scene, w, t)
+	# (what a script says every frame -- a throttle, an aim, a reading set --
+	# is the ship's to show, not the log's: it would push out what matters)
+	if not w[0] in ["throttle", "point", "aim", "aim_along", "set"]:
+		_note("> " + line)
+
+
+func _let_go_aim() -> void:
+	aim_word = ""
+	aim_vec = Vector3.ZERO
+	aim_ph = []
+	aim_fso = []
 
 
 ## Every engine back on the ship's throttle (the keys, a program, throttle()).
@@ -606,7 +690,10 @@ func _ask(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
 	if w.size() < 3:
 		return
 	var ans := {}
-	match w[2]:
+	var why := Career.computer_refusal("planner")
+	match w[2] if why == "" else "":
+		"":
+			ans = {"error": why}
 		"leave":
 			ans = programs.plan_leave(scene, t, w[3] if w.size() > 3 else "", float(w[4]) if w.size() > 4 else -1.0)
 		"whatif":

@@ -217,33 +217,63 @@ told. Every button is the shell line it runs, so you can copy it into a script. 
 `ship status` prints the readings and `ship help` lists the commands. Every reading is also a
 file (`cat /dev/ship/apoapsis`), and so is every command (`echo 0 > /dev/ship/throttle`).
 
-The computer also flies **programs** for you, a frame at a time, through the same controls the
-keys use: `ship launch 80000`, `ship transfer krill`, `ship land`. Any flying key takes the
-controls back. In its Python they read like a flight plan; each call waits until it is done,
-and one that fails stops the script and says why:
+**Scripting the ship.** Its Python works on the ship's own parts, by name, with your logic:
 
 ```python
-countdown(5)
-launch(80000)          # off the pad to orbit, staging itself
-transfer("krill")      # the burn that meets Krill, planned, flown and corrected
-warp_to("krill")       # coast into its sphere
-capture(30000)         # brake into orbit
-land()                 # and down on the engine
+lifter = ship.part("Walrus")                  # a part by its name (the first words do)
+drop = ship.part("Crack-1 Stack Decoupler 1")
+lifter.throttle = 100                         # its own throttle, in percent: lights it
+while ship.orbit.top < 100 * km:
+    aim_at(lean_for(ship.altitude), 90)       # pitch, heading: held against the horizon
+    if not staged and lifter.fuel < 0.5:      # % left in the tanks that feed it
+        drop.decouple()
+        ...
+top = ship.orbit.top
+extra = speed_needed(top) - speed_at(top)     # the maths: nothing here moves the ship
+sleep(ship.orbit.time_to_top - burn_time(extra) / 2)
+aim_at(0, 90)
+burn(extra)
+print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
 ```
 
-The rest of the library:
+- **The ship and its parts:** `ship.altitude`, `.height`, `.speed`, `.falling_speed`, `.delta_v`,
+  `.orbit.top`/`.bottom`/`.time_to_top`/`.period`, `.body.gravity`/`.radius`, and lists of parts:
+  `ship.engines`, `.boosters`, `.tanks`, `.decouplers`, `.parachutes`, `.legs`. A part has its
+  readings (`fuel`, `thrust`, `lit`, `heat`) and the things it does (`ignite()`, `shutdown()`,
+  `decouple()`, `deploy()`). An engine's own `throttle` can be set, and setting it lights it.
+- **Aiming and burning:** `aim("prograde")`, `aim_at(pitch, heading)`, `aim_along(forward,
+  sideways, outward)`, `throttle(100)`, `burn(dv)`, `stage()`, `sleep(s)` (time warp eases off
+  before the script wakes), `wait_user_trigger()` (waits for your space, and the press is the
+  script's, not a stage), `chart("height", ship.height)` (a graph in the Flight app).
+- **The maths:** `speed_needed(height)`, `speed_at(height)`, `burn_time(dv)`, `time_to("top")`,
+  `stopping_distance()`; and from the **Flight Planner**: `when_to_leave("krill")` (wait, Δv,
+  travel time, pass height) and `what_if(forward, sideways, outward, when)`, which predicts the
+  path as if that burn were made without making it, so a script can try course corrections for
+  free.
+- **The language:** real numbers, f-strings, `def`, lists and dicts, `"a,b".split(",")`,
+  `sqrt`/`sin`/`atan2`/`pi`, and `km = 1000`.
 
-- **Programs:** `circularize()`, `burn("prograde", 120)`, `burn_until("prograde", "apoapsis",
-  ">", 2000000)`, `wait_for_window("krill")`, `until_orbit_crosses("krill")`, `hover(30, 10)`,
-  `node()` (flies the map's maneuver node).
-- **Waiting and reading:** `wait(5)`, `wait_until("altitude", "<", 5000)`, `get("apoapsis")`.
-- **Quick commands:** `throttle`, `stage`, `sas`, `point`, `chutes`, `legs`, `say` and `abort`.
-- **Maths:** real numbers, with `sqrt`, `sin`, `cos`, `atan2` and `pi`.
+The **Script Editor** on the computer's desktop colours Python and suggests what fits as you
+type: every call with what it takes, and after a dot what that thing has, read from the ship as
+it is. After an engine's name it offers `throttle`, `fuel` and `ignite()`, and inside
+`ship.part("` it offers the names of the parts aboard. **Run** starts the script. The **watch**
+shows every variable as it flies, the line it's on is marked, a click in the gutter sets a
+breakpoint, and **Step** runs one line. Its **console** runs Python on the ship there and then
+and keeps its variables (`m = ship.mass`, then `m / 1000`). In the hangar, **Make script from
+these stages** writes your rocket as a script: each part by its stage, and each stage waiting for
+your space. Swap a wait for your own test and that stage goes by itself.
 
-`/root/examples` has scripts that work: `orbit.py`, `krill.py` (pad to Krill's surface),
-`window.py`, `land.py`, `hop.py` and `ascent.py` (by hand). Your own go in `/root/scripts`,
-which is kept between games. For the long coast, it has its games: 2048, snake, worms, mines,
-solitaire, a falling-sand box and more.
+The **Guidance Computer** (R&D in a career, always in the sandbox) also flies whole
+**programs**, a frame at a time, through the same controls the keys use: `launch(80000)`,
+`circularize()`, `transfer("krill")`, `warp_to("krill")`, `capture(30000)`, `land()`, `hover(30,
+10)` and `node()`. They're `ship` commands too (`ship land`); any flying key takes the controls
+back; and one that fails stops the script and says why.
+
+`/root/examples` has scripts that work: `to_orbit.py` (the pad to orbit by your own logic),
+`krill_by_hand.py` (`when_to_leave`, a `what_if` search for the course fix, a capture and a
+landing written out), `orbit.py`, `krill.py` (the programs, pad to Krill's surface), `land.py`,
+`hop.py` and `ascent.py`. Your own go in `/root/scripts`, which is kept between games. For the
+long coast, it has its games: 2048, snake, worms, mines, solitaire, a falling-sand box and more.
 
 **Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
 wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and

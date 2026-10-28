@@ -106,7 +106,7 @@ func start(scene: Node, words: PackedStringArray, t: Dictionary) -> void:
 ## WORKED OUT, NOT FLOWN: what a script's when_to_leave("krill") asks. The
 ## burn to that body from this orbit: {wait (s until it), at (when), dv,
 ## prograde, normal, radial (m/s), travel (s from the burn into its
-## sphere), pass (m up, as planned), body}, or {error}.
+## sphere), closest (m up as it passes, as planned), body}, or {error}.
 func plan_leave(scene: Node, t: Dictionary, body: String, want := -1.0) -> Dictionary:
 	_scene = scene
 	_s = scene.session
@@ -135,7 +135,7 @@ func plan_leave(scene: Node, t: Dictionary, body: String, want := -1.0) -> Dicti
 	var pp := _patch_in(node, str(info.id), 6.0e5 if moon else 1.0e8)
 	return {"body": str(info.name), "wait": float(node[0]) - float(t.t), "at": float(node[0]),
 		"dv": Vector3(node[1], node[2], node[3]).length(), "prograde": node[1], "normal": node[2], "radial": node[3],
-		"travel": float(pp.get("t_start", node[0])) - float(node[0]), "pass": float(pp.get("pe_alt", -1.0))}
+		"travel": float(pp.get("t_start", node[0])) - float(node[0]), "closest": float(pp.get("pe_alt", -1.0))}
 
 
 ## WORKED OUT, NOT FLOWN: what_if(prograde, normal, radial, at). The path as
@@ -165,6 +165,18 @@ func what_if(scene: Node, t: Dictionary, node: Array) -> Dictionary:
 			out.arrive = float(patches[i].t_start) - float(t.t)
 			break
 	return out
+
+
+## A program the computer can't fly yet (why: in words): it fails at once,
+## as one that couldn't start does, so a waiting script hears why.
+func refuse(what: String, why: String) -> void:
+	if running():
+		_end("failed", "%s was stopped for %s" % [name, what])
+	id += 1
+	name = what
+	status = "failed"
+	note = why
+	phase = ""
 
 
 ## Stops what is running (the throttle closed): `abort`, or a hand on the keys.

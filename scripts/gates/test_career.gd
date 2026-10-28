@@ -232,6 +232,8 @@ func run(runner: Node) -> Dictionary:
 	_check(sent.ok and _near(Career.research - r0, want_pts) and _near(e0 - float(t2.ec), want_kj) and Career.results_on(s.active).is_empty(),
 		"antenna: sent the pad crew report for +%.3f research (half of %.3f) and %.2f kJ (%.0f kJ per point); nothing left aboard" % [
 			Career.research - r0, worth_now, e0 - float(t2.ec), Sim.part("antenna").power.antenna_kj_per_point])
+	# (the file keeps the mode it was saved in: a sandbox again needs a new one)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Sim.save_dir + "career.json"))
 	Career.load_from(Sim.save_dir + "career.json", "sandbox")
 	return {"status": "PASS" if _failed == 0 else "FAIL", "log": "\n".join(_log)}
 

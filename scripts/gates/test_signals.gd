@@ -184,6 +184,8 @@ func run(runner: Node) -> Dictionary:
 			Career.research - research_before, "unlocked" if Career.part_unlocked("hearth_core") else "LOCKED",
 			"unlocked" if Career.part_unlocked("stillwater_drive") else "locked"])
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Sim.save_dir + "career.json"))
+	# (the file keeps the mode it was saved in: a sandbox again needs a new one)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Sim.save_dir + "career.json"))
 	Career.load_from(Sim.save_dir + "career.json", "sandbox")
 	return {"status": "PASS" if _failed == 0 else "FAIL", "milestone": "M24", "log": "\n".join(_log)}
 

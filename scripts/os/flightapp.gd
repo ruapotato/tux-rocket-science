@@ -100,11 +100,10 @@ func _process(dt: float) -> void:
 	# what the scripts have said (and done), from the flight
 	if ship and ship.get("computer") != null:
 		var lg: Array = ship.computer.log
-		if _seen_log > lg.size():
-			_seen_log = 0
-		for k in range(_seen_log, lg.size()):
+		var fresh := mini(int(ship.computer.log_count) - _seen_log, lg.size())
+		for k in range(lg.size() - maxi(fresh, 0), lg.size()):
 			_say(str(lg[k]))
-		_seen_log = lg.size()
+		_seen_log = int(ship.computer.log_count)
 	queue_redraw()
 
 

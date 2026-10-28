@@ -172,6 +172,8 @@ func run(runner: Node) -> Dictionary:
 		"Continue went on (n = %d); Stop stopped it; and what it printed came out (%d lines of hundred)" % [n_then, hundreds])
 
 	# 4. the console: Python on the ship, now
+	app._console_line("2 + 3")
+	_fly(scene, app, 20)
 	app._console_line("m = ship.mass")
 	_fly(scene, app, 20)
 	app._console_line("round(m / 1000, 1)")
@@ -182,8 +184,33 @@ func run(runner: Node) -> Dictionary:
 	_fly(scene, app, 30)
 	var text: String = app.out.get_parsed_text()
 	var tonnes := "%.1f" % (float(s.telemetry().mass) / 1000.0)
-	_check(text.contains("\n" + tonnes + "\n") and text.contains("10\n20"),
-		"the console: m = ship.mass, then round(m / 1000, 1) says %s; a for block ran whole (10, 20)" % tonnes)
+	_check(text.contains(">>> 2 + 3\n") and text.contains("\n5\n") and text.contains("console ready") and text.contains("\n" + tonnes + "\n") and text.contains("10\n20"),
+		"the console: its very first line answers (2 + 3: 5); m = ship.mass, then round(m / 1000, 1) says %s; a for block ran whole (10, 20): %s" % [tonnes, text.replace("\n", " / ")])
+
+	# 5. a career: the programs and the planner are research; the language,
+	# the parts, aiming and burning are the computer's from the start
+	var was_mode: String = Career.mode
+	var was_unlocked: Array = Career.unlocked.duplicate()
+	Career.mode = "career"
+	Career.unlocked = ["basics", "rocketry", "orbits"]
+	comp.log.clear()
+	for src in ["launch(80000)\n", "x = when_to_leave(\"krill\")\n", "print(\"aimed\", aim_at(90, 90), ship.part(\"Walrus\").fuel)\n"]:
+		comp.machine.write_file("/root/scripts/career.py", src)
+		comp.machine.start("/root/scripts/career.py")
+		_fly(scene, app, 40)
+	var heard := " / ".join(comp.log)
+	_check(heard.contains("needs the Guidance Computer") and heard.contains("needs the Flight Planner") and heard.contains("aimed true 100"),
+		"in a career, launch() and when_to_leave() wait on R&D (and say so); aiming and the parts don't: %s" % heard)
+	Career.unlocked.append("planner")
+	comp.log.clear()
+	comp.machine.write_file("/root/scripts/career.py", "x = when_to_leave(\"krill\")\nprint(\"planner\", round(x.dv))\n")
+	comp.machine.start("/root/scripts/career.py")
+	_fly(scene, app, 40)
+	heard = " / ".join(comp.log)
+	_check(heard.contains("closed orbit") and not heard.contains("needs the Flight Planner"),
+		"with the Flight Planner researched, when_to_leave() works it out (from the pad: %s)" % heard)
+	Career.mode = was_mode
+	Career.unlocked = was_unlocked
 
 	scene._toggle_desk()
 	await _frames(tree, 2)
