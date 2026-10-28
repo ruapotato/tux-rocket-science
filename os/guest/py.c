@@ -50,6 +50,19 @@ static char src[NOM_SRC_MAX];
 static char argbuf[GARG_MAX];
 static char apibuf[65536];
 
+/* TUX ROCKET SCIENCE: a keyword argument of the call being made, by name
+ * (print(..., end="")); reading one says the native took them */
+static bool kw_get(VM *v, const char *name, Value *out)
+{
+    if (v->kw.k == V_NIL) return false;
+    v->kw_used = true;
+    Value key = str_newz(name), got;
+    bool ok = dict_get(AS_DICT(v->kw), key, &got);
+    val_release(key);
+    if (ok) *out = got;
+    return ok;
+}
+
 /* ------------------------------------------------------------- natives --
  *
  * The whole library, and it is short on purpose. Everything the game can do
@@ -60,14 +73,16 @@ static char apibuf[65536];
 /* print(...) -- to stdout, which on this machine is the terminal. */
 static VmStatus n_print(VM *v, Value *a, int n, Value *out)
 {
-    (void)v;
+    Value sep = VAL_NIL, end = VAL_NIL;
+    kw_get(v, "sep", &sep);
+    kw_get(v, "end", &end);
     Buf b;
     buf_init(&b);
     for (int i = 0; i < n; i++) {
-        if (i) buf_putc(&b, ' ');
+        if (i) { if (IS_STR(sep)) buf_put(&b, AS_STR(sep)->s, AS_STR(sep)->len); else buf_putc(&b, ' '); }
         val_tostr(&b, a[i]);
     }
-    buf_putc(&b, '\n');
+    if (IS_STR(end)) buf_put(&b, AS_STR(end)->s, AS_STR(end)->len); else buf_putc(&b, '\n');
     if (b.p) g_write(1, b.p, b.len);
     buf_free(&b);
     *out = VAL_NIL;
@@ -169,6 +184,7 @@ static VmStatus n_len(VM *v, Value *a, int n, Value *out)
     if (IS_STR(a[0]))  { *out = VAL_INT(AS_STR(a[0])->len);  return VM_OK; }
     if (IS_LIST(a[0])) { *out = VAL_INT(AS_LIST(a[0])->len); return VM_OK; }
     if (IS_DICT(a[0])) { *out = VAL_INT(AS_DICT(a[0])->len); return VM_OK; }
+    if (IS_RANGE(a[0])) { *out = VAL_INT(range_len(AS_RANGE(a[0]))); return VM_OK; }
     *out = VAL_INT(0);
     return VM_OK;
 }
@@ -208,6 +224,19 @@ static VmStatus n_split(VM *v, Value *a, int n, Value *out)
     if (!IS_STR(a[0])) { *out = list_new(); return VM_OK; }
     const char *s = AS_STR(a[0])->s;
     u32 slen = AS_STR(a[0])->len;
+    /* TUX ROCKET SCIENCE: "a  b".split() -- on any run of white space */
+    if (n < 2 || a[1].k == V_NIL) {
+        Value l = list_new();
+        u32 i = 0;
+        while (i < slen) {
+            while (i < slen && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
+            u32 st = i;
+            while (i < slen && !(s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
+            if (i > st) list_push(AS_LIST(l), str_new(s + st, i - st));
+        }
+        *out = l;
+        return VM_OK;
+    }
     const char *sep = (n > 1 && IS_STR(a[1])) ? AS_STR(a[1])->s : "\n";
     size_t seplen = nom_strlen(sep);
     if (!seplen) seplen = 1;
@@ -563,16 +592,40 @@ static VmStatus n_abs(VM *v, Value *a, int n, Value *out)
     return VM_OK;
 }
 
+static int py_cmp(VM *v, Value a, Value b, bool *ok);
+
 static VmStatus n_minmax(VM *v, Value *a, int n, Value *out, int max)
 {
-    (void)v;
-    if (n == 1 && IS_LIST(a[0])) { List *l = AS_LIST(a[0]); a = l->v; n = (int)l->len; }
-    int best = 0;
-    for (int i = 1; i < n; i++) {
-        double x = val_num(a[i]), b = val_num(a[best]);
-        if (max ? x > b : x < b) best = i;
+    Value key = VAL_NIL;
+    kw_get(v, "key", &key);
+    Value tmp = VAL_NIL;
+    if (n == 1 && IS_RANGE(a[0])) {
+        Range *r = AS_RANGE(a[0]);
+        i64 len = range_len(r);
+        if (!len) { vm_runtime_error(v, "%s() of an empty range", max ? "max" : "min"); return VM_ERROR; }
+        i64 last = r->start + (len - 1) * r->step;
+        *out = VAL_INT(max ? (r->step > 0 ? last : r->start) : (r->step > 0 ? r->start : last));
+        return VM_OK;
     }
-    *out = n ? val_retain(a[best]) : VAL_NIL;
+    if (n == 1 && IS_LIST(a[0])) { List *l = AS_LIST(a[0]); a = l->v; n = (int)l->len; }
+    if (!n) { vm_runtime_error(v, "%s() of nothing (an empty list)", max ? "max" : "min"); return VM_ERROR; }
+    int best = 0;
+    Value bk = VAL_NIL;
+    if (key.k != V_NIL && !vm_call(v, key, &a[0], 1, &bk)) return VM_ERROR;
+    for (int i = 1; i < n; i++) {
+        Value xk = a[i];
+        if (key.k != V_NIL && !vm_call(v, key, &a[i], 1, &xk)) { val_release(bk); return VM_ERROR; }
+        bool ok = true;
+        int c = py_cmp(v, key.k != V_NIL ? xk : a[i], key.k != V_NIL ? bk : a[best], &ok);
+        if (!ok) { if (key.k != V_NIL) { val_release(xk); val_release(bk); } return VM_ERROR; }
+        if (max ? c > 0 : c < 0) {
+            best = i;
+            if (key.k != V_NIL) { val_release(bk); bk = xk; }
+        } else if (key.k != V_NIL) val_release(xk);
+    }
+    if (key.k != V_NIL) val_release(bk);
+    (void)tmp;
+    *out = val_retain(a[best]);
     return VM_OK;
 }
 static VmStatus n_min(VM *v, Value *a, int n, Value *out) { return n_minmax(v, a, n, out, 0); }
@@ -594,14 +647,25 @@ static VmStatus n_ceil(VM *v, Value *a, int n, Value *out)
 }
 
 /* round(x) to a whole number; round(x, 2) to two places */
+/* half to even, as Python rounds: round(2.5) is 2, round(3.5) is 4 */
+static double half_even(double x)
+{
+    double f = nom_floor(x), d = x - f;
+    if (d > 0.5) return f + 1;
+    if (d < 0.5) return f;
+    return (f / 2 == nom_floor(f / 2)) ? f : f + 1;
+}
+
 static VmStatus n_round(VM *v, Value *a, int n, Value *out)
 {
     (void)v;
     double x = val_num(a[0]);
-    if (n < 2) { *out = VAL_INT((i64)nom_floor(x + 0.5)); return VM_OK; }
+    if (n < 2 || a[1].k == V_NIL) { *out = VAL_INT((i64)half_even(x)); return VM_OK; }
     double p = 1;
-    for (i64 i = 0; i < val_int(a[1]); i++) p *= 10;
-    *out = VAL_NUM(nom_floor(x * p + 0.5) / p);
+    i64 k = val_int(a[1]);
+    for (i64 i = 0; i < k; i++) p *= 10;
+    for (i64 i = 0; i > k; i--) p /= 10;
+    *out = VAL_NUM(half_even(x * p) / p);
     return VM_OK;
 }
 
@@ -880,6 +944,7 @@ static VmStatus n_legs(VM *v, Value *a, int n, Value *out)
 }
 QUICK(n_rcs, "rcs")
 QUICK(n_say, "say")
+QUICK(n_beep, "beep")
 QUICK(n_abort, "abort")
 QUICK(n_autostage, "autostage")
 QUICK(n_target, "target")
@@ -1036,6 +1101,8 @@ static VmStatus find_parts(VM *v, Value name, bool one, Value *out)
     return VM_ERROR;
 }
 
+static VmStatus value_method(VM *v, Value obj, Str *name, Value *a, int n, Value *out, bool *found);
+
 VmStatus host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value *out)
 {
     if (IS_HANDLE(obj)) {
@@ -1064,6 +1131,11 @@ VmStatus host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value 
         return VM_OK;
     }
     if (!name) { vm_runtime_error(v, "that can't be called"); return VM_ERROR; }
+    {
+        bool found;
+        VmStatus st = value_method(v, obj, name, args, n, out, &found);
+        if (found) return st;
+    }
     /* Python's own spellings that put the thing in a different place */
     if (IS_STR(obj) && !nom_strcmp(name->s, "join") && n == 1) {
         Value as[2] = { args[0], obj };
@@ -1085,7 +1157,32 @@ VmStatus host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value 
     int count = 0;
     const Native *tbl = native_table(&count);
     if (k < 0 || n + 1 > NOM_ARGS_MAX || n + 1 < tbl[k].minargs || n + 1 > tbl[k].maxargs) {
-        vm_runtime_error(v, "a %s has no .%s()", IS_STR(obj) ? "string" : IS_LIST(obj) ? "list" : IS_DICT(obj) ? "dict" : "number", name->s);
+        /* the nearest it does have */
+        static const char *LIST_M[] = { "append", "insert", "remove", "pop", "index", "count", "extend", "sort", "reverse", "copy", "clear", "add", "discard", NULL };
+        static const char *DICT_M[] = { "items", "values", "keys", "get", "pop", "update", "setdefault", "copy", NULL };
+        static const char *STR_M[] = { "split", "join", "strip", "lower", "upper", "replace", "find", "format", "count", "index",
+                                       "startswith", "endswith", "isdigit", "rjust", "ljust", "center", "zfill", "title", "capitalize", NULL };
+        const char **ms = IS_LIST(obj) ? LIST_M : IS_DICT(obj) ? DICT_M : IS_STR(obj) ? STR_M : NULL;
+        const char *near = NULL;
+        int best = 3;
+        for (int i = 0; ms && ms[i]; i++) {
+            int al = (int)name->len, bl = (int)nom_strlen(ms[i]);
+            if (al > 30 || bl > 30) continue;
+            int d[31][31];
+            for (int x = 0; x <= al; x++) d[x][0] = x;
+            for (int y = 0; y <= bl; y++) d[0][y] = y;
+            for (int x = 1; x <= al; x++)
+                for (int y = 1; y <= bl; y++) {
+                    int m = d[x - 1][y] + 1;
+                    if (d[x][y - 1] + 1 < m) m = d[x][y - 1] + 1;
+                    if (d[x - 1][y - 1] + (name->s[x - 1] != ms[i][y - 1]) < m) m = d[x - 1][y - 1] + (name->s[x - 1] != ms[i][y - 1]);
+                    d[x][y] = m;
+                }
+            if (d[al][bl] < best) { best = d[al][bl]; near = ms[i]; }
+        }
+        const char *what = IS_STR(obj) ? "string" : IS_LIST(obj) ? "list" : IS_DICT(obj) ? "dict" : obj.k == V_NIL ? "None" : "number";
+        if (near) vm_runtime_error(v, "AttributeError: a %s has no .%s() -- did you mean .%s()?", what, name->s, near);
+        else vm_runtime_error(v, "AttributeError: a %s has no .%s()", what, name->s);
         return VM_ERROR;
     }
     Value all[NOM_ARGS_MAX];
@@ -1122,38 +1219,117 @@ static void put_fixed(Buf *b, double x, int places, bool commas)
     }
 }
 
+/* x as "e" format with places decimals: 1.50e+03 */
+static void put_exp(Buf *b, double x, int places, char ech)
+{
+    if (x < 0) { buf_putc(b, '-'); x = -x; }
+    int ex = 0;
+    if (x != 0) {
+        while (x >= 10.0) { x /= 10.0; ex++; }
+        while (x < 1.0) { x *= 10.0; ex--; }
+    }
+    double p = 1;
+    for (int i = 0; i < places; i++) p *= 10;
+    if (half_even(x * p) / p >= 10.0) { x /= 10.0; ex++; }
+    put_fixed(b, x, places, false);
+    buf_putc(b, ech);
+    buf_putc(b, ex < 0 ? '-' : '+');
+    if (ex < 0) ex = -ex;
+    if (ex < 10) buf_putc(b, '0');
+    buf_printf(b, "%d", ex);
+}
+
+/* format(x, spec) -- what f"{x:spec}" does, Python's spec:
+ * [[fill]align][sign][0][width][,][.precision][type], type d f e g % x s */
 static VmStatus n_format(VM *v, Value *a, int n, Value *out)
 {
-    (void)v;
     const char *s = (n > 1 && IS_STR(a[1])) ? AS_STR(a[1])->s : "";
-    char align = 0, type = 0;
+    char align = 0, type = 0, fill = ' ', sign = '-';
     int width = 0, places = -1;
-    bool commas = false;
-    if (s[0] && (s[1] == '<' || s[1] == '>' || s[1] == '^')) s++;      /* (a fill: spaces only) */
-    if (*s == '<' || *s == '>' || *s == '^') align = *s++;
+    bool commas = false, zero = false;
+    if (s[0] && (s[1] == '<' || s[1] == '>' || s[1] == '^' || s[1] == '=')) { fill = s[0]; align = s[1]; s += 2; }
+    else if (*s == '<' || *s == '>' || *s == '^' || *s == '=') align = *s++;
+    if (*s == '+' || *s == '-' || *s == ' ') sign = *s++;
+    if (*s == '0') { zero = true; s++; }
     while (*s >= '0' && *s <= '9') width = width * 10 + (*s++ - '0');
-    if (*s == ',') { commas = true; s++; }
+    if (*s == ',' || *s == '_') { commas = true; s++; }
     if (*s == '.') { s++; places = 0; while (*s >= '0' && *s <= '9') places = places * 10 + (*s++ - '0'); }
-    if (*s) type = *s;
+    if (*s) type = *s++;
+    if (*s) { vm_runtime_error(v, "ValueError: '%s' isn't a format (try .1f, 8.2f, >10, 05d, ,)", AS_STR(a[1])->s); return VM_ERROR; }
     Buf b; buf_init(&b);
-    bool num = a[0].k == V_INT || a[0].k == V_NUM;
-    if (num && (type == 'f' || type == 'F' || type == '%' || type == 'd' || places >= 0 || commas)) {
+    bool num = a[0].k == V_INT || a[0].k == V_NUM || a[0].k == V_BOOL;
+    if (num && type != 's') {
         double x = val_num(a[0]);
-        if (type == '%') x *= 100;
-        int pl = type == 'd' ? 0 : places >= 0 ? places : (type == 'f' || type == '%') ? 6 : (a[0].k == V_INT ? 0 : 2);
-        put_fixed(&b, x, pl, commas);
-        if (type == '%') buf_putc(&b, '%');
+        bool neg = x < 0 || (x == 0 && a[0].k == V_NUM && 1.0 / x < 0);
+        double ax = neg ? -x : x;
+        Buf d; buf_init(&d);
+        if (type == 'x' || type == 'X') {
+            u64 u = (u64)(i64)ax;
+            char t[20]; int k = 0;
+            do { int q = (int)(u % 16); t[k++] = (char)(q < 10 ? '0' + q : (type == 'x' ? 'a' : 'A') + q - 10); u /= 16; } while (u);
+            while (k) buf_putc(&d, t[--k]);
+        } else if (type == 'e' || type == 'E') {
+            put_exp(&d, ax, places >= 0 ? places : 6, type);
+        } else if (type == 'g' || type == 'G' || (!type && places >= 0 && a[0].k == V_NUM)) {
+            /* the number in so many significant figures, zeros at the end dropped */
+            int pr = places > 0 ? places : places == 0 ? 1 : 6;
+            int ex = 0;
+            double m = ax;
+            if (m != 0) { while (m >= 10.0) { m /= 10.0; ex++; } while (m < 1.0) { m *= 10.0; ex--; } }
+            if (ex >= -4 && ex < pr) put_fixed(&d, ax, pr - 1 - ex, false);
+            else put_exp(&d, ax, pr - 1, type == 'G' ? 'E' : 'e');
+            if (d.len) {
+                /* trailing zeros (and a lone point) off, as %g does */
+                char *ep = NULL;
+                for (size_t i = 0; i < d.len; i++) if (d.p[i] == 'e' || d.p[i] == 'E') { ep = d.p + i; break; }
+                size_t mant = ep ? (size_t)(ep - d.p) : d.len;
+                bool dot = false;
+                for (size_t i = 0; i < mant; i++) dot |= d.p[i] == '.';
+                if (dot) {
+                    size_t k = mant;
+                    while (k > 0 && d.p[k - 1] == '0') k--;
+                    if (k > 0 && d.p[k - 1] == '.') k--;
+                    Buf t; buf_init(&t);
+                    buf_put(&t, d.p, k);
+                    if (ep) buf_put(&t, ep, d.len - mant);
+                    buf_free(&d);
+                    d = t;
+                }
+            }
+        } else if (type == 'f' || type == 'F' || type == '%' || type == 'd' || type == 'n' || places >= 0 || commas) {
+            double y = type == '%' ? ax * 100 : ax;
+            int pl = (type == 'd' || type == 'n') ? 0 : places >= 0 ? places : (type == 'f' || type == 'F' || type == '%') ? 6
+                   : (a[0].k == V_NUM ? 1 : 0);
+            put_fixed(&d, y, pl, commas);
+            if (type == '%') buf_putc(&d, '%');
+        } else {
+            Value pos = a[0].k == V_NUM ? VAL_NUM(ax) : a[0].k == V_BOOL ? VAL_INT(a[0].as.i) : VAL_INT(neg ? -a[0].as.i : a[0].as.i);
+            val_tostr(&d, pos);
+        }
+        const char *sg = neg ? "-" : sign == '+' ? "+" : sign == ' ' ? " " : "";
+        /* the sign, then zeros up to the width (05d, +08.2f) */
+        size_t sl = nom_strlen(sg);
+        if (zero && !align) {
+            buf_puts(&b, sg);
+            for (int i = (int)(d.len + sl); i < width; i++) buf_putc(&b, '0');
+            buf_put(&b, d.p ? d.p : "", d.len);
+        } else {
+            buf_puts(&b, sg);
+            buf_put(&b, d.p ? d.p : "", d.len);
+        }
+        buf_free(&d);
     } else {
         val_tostr(&b, a[0]);
+        if (places >= 0 && (size_t)places < b.len) b.len = (size_t)places;   /* {:.3} of a string: its first 3 */
     }
     int pad = width - (int)b.len;
     Buf o; buf_init(&o);
-    if (!align) align = num ? '>' : '<';
-    int left = pad <= 0 ? 0 : align == '>' ? pad : align == '^' ? pad / 2 : 0;
+    if (!align) align = num && type != 's' ? '>' : '<';
+    int left = pad <= 0 ? 0 : align == '>' || align == '=' ? pad : align == '^' ? pad / 2 : 0;
     int right = pad <= 0 ? 0 : pad - left;
-    for (int i = 0; i < left; i++) buf_putc(&o, ' ');
+    for (int i = 0; i < left; i++) buf_putc(&o, fill);
     if (b.len) buf_put(&o, b.p, b.len);
-    for (int i = 0; i < right; i++) buf_putc(&o, ' ');
+    for (int i = 0; i < right; i++) buf_putc(&o, fill);
     *out = str_new(o.p ? o.p : "", o.len);
     buf_free(&b);
     buf_free(&o);
@@ -1438,6 +1614,717 @@ static VmStatus n_the_ship(VM *v, Value *a, int n, Value *out)
     return VM_OK;
 }
 
+
+/* ============================================================ TUX ROCKET SCIENCE
+ * THE REST OF PYTHON'S BUILTINS a player reaches for: range, sum, sorted,
+ * enumerate, zip, map, isinstance... and the modules math, time, random. */
+
+/* Python's order: numbers by value, strings by their letters, lists item
+ * by item; anything else can't be ordered */
+static int py_cmp(VM *v, Value a, Value b, bool *ok)
+{
+    bool an = a.k == V_INT || a.k == V_NUM || a.k == V_BOOL, bn = b.k == V_INT || b.k == V_NUM || b.k == V_BOOL;
+    if (an && bn) { double x = val_num(a), y = val_num(b); return x < y ? -1 : x > y ? 1 : 0; }
+    if (IS_STR(a) && IS_STR(b)) {
+        Str *x = AS_STR(a), *y = AS_STR(b);
+        u32 m = x->len < y->len ? x->len : y->len;
+        int c = nom_memcmp(x->s, y->s, m);
+        return c ? (c < 0 ? -1 : 1) : (x->len < y->len ? -1 : x->len > y->len ? 1 : 0);
+    }
+    if (IS_LIST(a) && IS_LIST(b)) {
+        List *x = AS_LIST(a), *y = AS_LIST(b);
+        for (u32 i = 0; i < x->len && i < y->len; i++) {
+            int c = py_cmp(v, x->v[i], y->v[i], ok);
+            if (c || !*ok) return c;
+        }
+        return x->len < y->len ? -1 : x->len > y->len ? 1 : 0;
+    }
+    vm_runtime_error(v, "can't put these in order (a number and a word?)");
+    *ok = false;
+    return 0;
+}
+
+/* any sequence as its items, in a new list: list, range, string, dict */
+static bool items_of(VM *v, Value s, Value *out)
+{
+    Value l = list_new();
+    if (IS_LIST(s)) for (u32 i = 0; i < AS_LIST(s)->len; i++) list_push(AS_LIST(l), val_retain(AS_LIST(s)->v[i]));
+    else if (IS_RANGE(s)) { Range *r = AS_RANGE(s); i64 n = range_len(r); for (i64 i = 0; i < n; i++) list_push(AS_LIST(l), VAL_INT(r->start + i * r->step)); }
+    else if (IS_STR(s)) for (u32 i = 0; i < AS_STR(s)->len; i++) list_push(AS_LIST(l), str_new(AS_STR(s)->s + i, 1));
+    else if (IS_DICT(s)) for (u32 i = 0; i < AS_DICT(s)->len; i++) list_push(AS_LIST(l), val_retain(AS_DICT(s)->k[i]));
+    else { val_release(l); vm_runtime_error(v, "a %s isn't a list of things", s.k == V_INT || s.k == V_NUM ? "number" : s.k == V_NIL ? "None" : "value"); return false; }
+    *out = l;
+    return true;
+}
+
+static VmStatus n_range(VM *v, Value *a, int n, Value *out)
+{
+    for (int i = 0; i < n; i++)
+        if (a[i].k != V_INT && !(a[i].k == V_NUM && a[i].as.d == nom_floor(a[i].as.d))) {
+            vm_runtime_error(v, "range() wants whole numbers");
+            return VM_ERROR;
+        }
+    i64 st = n > 2 ? val_int(a[2]) : 1;
+    if (!st) { vm_runtime_error(v, "range() step can't be 0"); return VM_ERROR; }
+    *out = n == 1 ? range_new(0, val_int(a[0]), 1) : range_new(val_int(a[0]), val_int(a[1]), st);
+    return VM_OK;
+}
+
+static VmStatus n_list(VM *v, Value *a, int n, Value *out)
+{
+    if (!n) { *out = list_new(); return VM_OK; }
+    return items_of(v, a[0], out) ? VM_OK : VM_ERROR;
+}
+
+static VmStatus n_dict(VM *v, Value *a, int n, Value *out)
+{
+    *out = dict_new();
+    if (n && IS_DICT(a[0]))
+        for (u32 i = 0; i < AS_DICT(a[0])->len; i++)
+            dict_set(AS_DICT(*out), val_retain(AS_DICT(a[0])->k[i]), val_retain(AS_DICT(a[0])->v[i]));
+    if (v->kw.k != V_NIL) {
+        v->kw_used = true;
+        for (u32 i = 0; i < AS_DICT(v->kw)->len; i++)
+            dict_set(AS_DICT(*out), val_retain(AS_DICT(v->kw)->k[i]), val_retain(AS_DICT(v->kw)->v[i]));
+    }
+    return VM_OK;
+}
+
+static VmStatus n_sum(VM *v, Value *a, int n, Value *out)
+{
+    Value l;
+    if (!items_of(v, a[0], &l)) return VM_ERROR;
+    Value acc = n > 1 ? val_retain(a[1]) : VAL_INT(0);
+    for (u32 i = 0; i < AS_LIST(l)->len; i++) {
+        Value x = AS_LIST(l)->v[i];
+        if (x.k != V_INT && x.k != V_NUM && x.k != V_BOOL) { vm_runtime_error(v, "sum() of something that isn't a number"); val_release(l); return VM_ERROR; }
+        acc = (acc.k == V_NUM || x.k == V_NUM) ? VAL_NUM(val_num(acc) + val_num(x)) : VAL_INT(val_int(acc) + val_int(x));
+    }
+    val_release(l);
+    *out = acc;
+    return VM_OK;
+}
+
+/* sorts l in place, steadily (equal ones keep their order), by key= */
+static bool sort_list(VM *v, List *l, Value key, bool rev)
+{
+    Value *k = nom_alloc(sizeof(Value) * (l->len + 1));
+    for (u32 i = 0; i < l->len; i++) {
+        if (key.k != V_NIL) { if (!vm_call(v, key, &l->v[i], 1, &k[i])) { for (u32 j = 0; j < i; j++) val_release(k[j]); nom_free(k); return false; } }
+        else k[i] = val_retain(l->v[i]);
+    }
+    bool ok = true;
+    for (u32 i = 1; i < l->len && ok; i++) {
+        Value kv = k[i], vv = l->v[i];
+        u32 j = i;
+        while (j > 0) {
+            int c = py_cmp(v, k[j - 1], kv, &ok);
+            if (!ok) break;
+            if (rev ? c >= 0 : c <= 0) break;
+            k[j] = k[j - 1];
+            l->v[j] = l->v[j - 1];
+            j--;
+        }
+        k[j] = kv;
+        l->v[j] = vv;
+    }
+    for (u32 i = 0; i < l->len; i++) val_release(k[i]);
+    nom_free(k);
+    return ok;
+}
+
+static VmStatus n_sorted(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    Value key = VAL_NIL, rev = VAL_NIL;
+    kw_get(v, "key", &key);
+    kw_get(v, "reverse", &rev);
+    if (!items_of(v, a[0], out)) return VM_ERROR;
+    if (!sort_list(v, AS_LIST(*out), key, val_truthy(rev))) { val_release(*out); *out = VAL_NIL; return VM_ERROR; }
+    return VM_OK;
+}
+
+static VmStatus n_reversed(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    if (!items_of(v, a[0], out)) return VM_ERROR;
+    List *l = AS_LIST(*out);
+    for (u32 i = 0; i < l->len / 2; i++) { Value t = l->v[i]; l->v[i] = l->v[l->len - 1 - i]; l->v[l->len - 1 - i] = t; }
+    return VM_OK;
+}
+
+static VmStatus n_anyall(VM *v, Value *a, int n, Value *out, bool all)
+{
+    (void)n;
+    Value l;
+    if (!items_of(v, a[0], &l)) return VM_ERROR;
+    bool r = all;
+    for (u32 i = 0; i < AS_LIST(l)->len; i++)
+        if (val_truthy(AS_LIST(l)->v[i]) != all) { r = !all; break; }
+    val_release(l);
+    *out = VAL_BOOL(r);
+    return VM_OK;
+}
+static VmStatus n_any(VM *v, Value *a, int n, Value *out) { return n_anyall(v, a, n, out, false); }
+static VmStatus n_all(VM *v, Value *a, int n, Value *out) { return n_anyall(v, a, n, out, true); }
+
+static VmStatus n_enumerate(VM *v, Value *a, int n, Value *out)
+{
+    Value l;
+    if (!items_of(v, a[0], &l)) return VM_ERROR;
+    i64 start = n > 1 ? val_int(a[1]) : 0;
+    Value r = list_new();
+    for (u32 i = 0; i < AS_LIST(l)->len; i++) {
+        Value pr = list_new();
+        list_push(AS_LIST(pr), VAL_INT(start + (i64)i));
+        list_push(AS_LIST(pr), val_retain(AS_LIST(l)->v[i]));
+        AS_LIST(pr)->tuple = 1;
+        list_push(AS_LIST(r), pr);
+    }
+    val_release(l);
+    *out = r;
+    return VM_OK;
+}
+
+static VmStatus n_zip(VM *v, Value *a, int n, Value *out)
+{
+    Value ls[NOM_ARGS_MAX];
+    u32 m = 0xffffffffu;
+    for (int i = 0; i < n; i++) {
+        if (!items_of(v, a[i], &ls[i])) { for (int j = 0; j < i; j++) val_release(ls[j]); return VM_ERROR; }
+        if (AS_LIST(ls[i])->len < m) m = AS_LIST(ls[i])->len;
+    }
+    Value r = list_new();
+    for (u32 k = 0; n && k < m; k++) {
+        Value t = list_new();
+        for (int i = 0; i < n; i++) list_push(AS_LIST(t), val_retain(AS_LIST(ls[i])->v[k]));
+        AS_LIST(t)->tuple = 1;
+        list_push(AS_LIST(r), t);
+    }
+    for (int i = 0; i < n; i++) val_release(ls[i]);
+    *out = r;
+    return VM_OK;
+}
+
+static VmStatus n_mapfilter(VM *v, Value *a, int n, Value *out, bool filter)
+{
+    (void)n;
+    Value l;
+    if (!items_of(v, a[1], &l)) return VM_ERROR;
+    Value r = list_new();
+    for (u32 i = 0; i < AS_LIST(l)->len; i++) {
+        Value x = AS_LIST(l)->v[i], y;
+        if (filter && a[0].k == V_NIL) { if (val_truthy(x)) list_push(AS_LIST(r), val_retain(x)); continue; }
+        if (!vm_call(v, a[0], &x, 1, &y)) { val_release(l); val_release(r); return VM_ERROR; }
+        if (!filter) list_push(AS_LIST(r), y);
+        else { if (val_truthy(y)) list_push(AS_LIST(r), val_retain(x)); val_release(y); }
+    }
+    val_release(l);
+    *out = r;
+    return VM_OK;
+}
+static VmStatus n_map(VM *v, Value *a, int n, Value *out) { return n_mapfilter(v, a, n, out, false); }
+static VmStatus n_filter(VM *v, Value *a, int n, Value *out) { return n_mapfilter(v, a, n, out, true); }
+
+static VmStatus n_repr(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)n;
+    Buf b; buf_init(&b);
+    val_repr(&b, a[0]);
+    *out = str_new(b.p ? b.p : "", b.len);
+    buf_free(&b);
+    return VM_OK;
+}
+
+static VmStatus n_bool(VM *v, Value *a, int n, Value *out) { (void)v; *out = VAL_BOOL(n && val_truthy(a[0])); return VM_OK; }
+
+/* type(x) is the conversion that makes one (int, float, str, list, dict,
+ * bool), so type(2.5) == float and isinstance(3, int) say what Python does */
+static const char *type_fn(Value x)
+{
+    switch (x.k) {
+    case V_NIL: return NULL;
+    case V_BOOL: return "bool";
+    case V_INT: return "int";
+    case V_NUM: return "float";
+    default: break;
+    }
+    switch (x.as.o->kind) {
+    case O_STR: return "str";
+    case O_LIST: return "list";
+    case O_DICT: return "dict";
+    case O_RANGE: return "range";
+    default: return NULL;
+    }
+}
+
+static VmStatus n_type(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)n;
+    const char *t = type_fn(a[0]);
+    int k = t ? native_find(t, (int)nom_strlen(t)) : -1;
+    *out = k >= 0 ? func_obj_new(k, true) : str_newz(a[0].k == V_NIL ? "NoneType" : "thing");
+    return VM_OK;
+}
+
+static VmStatus n_isinstance(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    const char *t = type_fn(a[0]);
+    Value kinds = a[1];
+    bool any = false;
+    Value one[1] = { kinds };
+    Value *ks = IS_LIST(kinds) ? AS_LIST(kinds)->v : one;
+    u32 nk = IS_LIST(kinds) ? AS_LIST(kinds)->len : 1;
+    for (u32 i = 0; i < nk; i++) {
+        if (ks[i].k != V_OBJ || ks[i].as.o->kind != O_NATIVE) { vm_runtime_error(v, "isinstance() wants a kind: int, float, str, list, dict, bool"); return VM_ERROR; }
+        int cnt = 0;
+        const char *nm = native_table(&cnt)[func_obj_index(ks[i])].name;
+        any |= t && !nom_strcmp(nm, t);
+        any |= t && !nom_strcmp(nm, "int") && !nom_strcmp(t, "bool");   /* (a bool is an int, in Python) */
+    }
+    *out = VAL_BOOL(any);
+    return VM_OK;
+}
+
+/* Exception("why"), ValueError("why")...: for raise, the error's words,
+ * with its kind ("ValueError: why"): except ValueError catches it, and
+ * except ... as e has just "why" */
+static VmStatus exception_of(const char *kind, Value *a, int n, Value *out)
+{
+    Buf b; buf_init(&b);
+    buf_puts(&b, kind);
+    buf_puts(&b, ": ");
+    if (n) val_tostr(&b, a[0]); else buf_puts(&b, "it went wrong");
+    *out = str_new(b.p, b.len);
+    buf_free(&b);
+    return VM_OK;
+}
+#define EXC(fn, kind) \
+    static VmStatus fn(VM *v, Value *a, int n, Value *out) { (void)v; return exception_of(kind, a, n, out); }
+EXC(n_exception, "Exception")
+EXC(n_valueerror, "ValueError")
+EXC(n_runtimeerror, "RuntimeError")
+EXC(n_zerodiv, "ZeroDivisionError")
+EXC(n_keyerror, "KeyError")
+EXC(n_indexerror, "IndexError")
+EXC(n_typeerror, "TypeError")
+
+static VmStatus n_divmod(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    Value q, r;
+    Value x = a[0], y = a[1];
+    bool ints = x.k == V_INT && y.k == V_INT;
+    double dx = val_num(x), dy = val_num(y);
+    if (dy == 0) { vm_runtime_error(v, "ZeroDivisionError: divmod by zero"); return VM_ERROR; }
+    double fq = nom_floor(dx / dy);
+    if (ints) { q = VAL_INT((i64)fq); r = VAL_INT(x.as.i - (i64)fq * y.as.i); }
+    else { q = VAL_NUM(fq); r = VAL_NUM(dx - fq * dy); }
+    Value t = list_new();
+    list_push(AS_LIST(t), q);
+    list_push(AS_LIST(t), r);
+    AS_LIST(t)->tuple = 1;
+    *out = t;
+    return VM_OK;
+}
+
+static VmStatus n_pyp(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    if (a[0].k == V_INT && a[1].k == V_INT && a[1].as.i >= 0) {
+        i64 r = 1;
+        bool over = false;
+        for (i64 i = 0; i < a[1].as.i && !over; i++) over = __builtin_mul_overflow(r, a[0].as.i, &r);
+        *out = over ? VAL_NUM(nom_pow(val_num(a[0]), val_num(a[1]))) : VAL_INT(r);
+        return VM_OK;
+    }
+    (void)v;
+    *out = VAL_NUM(nom_pow(val_num(a[0]), val_num(a[1])));
+    return VM_OK;
+}
+
+/* set(xs): here, a list of them with no repeats (in, len, for, .add work) */
+static VmStatus n_set(VM *v, Value *a, int n, Value *out)
+{
+    Value all = list_new();
+    if (n) {
+        Value l;
+        if (!items_of(v, a[0], &l)) { val_release(all); return VM_ERROR; }
+        for (u32 i = 0; i < AS_LIST(l)->len; i++) {
+            bool seen = false;
+            for (u32 j = 0; j < AS_LIST(all)->len && !seen; j++) seen = val_equal(AS_LIST(all)->v[j], AS_LIST(l)->v[i]);
+            if (!seen) list_push(AS_LIST(all), val_retain(AS_LIST(l)->v[i]));
+        }
+        val_release(l);
+    }
+    *out = all;
+    return VM_OK;
+}
+
+/* random: a little generator of its own (xorshift), seeded from the clock
+ * of the game the first time, or random.seed(n) */
+static u64 g_rng;
+static double rnd(VM *v)
+{
+    if (!g_rng) {
+        double t = reading_num(v, "time");
+        g_rng = 0x9E3779B97F4A7C15ull ^ (u64)(t * 1000.0) ^ (u64)sysc(SYS_getpid, 0, 0, 0) << 32;
+        if (!g_rng) g_rng = 1;
+    }
+    g_rng ^= g_rng << 13; g_rng ^= g_rng >> 7; g_rng ^= g_rng << 17;
+    return (double)(g_rng >> 11) / 9007199254740992.0;
+}
+static VmStatus n_random(VM *v, Value *a, int n, Value *out) { (void)a; (void)n; *out = VAL_NUM(rnd(v)); return VM_OK; }
+static VmStatus n_uniform(VM *v, Value *a, int n, Value *out)
+{ (void)n; double lo = val_num(a[0]), hi = val_num(a[1]); *out = VAL_NUM(lo + (hi - lo) * rnd(v)); return VM_OK; }
+static VmStatus n_randint(VM *v, Value *a, int n, Value *out)
+{ (void)n; i64 lo = val_int(a[0]), hi = val_int(a[1]); *out = VAL_INT(lo + (i64)(rnd(v) * (double)(hi - lo + 1))); return VM_OK; }
+static VmStatus n_choice(VM *v, Value *a, int n, Value *out)
+{
+    (void)n;
+    Value l;
+    if (!items_of(v, a[0], &l)) return VM_ERROR;
+    u32 len = AS_LIST(l)->len;
+    if (!len) { val_release(l); vm_runtime_error(v, "choice() from nothing"); return VM_ERROR; }
+    *out = val_retain(AS_LIST(l)->v[(u32)(rnd(v) * len) % len]);
+    val_release(l);
+    return VM_OK;
+}
+static VmStatus n_seed(VM *v, Value *a, int n, Value *out) { (void)v; (void)n; g_rng = (u64)val_int(a[0]) * 2654435761ull + 1; *out = VAL_NIL; return VM_OK; }
+
+static VmStatus n_hypot(VM *v, Value *a, int n, Value *out)
+{ (void)v; double s = 0; for (int i = 0; i < n; i++) s += val_num(a[i]) * val_num(a[i]); *out = VAL_NUM(__builtin_sqrt(s)); return VM_OK; }
+static VmStatus n_log2(VM *v, Value *a, int n, Value *out)
+{
+    (void)v;
+    double x = nom_math(MATH_LOG, val_num(a[0]), 0);
+    if (n > 1) x /= nom_math(MATH_LOG, val_num(a[1]), 0);
+    *out = VAL_NUM(x);
+    return VM_OK;
+}
+MATH1(n_log10, MATH_LOG10)
+static VmStatus n_now(VM *v, Value *a, int n, Value *out) { (void)a; (void)n; *out = VAL_NUM(reading_num(v, "time")); return VM_OK; }
+
+/* import math: a dict of the module's things (math.sqrt is a call to
+ * sqrt, math.pi a number) */
+static void mod_put(Value d, const char *name, const char *native)
+{
+    int k = native_find(native, (int)nom_strlen(native));
+    if (k >= 0) dict_set(AS_DICT(d), str_newz(name), func_obj_new(k, true));
+}
+
+static VmStatus n_module(VM *v, Value *a, int n, Value *out)
+{
+    (void)v; (void)n;
+    const char *m = IS_STR(a[0]) ? AS_STR(a[0])->s : "";
+    Value d = dict_new();
+    if (!nom_strcmp(m, "math")) {
+        static const char *SAME[] = { "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "exp",
+                                      "floor", "ceil", "hypot", "log10", NULL };
+        for (int i = 0; SAME[i]; i++) mod_put(d, SAME[i], SAME[i]);
+        mod_put(d, "log", "_log");
+        mod_put(d, "degrees", "deg");
+        mod_put(d, "radians", "rad");
+        mod_put(d, "fabs", "abs");
+        mod_put(d, "pow", "_pow");
+        dict_set(AS_DICT(d), str_newz("pi"), VAL_NUM(3.141592653589793));
+        dict_set(AS_DICT(d), str_newz("e"), VAL_NUM(2.718281828459045));
+        dict_set(AS_DICT(d), str_newz("tau"), VAL_NUM(6.283185307179586));
+        dict_set(AS_DICT(d), str_newz("inf"), VAL_NUM(1e308 * 10));
+    } else if (!nom_strcmp(m, "time")) {
+        mod_put(d, "sleep", "sleep");
+        mod_put(d, "time", "_now");
+        mod_put(d, "monotonic", "_now");
+    } else if (!nom_strcmp(m, "random")) {
+        mod_put(d, "random", "_random");
+        mod_put(d, "uniform", "_uniform");
+        mod_put(d, "randint", "_randint");
+        mod_put(d, "choice", "_choice");
+        mod_put(d, "seed", "_seed");
+    }
+    *out = d;
+    return VM_OK;
+}
+
+static VmStatus n_pow(VM *v, Value *a, int n, Value *out)
+{ (void)v; (void)n; *out = VAL_NUM(nom_pow(val_num(a[0]), val_num(a[1]))); return VM_OK; }
+
+/* "%d m at %.1f s" % (120, 3.25): %d %i %f %e %g %s %r %x %%, with flags,
+ * a width and a precision */
+bool host_percent(VM *v, Value fmt, Value args, Value *out)
+{
+    Str *f = AS_STR(fmt);
+    Value one[1] = { args };
+    Value *av = IS_LIST(args) ? AS_LIST(args)->v : one;
+    u32 an = IS_LIST(args) ? AS_LIST(args)->len : 1, ai = 0;
+    Buf b; buf_init(&b);
+    for (u32 i = 0; i < f->len; i++) {
+        char c = f->s[i];
+        if (c != '%') { buf_putc(&b, c); continue; }
+        if (i + 1 < f->len && f->s[i + 1] == '%') { buf_putc(&b, '%'); i++; continue; }
+        char spec[24];
+        int k = 0;
+        i++;
+        while (i < f->len && k < 20 && (f->s[i] == '-' || f->s[i] == '+' || f->s[i] == ' ' || f->s[i] == '0' ||
+               f->s[i] == '.' || (f->s[i] >= '0' && f->s[i] <= '9'))) spec[k++] = f->s[i++];
+        if (i >= f->len) { vm_runtime_error(v, "a %% with nothing after it"); buf_free(&b); return false; }
+        char t = f->s[i];
+        if (ai >= an) { vm_runtime_error(v, "not enough values for the %%s in the text"); buf_free(&b); return false; }
+        Value x = av[ai++];
+        /* as format(x, spec) would: "<" for "-", a type letter on the end */
+        char fs[32];
+        int q = 0;
+        int sk = 0;
+        if (k && spec[0] == '-') { fs[q++] = '<'; sk = 1; }
+        for (; sk < k; sk++) fs[q++] = spec[sk];
+        if (t == 'd' || t == 'i') { if (x.k == V_NUM) x = VAL_INT((i64)x.as.d); fs[q++] = 'd'; }
+        else if (t == 'f' || t == 'F' || t == 'e' || t == 'g') fs[q++] = 'f';
+        else if (t == 'x') fs[q++] = 'x';
+        else if (t != 's' && t != 'r') { vm_runtime_error(v, "%%%c isn't a format here (%%d %%f %%s %%r)", t); buf_free(&b); return false; }
+        fs[q] = 0;
+        Value sv = str_newz(fs), r;
+        Value pa[2] = { x, sv };
+        if (t == 'r') { val_repr(&b, x); val_release(sv); continue; }
+        bool dot = false;
+        for (int z = 0; fs[z]; z++) dot |= fs[z] == '.';
+        if (t == 'f' && !dot) { val_release(sv); fs[q - 1] = 0; nom_snprintf(fs + nom_strlen(fs), 8, ".6f"); sv = str_newz(fs); pa[1] = sv; }
+        n_format(v, pa, 2, &r);
+        buf_put(&b, AS_STR(r)->s, AS_STR(r)->len);
+        val_release(r);
+        val_release(sv);
+    }
+    if (ai < an && IS_LIST(args)) { vm_runtime_error(v, "more values than %%s in the text"); buf_free(&b); return false; }
+    *out = str_new(b.p ? b.p : "", b.len);
+    buf_free(&b);
+    return true;
+}
+
+/* "{} and {:.2f}".format(a, b) -- {} in order, {0} by number, {name} by
+ * keyword, each with an optional :spec */
+static VmStatus str_format(VM *v, Str *f, Value *a, int n, Value *out)
+{
+    Buf b; buf_init(&b);
+    int auto_i = 0;
+    for (u32 i = 0; i < f->len; i++) {
+        char c = f->s[i];
+        if (c == '{' && i + 1 < f->len && f->s[i + 1] == '{') { buf_putc(&b, '{'); i++; continue; }
+        if (c == '}' && i + 1 < f->len && f->s[i + 1] == '}') { buf_putc(&b, '}'); i++; continue; }
+        if (c != '{') { buf_putc(&b, c); continue; }
+        u32 j = i + 1;
+        while (j < f->len && f->s[j] != '}') j++;
+        if (j >= f->len) { vm_runtime_error(v, "a { with no } in the text"); buf_free(&b); return VM_ERROR; }
+        u32 colon = i + 1;
+        while (colon < j && f->s[colon] != ':') colon++;
+        Value x = VAL_NIL;
+        if (colon == i + 1) {
+            if (auto_i >= n) { vm_runtime_error(v, "more {} than values given"); buf_free(&b); return VM_ERROR; }
+            x = a[auto_i++];
+        } else if (f->s[i + 1] >= '0' && f->s[i + 1] <= '9') {
+            i64 k = nom_strtoll(f->s + i + 1, 0, 10);
+            if (k < 0 || k >= n) { vm_runtime_error(v, "{%d} but only %d values", (int)k, n); buf_free(&b); return VM_ERROR; }
+            x = a[k];
+        } else {
+            char nm[64];
+            u32 l = colon - i - 1 < 63 ? colon - i - 1 : 63;
+            nom_memcpy(nm, f->s + i + 1, l);
+            nm[l] = 0;
+            if (!kw_get(v, nm, &x)) { vm_runtime_error(v, "{%s} but no %s= given", nm, nm); buf_free(&b); return VM_ERROR; }
+        }
+        Value sv = str_new(colon < j ? f->s + colon + 1 : "", colon < j ? j - colon - 1 : 0), r;
+        Value pa[2] = { x, sv };
+        n_format(v, pa, 2, &r);
+        buf_put(&b, AS_STR(r)->s, AS_STR(r)->len);
+        val_release(r);
+        val_release(sv);
+        i = j;
+    }
+    *out = str_new(b.p ? b.p : "", b.len);
+    buf_free(&b);
+    return VM_OK;
+}
+
+/* the methods of a list, a dict, a string that aren't a native's name */
+static VmStatus value_method(VM *v, Value obj, Str *name, Value *a, int n, Value *out, bool *found)
+{
+    const char *m = name->s;
+    *found = true;
+    *out = VAL_NIL;
+    if (IS_LIST(obj)) {
+        List *l = AS_LIST(obj);
+        if (!nom_strcmp(m, "insert") && n == 2) {
+            i64 at = val_int(a[0]);
+            if (at < 0) at += l->len;
+            if (at < 0) at = 0;
+            if (at > (i64)l->len) at = l->len;
+            list_push(l, VAL_NIL);
+            for (i64 i = (i64)l->len - 1; i > at; i--) l->v[i] = l->v[i - 1];
+            l->v[at] = val_retain(a[1]);
+            return VM_OK;
+        }
+        if ((!nom_strcmp(m, "remove") || !nom_strcmp(m, "index") || !nom_strcmp(m, "count")) && n == 1) {
+            i64 cnt = 0;
+            for (u32 i = 0; i < l->len; i++) {
+                if (!val_equal(l->v[i], a[0])) continue;
+                if (!nom_strcmp(m, "count")) { cnt++; continue; }
+                if (!nom_strcmp(m, "index")) { *out = VAL_INT((i64)i); return VM_OK; }
+                val_release(l->v[i]);
+                for (u32 j = i; j + 1 < l->len; j++) l->v[j] = l->v[j + 1];
+                l->len--;
+                return VM_OK;
+            }
+            if (!nom_strcmp(m, "count")) { *out = VAL_INT(cnt); return VM_OK; }
+            vm_runtime_error(v, "list.%s(x): x isn't in the list", m);
+            return VM_ERROR;
+        }
+        if (!nom_strcmp(m, "pop")) {
+            if (!l->len) { vm_runtime_error(v, "pop from an empty list"); return VM_ERROR; }
+            i64 at = n ? val_int(a[0]) : (i64)l->len - 1;
+            if (at < 0) at += l->len;
+            if (at < 0 || at >= (i64)l->len) { vm_runtime_error(v, "pop index out of range"); return VM_ERROR; }
+            *out = l->v[at];
+            for (u32 j = (u32)at; j + 1 < l->len; j++) l->v[j] = l->v[j + 1];
+            l->len--;
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "extend") && n == 1) {
+            Value it;
+            if (!items_of(v, a[0], &it)) return VM_ERROR;
+            for (u32 i = 0; i < AS_LIST(it)->len; i++) list_push(l, val_retain(AS_LIST(it)->v[i]));
+            val_release(it);
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "sort") && n == 0) {
+            Value key = VAL_NIL, rev = VAL_NIL;
+            kw_get(v, "key", &key);
+            kw_get(v, "reverse", &rev);
+            return sort_list(v, l, key, val_truthy(rev)) ? VM_OK : VM_ERROR;
+        }
+        if (!nom_strcmp(m, "reverse") && n == 0) {
+            for (u32 i = 0; i < l->len / 2; i++) { Value t = l->v[i]; l->v[i] = l->v[l->len - 1 - i]; l->v[l->len - 1 - i] = t; }
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "copy") && n == 0) return items_of(v, obj, out) ? VM_OK : VM_ERROR;
+        /* a set's (a list with no repeats, here) */
+        if ((!nom_strcmp(m, "add") || !nom_strcmp(m, "discard")) && n == 1) {
+            for (u32 i = 0; i < l->len; i++)
+                if (val_equal(l->v[i], a[0])) {
+                    if (m[0] == 'd') { val_release(l->v[i]); for (u32 j = i; j + 1 < l->len; j++) l->v[j] = l->v[j + 1]; l->len--; }
+                    return VM_OK;
+                }
+            if (m[0] == 'a') list_push(l, val_retain(a[0]));
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "clear") && n == 0) { for (u32 i = 0; i < l->len; i++) val_release(l->v[i]); l->len = 0; return VM_OK; }
+    }
+    if (IS_DICT(obj)) {
+        Dict *d = AS_DICT(obj);
+        if ((!nom_strcmp(m, "items") || !nom_strcmp(m, "values") || !nom_strcmp(m, "keys")) && n == 0) {
+            Value r = list_new();
+            for (u32 i = 0; i < d->len; i++) {
+                if (m[0] == 'k') list_push(AS_LIST(r), val_retain(d->k[i]));
+                else if (m[0] == 'v') list_push(AS_LIST(r), val_retain(d->v[i]));
+                else { Value t = list_new(); list_push(AS_LIST(t), val_retain(d->k[i])); list_push(AS_LIST(t), val_retain(d->v[i])); AS_LIST(t)->tuple = 1; list_push(AS_LIST(r), t); }
+            }
+            *out = r;
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "pop") && (n == 1 || n == 2)) {
+            for (u32 i = 0; i < d->len; i++) {
+                if (!val_equal(d->k[i], a[0])) continue;
+                *out = d->v[i];
+                val_release(d->k[i]);
+                for (u32 j = i; j + 1 < d->len; j++) { d->k[j] = d->k[j + 1]; d->v[j] = d->v[j + 1]; }
+                d->len--;
+                return VM_OK;
+            }
+            if (n == 2) { *out = val_retain(a[1]); return VM_OK; }
+            vm_runtime_error(v, "no such key to pop");
+            return VM_ERROR;
+        }
+        if (!nom_strcmp(m, "update") && n == 1 && IS_DICT(a[0])) {
+            for (u32 i = 0; i < AS_DICT(a[0])->len; i++)
+                dict_set(d, val_retain(AS_DICT(a[0])->k[i]), val_retain(AS_DICT(a[0])->v[i]));
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "setdefault") && n == 2) {
+            Value got;
+            if (dict_get(d, a[0], &got)) { *out = val_retain(got); return VM_OK; }
+            dict_set(d, val_retain(a[0]), val_retain(a[1]));
+            *out = val_retain(a[1]);
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "copy") && n == 0) {
+            Value r = dict_new();
+            for (u32 i = 0; i < d->len; i++) dict_set(AS_DICT(r), val_retain(d->k[i]), val_retain(d->v[i]));
+            *out = r;
+            return VM_OK;
+        }
+        /* math.sqrt(16), a module's things: call what's under the key */
+        Value fnv, key = str_new(name->s, name->len);
+        bool has = dict_get(d, key, &fnv);
+        val_release(key);
+        if (has && fnv.k == V_OBJ && (fnv.as.o->kind == O_NATIVE || fnv.as.o->kind == O_FUNC))
+            return vm_call(v, fnv, a, n, out) ? VM_OK : VM_ERROR;
+    }
+    if (IS_STR(obj)) {
+        Str *s = AS_STR(obj);
+        if (!nom_strcmp(m, "format")) return str_format(v, s, a, n, out);
+        if (!nom_strcmp(m, "count") && n == 1 && IS_STR(a[0])) {
+            Str *f = AS_STR(a[0]);
+            i64 c = 0;
+            for (u32 i = 0; f->len && i + f->len <= s->len; ) { if (!nom_memcmp(s->s + i, f->s, f->len)) { c++; i += f->len; } else i++; }
+            *out = VAL_INT(c);
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "index") && n == 1 && IS_STR(a[0])) {
+            Value r;
+            Value pa[2] = { obj, a[0] };
+            n_find(v, pa, 2, &r);
+            if (r.as.i < 0) { vm_runtime_error(v, "substring not found"); return VM_ERROR; }
+            *out = r;
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "isdigit") && n == 0) {
+            bool d = s->len > 0;
+            for (u32 i = 0; i < s->len; i++) d &= s->s[i] >= '0' && s->s[i] <= '9';
+            *out = VAL_BOOL(d);
+            return VM_OK;
+        }
+        if ((!nom_strcmp(m, "rjust") || !nom_strcmp(m, "ljust") || !nom_strcmp(m, "center") || !nom_strcmp(m, "zfill")) && n >= 1) {
+            i64 w = val_int(a[0]);
+            char fill = m[0] == 'z' ? '0' : (n > 1 && IS_STR(a[1]) && AS_STR(a[1])->len) ? AS_STR(a[1])->s[0] : ' ';
+            i64 pad = w - (i64)s->len;
+            Buf b; buf_init(&b);
+            i64 left = pad <= 0 ? 0 : (m[0] == 'r' || m[0] == 'z') ? pad : m[0] == 'c' ? pad / 2 : 0;
+            i64 right = pad <= 0 ? 0 : pad - left;
+            for (i64 i = 0; i < left; i++) buf_putc(&b, fill);
+            buf_put(&b, s->s, s->len);
+            for (i64 i = 0; i < right; i++) buf_putc(&b, fill);
+            *out = str_new(b.p ? b.p : "", b.len);
+            buf_free(&b);
+            return VM_OK;
+        }
+        if (!nom_strcmp(m, "title") || !nom_strcmp(m, "capitalize")) {
+            Buf b; buf_init(&b);
+            bool start = true;
+            for (u32 i = 0; i < s->len; i++) {
+                char c = s->s[i];
+                bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+                if (letter && start && c >= 'a') c = (char)(c - 32);
+                else if (letter && !start && c <= 'Z' && (m[0] == 't' || i > 0)) c = (char)(c + 32);
+                buf_putc(&b, c);
+                start = m[0] == 't' ? !letter : false;
+            }
+            *out = str_new(b.p ? b.p : "", b.len);
+            buf_free(&b);
+            return VM_OK;
+        }
+    }
+    *found = false;
+    return VM_OK;
+}
+
 /* countdown(5): T-5 ... T-1, a second each, then liftoff */
 static VmStatus n_countdown(VM *v, Value *a, int n, Value *out)
 {
@@ -1528,6 +2415,7 @@ static const Native NATIVES[] = {
     { "legs",      0, 1, n_legs      },
     { "rcs",       1, 1, n_rcs       },
     { "say",       1, 1, n_say       },
+    { "beep",      0, 1, n_beep      },
     { "abort",     0, 0, n_abort     },
     { "autostage", 1, 1, n_autostage },
     { "target",    1, 1, n_target    },
@@ -1554,6 +2442,45 @@ static const Native NATIVES[] = {
     { "wait_user_trigger", 0, 0, n_wait_space },
     { "wait_for_space", 0, 0, n_wait_space },
     { "_echo",     1, 1, n_echo      },
+    /* and the rest of Python's builtins */
+    { "range",     1, 3, n_range     },
+    { "list",      0, 1, n_list      },
+    { "tuple",     0, 1, n_list      },
+    { "dict",      0, 1, n_dict      },
+    { "sum",       1, 2, n_sum       },
+    { "sorted",    1, 1, n_sorted    },
+    { "reversed",  1, 1, n_reversed  },
+    { "any",       1, 1, n_any       },
+    { "all",       1, 1, n_all       },
+    { "enumerate", 1, 2, n_enumerate },
+    { "zip",       1, 8, n_zip       },
+    { "map",       2, 2, n_map       },
+    { "filter",    2, 2, n_filter    },
+    { "bool",      0, 1, n_bool      },
+    { "repr",      1, 1, n_repr      },
+    { "type",      1, 1, n_type      },
+    { "isinstance", 2, 2, n_isinstance },
+    { "Exception", 0, 1, n_exception },
+    { "ValueError", 0, 1, n_valueerror },
+    { "RuntimeError", 0, 1, n_runtimeerror },
+    { "ZeroDivisionError", 0, 1, n_zerodiv },
+    { "KeyError",  0, 1, n_keyerror },
+    { "IndexError", 0, 1, n_indexerror },
+    { "TypeError", 0, 1, n_typeerror },
+    { "divmod",    2, 2, n_divmod    },
+    { "pow",       2, 2, n_pyp       },
+    { "set",       0, 1, n_set       },
+    { "hypot",     1, 8, n_hypot     },
+    { "log10",     1, 1, n_log10     },
+    { "_log",      1, 2, n_log2      },
+    { "_pow",      2, 2, n_pow       },
+    { "_now",      0, 0, n_now       },
+    { "_random",   0, 0, n_random    },
+    { "_uniform",  2, 2, n_uniform   },
+    { "_randint",  2, 2, n_randint   },
+    { "_choice",   1, 1, n_choice    },
+    { "_seed",     1, 1, n_seed      },
+    { "_module",   1, 1, n_module    },
 };
 
 const Native *native_table(int *count)
@@ -1600,6 +2527,8 @@ static char g_vars[48], g_ctl[48];
 static int g_bp[64], g_nbp;
 static bool g_paused;
 static int g_step_seen = -1, g_step_from = -1, g_go_seen = -1, g_mode_seen = -1;
+static int g_int_seen = -1;
+static bool g_interrupt;
 static char g_state[96] = "running";
 
 static void dbg_publish(VM *v, const char *state)
@@ -1675,6 +2604,11 @@ static void dbg_read_ctl(void)
                 if (!m && g_paused) { g_paused = false; g_step_from = -1; }
             }
             g_mode_seen = m;
+        } else if (!nom_strncmp(q, "interrupt ", 10)) {
+            /* Ctrl+C: what is running stops, with KeyboardInterrupt */
+            int k = (int)nom_strtoll(q + 10, 0, 10);
+            if (g_int_seen >= 0 && k != g_int_seen) { g_interrupt = true; g_paused = false; }
+            g_int_seen = k;
         } else if (!nom_strncmp(q, "go ", 3)) {
             int k = (int)nom_strtoll(q + 3, 0, 10);
             if (g_go_seen >= 0 && k != g_go_seen && g_paused) { g_paused = false; g_step_from = -1; }
@@ -1715,6 +2649,12 @@ static void dbg_waiting(VM *v)
     if (!g_bg || !g_vars[0]) return;
     dbg_read_ctl();
     dbg_hold(v);
+    if (g_interrupt) {
+        /* (inside a wait for the ship: it ends with the error at once) */
+        g_interrupt = false;
+        vm_runtime_error(v, "KeyboardInterrupt: stopped (Ctrl+C)");
+        g_puts("KeyboardInterrupt: stopped (Ctrl+C)\n");
+    }
     dbg_publish(v, "waiting for the ship");
 }
 
@@ -1727,6 +2667,11 @@ static VmStatus dbg_run(VM *vm)
     for (;;) {
         if (++k % 8 == 1) dbg_read_ctl();
         dbg_hold(vm);
+        if (g_interrupt) {
+            g_interrupt = false;
+            vm_runtime_error(vm, "KeyboardInterrupt: stopped (Ctrl+C)");
+            return VM_ERROR;
+        }
         if (g_nbp > 0 || g_step_from >= 0) {
             st = vm_run(vm, 1);
             if (st != VM_YIELD) return st;
@@ -1815,12 +2760,12 @@ static void console(const char *prelude)
             if (g_in[seen] == '\n') seen++;
             int fi = prog_compile_more(prog, q, true, err, sizeof err);
             if (fi < 0) {
-                /* "parse error [line 1]: undefined name 'x'" -> "error: undefined name 'x'"
+                /* "[line 1]: name 'x'..." -> "error: name 'x'..."
                  * (a line number only when the piece had more than one) */
                 const char *msg = err;
                 int ln = 0;
-                if (!nom_strncmp(err, "parse error [line ", 18)) {
-                    ln = (int)nom_strtoll(err + 18, 0, 10);
+                if (!nom_strncmp(err, "[line ", 6)) {
+                    ln = (int)nom_strtoll(err + 6, 0, 10);
                     const char *c2 = err;
                     while (*c2 && !(c2[0] == ']' && c2[1] == ':')) c2++;
                     if (*c2) msg = c2 + 3;
@@ -1935,22 +2880,19 @@ void _start(void)
     char err[NOM_ERR_MAX] = "";
     Prog *prog = prog_compile(text, "script", err, sizeof err);
     if (!prog) {
-        /* "[line 7]" is line 6 of what was written */
-        char fixed[NOM_ERR_MAX];
+        /* "[line 7]: why" is "line 4: why" of what was written */
+        char fixed[NOM_ERR_MAX + 16];
         const char *at = err;
-        size_t k = 0;
-        while (*at && k < sizeof fixed - 12) {
-            if (!nom_strncmp(at, "[line ", 6)) {
-                at += 6;
-                int ln = 0;
-                while (*at >= '0' && *at <= '9') ln = ln * 10 + (*at++ - '0');
-                k += (size_t)nom_snprintf(fixed + k, sizeof fixed - k, "[line %d", ln - PRELUDE_LINES);
-                continue;
-            }
-            fixed[k++] = *at++;
+        int ln = 0;
+        if (!nom_strncmp(at, "[line ", 6)) {
+            at += 6;
+            while (*at >= '0' && *at <= '9') ln = ln * 10 + (*at++ - '0');
+            if (*at == ']') at++;
+            if (*at == ':') at++;
+            while (*at == ' ') at++;
         }
-        fixed[k] = 0;
-        die("syntax", fixed);
+        nom_snprintf(fixed, sizeof fixed, "line %d: %s", ln - PRELUDE_LINES, at);
+        die(fixed, "");
     }
 
     /* The meter: 512 KB of the 640 the heap has. A script that runs away is
@@ -1977,7 +2919,7 @@ void _start(void)
         nom_snprintf(at, sizeof at, "line %d: %s", vm->line - PRELUDE_LINES, vm_err(vm));
         nom_snprintf(g_state, sizeof g_state, "stopped: %s", at);
         dbg_publish(vm, g_state);
-        die("error", at);
+        die(at, "");
     }
     dbg_publish(vm, "finished");
 

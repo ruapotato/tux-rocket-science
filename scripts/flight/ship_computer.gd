@@ -30,7 +30,7 @@ extends RefCounted
 
 const SLICES := 3         # cpu slices a frame for running scripts (50k instructions each)
 const SAVE_DIR := "user://computer/"
-const KEEP := ["/root/scripts", "/root/notes.txt", "/root/Documents"]
+const KEEP := ["/root/scripts", "/root/notes.txt", "/root/Documents", "/root/.editor_seen"]
 
 ## name, argument kinds (n number, w word, t text; ? = optional), what it does
 const VERBS := [
@@ -46,6 +46,7 @@ const VERBS := [
 	["drive", "n", "the Stillwater Drive's throttle, 0 to 1"],
 	["mining", "w", "drills and refineries on or off (C)"],
 	["say", "t", "puts a line on the flight screen"],
+	["beep", "w?", "a sound: beep, alarm or chime"],
 	["autostage", "w", "on: the programs stage when a stage is spent (the default); off: never"],
 	["target", "t", "picks a vessel to target, by name (none: no target)"],
 	["abort", "", "stops the program running and closes the throttle"],
@@ -88,6 +89,10 @@ var _answers := {}            # ask id -> [frame asked, {key: value}]: when_to_l
 var _await_space := -100      # the frame a script last waited for space (wait_user_trigger)
 var space_presses := 0        # spaces a waiting script has had
 var charts := {}              # chart(name, value): name -> [[t, value], ...]
+var chart_frame := -1000      # the frame a chart last had a point
+var _said_at := []            # [[frame, line], ...]: what scripts printed, lately (for the flight screen)
+var _panel := {}
+var _panel_frame := -1000
 var aim_word := ""            # what aim() last pointed at (a direction's name)
 var aim_vec := Vector3.ZERO   # or a direction
 var aim_ph := []              # aim_at(): [pitch, heading], held against the horizon as it turns under the ship
@@ -227,6 +232,7 @@ func update(scene: Node, t: Dictionary) -> void:
 	if who != _ship_id:
 		_let_go_aim()
 		_ship_id = who
+		charts.clear()
 	_hold_aim(scene.session, t)
 	r.merge(_aim_readings(t), true)
 	r.merge(_stage_readings(t), true)
@@ -238,7 +244,9 @@ func update(scene: Node, t: Dictionary) -> void:
 	machine.tick(SLICES)
 	var said: String = machine.take_output()
 	for line in said.split("\n", false):
-		if not (line.begins_with("kernel: script") and line.ends_with("died -- exited with status 0")):
+		# (a script ending says so itself, or its error does: the kernel's
+		# word on it is noise)
+		if not (line.begins_with("kernel: script") and line.contains(" died -- ")):
 			_note(line)
 	var acts: String = machine.take_actions()
 	for line in acts.split("\n", false):
@@ -250,6 +258,37 @@ func update(scene: Node, t: Dictionary) -> void:
 	programs.said.clear()
 	if was == "running" and not programs.running():
 		_note("%s %s: %s" % [programs.name, programs.status, programs.note])
+
+
+## What the flight screen's COMPUTER panel shows: each script running (its
+## file, the line it's on, what it's doing), the program flying, what was
+## said lately (the last ten seconds or so), and the charts while they're
+## being drawn. Looked at every ten frames.
+func panel() -> Dictionary:
+	if machine == null:
+		return {}
+	if _frame - _panel_frame < 10:
+		return _panel
+	_panel_frame = _frame
+	var out := {"scripts": [], "said": [], "charts": charts if _frame - chart_frame < 1200 else {}}
+	for row in str(machine.scripts()).split("\n", false):
+		var f := row.split("\t")
+		if f.size() < 4 or f[1] != "1" or f[3] == "-i":
+			continue
+		var info := {"path": f[3], "pid": int(f[0]), "line": 0, "state": "running"}
+		for l in str(machine.read_file("/run/py/%s.vars" % f[0])).split("\n", false):
+			if l.begins_with("line "):
+				info.line = int(l.substr(5))
+			elif l.begins_with("state "):
+				info.state = l.substr(6)
+		out.scripts.append(info)
+	for s in _said_at:
+		if _frame - int(s[0]) < 600:
+			out.said.append(str(s[1]))
+	if programs.running():
+		out["program"] = "%s: %s" % [programs.name, programs.note if programs.note != "" else programs.phase]
+	_panel = out
+	return out
 
 
 ## Is a script waiting for the pilot's space (wait_user_trigger)? Then the
@@ -492,6 +531,10 @@ func take_said() -> Array[String]:
 func _note(line: String) -> void:
 	log.append(line)
 	log_count += 1
+	if not line.begins_with("> "):
+		_said_at.append([_frame, line])
+		if _said_at.size() > 8:
+			_said_at = _said_at.slice(_said_at.size() - 8)
 	if log.size() > 200:
 		log = log.slice(log.size() - 200)
 
@@ -531,6 +574,7 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 				if c.size() > 600:
 					c = c.slice(c.size() - 600)
 				charts[w[1]] = c
+				chart_frame = _frame
 			return
 		"aim":
 			if not arg in FlightPrograms.DIRS or arg == "here":
@@ -595,6 +639,8 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 			s.core.vessel_set_mining(s.active, _on(arg))
 		"say":
 			_said.append(line.substr(4))
+		"beep":
+			Sfx.play({"alarm": "alarm", "chime": "chime"}.get(arg, "click"))
 		"autostage":
 			programs.autostage = _on(arg)
 		"abort":

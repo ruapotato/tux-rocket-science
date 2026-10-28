@@ -1484,6 +1484,9 @@ static const Package PKG_SHELL = {
       { "/root/examples/hop.py", NULL, 0644, NULL },
       { "/root/examples/to_orbit.py", NULL, 0644, NULL },
       { "/root/examples/krill_by_hand.py", NULL, 0644, NULL },
+      { "/root/examples/first_script.py", NULL, 0644, NULL },
+      { "/root/examples/hover.py", NULL, 0644, NULL },
+      { "/root/examples/watch.py", NULL, 0644, NULL },
       { "/bin/ed", NULL, 0755, NULL },
       { "/bin/echo", NULL, 0755, NULL },
       { "/bin/wc", NULL, 0755, NULL },
@@ -1696,7 +1699,7 @@ static const Package PKG_SHELL = {
         "\n"
         "1.4  -- find and netstat, because everybody reached for them and they were\n"
         "       not there.\n", 0644, NULL },
-    }, 74   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen */
+    }, 77   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen */
 };
 
 
@@ -3725,6 +3728,9 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "watch), stops at a breakpoint (click by a line number) and steps a line at\n"
         "a time. Its console runs Python on the ship now: ship.orbit.top / km\n"
         "\n"
+        "  ship run /root/examples/first_script.py  start here: a hop, every line explained\n"
+        "  ship run /root/examples/hover.py      hold a height on a controller you can tune\n"
+        "  ship run /root/examples/watch.py      a co-pilot: it warns you while you fly\n"
         "  ship run /root/examples/to_orbit.py   the pad to orbit by YOUR logic: the parts\n"
         "                                        by name, the maths, a look and a fix\n"
         "  ship run /root/examples/krill_by_hand.py  to Krill and down: when_to_leave,\n"
@@ -4127,6 +4133,105 @@ else if (strcmp(path, "/root/examples/orbit.py") == 0)
         "    chart(\"height\", ship.height)\n"
         "throttle(0)\n"
         "print(f\"down on Krill with {ship.delta_v:.0f} m/s left\")\n"
+        );
+    else if (strcmp(path, "/root/examples/first_script.py") == 0)
+        buf_puts(out,
+        "# first_script.py -- your first flight script. Press Run (above).\n"
+        "#\n"
+        "# Anything after a # is a note for you: the computer skips it. Run this on\n"
+        "# the pad, then change a number and run it again: it's yours.\n"
+        "\n"
+        "print(\"Hello from the ship's computer!\")\n"
+        "print(f\"We're on {ship.body.name}, {ship.height:.0f} m above the ground.\")\n"
+        "\n"
+        "engine = ship.engines[0]          # the first engine to fire (try ship.part(\"...\") too)\n"
+        "print(\"Our engine is the\", engine.name)\n"
+        "\n"
+        "countdown(3)\n"
+        "engine.throttle = 100             # full power: it lights, and the clamps let go\n"
+        "aim(\"up\")                         # nose up, and hold it there\n"
+        "\n"
+        "# climb to 2 km, drawing the climb on the flight screen as we go\n"
+        "while ship.height < 2000:\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.2)\n"
+        "\n"
+        "engine.throttle = 0\n"
+        "print(\"Engine off at\", round(ship.height), \"m: coasting up...\")\n"
+        "while ship.vertical_speed > 0:\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.2)\n"
+        "print(f\"The top: {ship.height:.0f} m! Down by parachute.\")\n"
+        "chutes()\n"
+        "\n"
+        "# Things to try:\n"
+        "#   climb higher: change 2000 to 8000 (is there fuel for it?)\n"
+        "#   lean east as you climb: aim_at(80, 90) instead of aim(\"up\")\n"
+        "#   the console below runs a line now: try  ship.mass  or  engine.fuel\n"
+        "#   click by a line number to stop there (a breakpoint), then Step\n"
+        );
+    else if (strcmp(path, "/root/examples/hover.py") == 0)
+        buf_puts(out,
+        "# hover.py -- hold 100 m over the pad, then come down to 20 m\n"
+        "#\n"
+        "# A controller: each tenth of a second it works out the throttle that would\n"
+        "# just hold the ship up, then pushes harder the further below the height it\n"
+        "# is, and eases off as it rises. Tune the 1.5 and the 3 and watch the chart.\n"
+        "lifter = ship.engines[0]\n"
+        "target = 100\n"
+        "print(\"lift off: holding\", target, \"m\")\n"
+        "lifter.throttle = 60                 # lights it: the clamps let go\n"
+        "aim(\"up\")\n"
+        "t0 = ship.time\n"
+        "while ship.time - t0 < 45:\n"
+        "    if ship.time - t0 > 28 and target != 20:\n"
+        "        target = 20\n"
+        "        print(\"down to\", target, \"m\")\n"
+        "    push = lifter.max_thrust * 1000 / ship.mass     # m/s2, flat out\n"
+        "    hover = 100 * ship.body.gravity / push          # % that just holds it\n"
+        "    err = target - ship.height\n"
+        "    lifter.throttle = clamp(hover + err * 1.5 - ship.vertical_speed * 3, 0, 100)\n"
+        "    chart(\"height\", ship.height)\n"
+        "    chart(\"throttle\", lifter.throttle)\n"
+        "    sleep(0.1)\n"
+        "lifter.throttle = 0\n"
+        "print(f\"done: {ship.height:.1f} m up, {ship.fuel:.0f}% fuel left\")\n"
+        );
+    else if (strcmp(path, "/root/examples/watch.py") == 0)
+        buf_puts(out,
+        "# watch.py -- a co-pilot: it keeps an eye out while YOU fly\n"
+        "#\n"
+        "# Run it, then fly with the keys as usual: it says on the flight screen what\n"
+        "# it sees. It never touches the controls. Add your own warnings!\n"
+        "said = []\n"
+        "\n"
+        "def warn(key, text):\n"
+        "    # each warning once (until it's clear again)\n"
+        "    if key not in said:\n"
+        "        say(text)\n"
+        "        print(text)\n"
+        "        said.append(key)\n"
+        "\n"
+        "def clear(key):\n"
+        "    if key in said:\n"
+        "        said.remove(key)\n"
+        "\n"
+        "while True:\n"
+        "    if ship.fuel < 10 and ship.thrust > 0:\n"
+        "        warn(\"fuel\", f\"Under 10% fuel in this stage ({ship.delta_v:.0f} m/s left in all)\")\n"
+        "    else:\n"
+        "        clear(\"fuel\")\n"
+        "    hot = [p for p in ship.parts if p.heat > 80]\n"
+        "    if hot:\n"
+        "        warn(\"heat\", f\"{hot[0].name} is at {hot[0].heat:.0f}% of melting!\")\n"
+        "    else:\n"
+        "        clear(\"heat\")\n"
+        "    if ship.height < 400 and ship.falling_speed > 15 and not ship.landed:\n"
+        "        warn(\"ground\", f\"Falling {ship.falling_speed:.0f} m/s, {ship.height:.0f} m up!\")\n"
+        "    else:\n"
+        "        clear(\"ground\")\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.5)\n"
         );
     /* END test-by-hand examples */
     else if (strcmp(path, "/root/examples/hop.py") == 0)

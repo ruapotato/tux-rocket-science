@@ -82,6 +82,7 @@ var _hot := -1
 var _hot_script := -1
 var _since := 0.0
 var _seen_log := 0
+var _chart: ChartView      # what scripts chart(), under the readings
 
 
 func _ready() -> void:
@@ -89,6 +90,11 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	if mono == null:
 		mono = preload("res://scripts/os/uifont.gd").mono()
+	_chart = ChartView.new()
+	_chart.dark = false
+	_chart.font = mono
+	_chart.visible = false
+	add_child(_chart)
 	_refresh()
 
 
@@ -104,6 +110,15 @@ func _process(dt: float) -> void:
 		for k in range(lg.size() - maxi(fresh, 0), lg.size()):
 			_say(str(lg[k]))
 		_seen_log = int(ship.computer.log_count)
+		# the charts, in the left column under the readings
+		var ch: Dictionary = ship.computer.charts
+		_chart.visible = not ch.is_empty()
+		if _chart.visible:
+			var c := _cols()
+			var cr := _console_rect()
+			_chart.position = Vector2(c[0], cr.position.y - 128)
+			_chart.size = Vector2(c[1] - c[0], 118)
+			_chart.set_series(ch)
 	queue_redraw()
 
 
@@ -184,7 +199,7 @@ func _draw() -> void:
 	# readings
 	draw_string(mono, Vector2(c[0], PAD + 12), "THE SHIP", HORIZONTAL_ALIGNMENT_LEFT, -1, FS, SEL)
 	var y := PAD + 32.0
-	var lim := _console_rect().position.y - 8.0
+	var lim := _console_rect().position.y - (136.0 if _chart and _chart.visible else 8.0)
 	for row in SHOWN:
 		if y > lim:
 			break

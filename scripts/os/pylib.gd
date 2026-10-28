@@ -41,6 +41,7 @@ const CALLS := [
 	["legs", "()", "landing legs out (legs(False): in)"],
 	["rcs", "(\"on\")", "RCS thrusters on or off"],
 	["say", "(text)", "puts a line on the flight screen"],
+	["beep", "(\"alarm\")", "a sound: beep (the default), alarm or chime"],
 	["chart", "(name, value)", "a point on the Flight app's graph: chart(\"height\", ship.altitude)"],
 	["get", "(reading)", "one reading by name, as a number or a word: get(\"apoapsis\")"],
 	["target", "(name)", "picks a vessel to target"],

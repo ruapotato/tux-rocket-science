@@ -38,6 +38,8 @@
 extends Control
 
 const PyLib := preload("res://scripts/os/pylib.gd")
+const Templates := preload("res://scripts/os/templates.gd")
+const ScriptMaker := preload("res://scripts/os/script_maker.gd")
 
 var mono: Font
 var machine: Object = null
@@ -88,6 +90,12 @@ func _ready() -> void:
 		mono = preload("res://scripts/os/uifont.gd").mono()
 	_build()
 	_list_files()
+	if path == "" and str(machine.read_file("/root/scripts/first_script.py")) == "" and str(machine.read_file("/root/.editor_seen")) == "":
+		# the first time: a gentle script to run and change
+		machine.write_file("/root/scripts/first_script.py", Templates.FIRST)
+		machine.write_file("/root/.editor_seen", "yes\n")
+		path = "/root/scripts/first_script.py"
+		_list_files()
 	if path == "":
 		path = "/root/scripts/my_script.py" if _paths.is_empty() else str(_paths[0])
 	_open(path)
@@ -116,7 +124,19 @@ func _build() -> void:
 	files.custom_minimum_size = Vector2(260, 0)
 	files.item_selected.connect(func(i): _open(str(_paths[i])))
 	bar.add_child(files)
-	for b in [["New", _new], ["Save", _save], ["Run", _run], ["Pause", _pause], ["Step", _step_line], ["Stop", _stop]]:
+	var nb := MenuButton.new()
+	nb.text = "New"
+	nb.focus_mode = Control.FOCUS_NONE
+	nb.flat = false
+	var pm := nb.get_popup()
+	for i in Templates.LIST.size():
+		pm.add_item(Templates.LIST[i][0], i)
+	pm.add_item("From this ship's stages", 100)
+	pm.add_item("To orbit, by your own logic (the example)", 101)
+	pm.add_item("To Krill and down, by hand (the example)", 102)
+	pm.id_pressed.connect(_new_from)
+	bar.add_child(nb)
+	for b in [["Save", _save], ["Run", _run], ["Pause", _pause], ["Step", _step_line], ["Stop", _stop]]:
 		var bt := Button.new()
 		bt.text = b[0]
 		bt.focus_mode = Control.FOCUS_NONE
@@ -162,6 +182,10 @@ func _build() -> void:
 	edit.code_completion_requested.connect(_complete)
 	edit.text_changed.connect(_on_typed)
 	edit.breakpoint_toggled.connect(func(_l): _write_ctl())
+	edit.gui_input.connect(_edit_keys)
+	# a call's help on hovering its name
+	if edit.has_method("set_tooltip_request_func"):
+		edit.set_tooltip_request_func(_tooltip)
 	split.add_child(edit)
 	var right := VBoxContainer.new()
 	right.custom_minimum_size = Vector2(230, 0)
@@ -258,13 +282,37 @@ func _open(p: String) -> void:
 	_say_status("%s  (%d lines)" % [p, edit.get_line_count()])
 
 
-func _new() -> void:
-	var k := 1
-	while machine.read_file("/root/scripts/script_%d.py" % k) != "":
-		k += 1
-	var p := "/root/scripts/script_%d.py" % k
-	machine.write_file(p, "# script_%d.py\n# (ship run %s, or Run above)\n\n" % [k, p])
+## "New": a script to start from, as a new file (never over one of yours).
+func _new_from(id: int) -> void:
+	var name := "my_script.py"
+	var text := ""
+	if id < Templates.LIST.size():
+		name = Templates.LIST[id][1]
+		text = Templates.LIST[id][2]
+	elif id == 100:
+		# the ship being flown, stage by stage (the stages still to fire)
+		if ship == null or ship.get("computer") == null or (ship.computer._parts as Array).is_empty():
+			_say_status("no ship to make a script from: fly one first", BAD)
+			return
+		var t: Dictionary = ship.session.telemetry()
+		name = str(t.get("name", "my_ship")).to_snake_case().validate_filename() + ".py"
+		text = ScriptMaker.make(ship.computer._parts, str(t.get("name", "my ship")), int(t.get("next_stage", 99)))
+	elif id == 101 or id == 102:
+		name = "to_orbit.py" if id == 101 else "krill_by_hand.py"
+		text = str(machine.read_file("/root/examples/" + name))
+	var p := _free_name(name)
+	machine.write_file(p, text)
 	_open(p)
+	_say_status("new: %s (Run to try it)" % p)
+
+
+func _free_name(name: String) -> String:
+	var p := "/root/scripts/" + name
+	var k := 2
+	while str(machine.read_file(p)) != "":
+		p = "/root/scripts/%s_%d.py" % [name.get_basename(), k]
+		k += 1
+	return p
 
 
 func _save() -> void:
@@ -289,6 +337,14 @@ func _run() -> void:
 	_clear_marks()
 	var said: String = machine.sh_on(0, "ship run " + path)
 	_print(said.strip_edges(), DIM)
+	# found before it ran (a typo, a missing colon): mark that line
+	var m := RegEx.create_from_string("py: line (\\d+): (.*)").search(said)
+	if m:
+		_err_line = int(m.get_string(1)) - 1
+		if _err_line >= 0 and _err_line < edit.get_line_count():
+			edit.set_line_background_color(_err_line, Color(1, 0.3, 0.3, 0.25))
+			edit.set_caret_line(_err_line)
+		_say_status("line %s: %s" % [m.get_string(1), m.get_string(2)], BAD)
 	_pid = -1
 	_btn["Pause"].text = "Pause"
 
@@ -446,12 +502,18 @@ func _say_status(t: String, c := DIM) -> void:
 
 # ---- the console -----------------------------------------------------------
 
+var _printed := 0
+
 func _print(t: String, c := INK) -> void:
 	if t == "":
 		return
 	out.push_color(c)
 	out.add_text(t + "\n")
 	out.pop()
+	_printed += 1
+	if _printed > 500:
+		# (a chatty script: the last 400 lines are kept, or the window crawls)
+		out.remove_paragraph(0)
 
 
 ## What the scripts and the console printed (the computer's log).
@@ -492,6 +554,18 @@ func _console_line(line: String) -> void:
 	machine.write_file("/run/py/console.in", was + line + "\n\u001e\n")
 
 
+## Ctrl+C: what the console is running stops (KeyboardInterrupt).
+var _ints := 0
+func _interrupt() -> void:
+	var d := _find_vars("console")
+	if d.is_empty():
+		return
+	_ints += 1
+	machine.write_file("/run/py/%d.ctl" % int(d.pid), "interrupt %d\n" % _ints)
+	_block.clear()
+	_print("^C", DIM)
+
+
 ## The console's python, started the first time it's wanted.
 func _console_up() -> void:
 	var d := _find_vars("console")
@@ -505,6 +579,10 @@ func _console_up() -> void:
 
 
 func _prompt_keys(e: InputEvent) -> void:
+	if e is InputEventKey and e.pressed and e.keycode == KEY_C and e.ctrl_pressed:
+		_interrupt()
+		prompt.accept_event()
+		return
 	if not (e is InputEventKey and e.pressed) or _history.is_empty():
 		return
 	if e.keycode == KEY_UP:
@@ -516,6 +594,35 @@ func _prompt_keys(e: InputEvent) -> void:
 	prompt.text = _history[_hist_at] if _hist_at < _history.size() else ""
 	prompt.caret_column = prompt.text.length()
 	prompt.accept_event()
+
+
+## Ctrl+S saves, F5 runs, Shift+F5 stops, F10 steps (the keys an editor has).
+func _edit_keys(e: InputEvent) -> void:
+	if not (e is InputEventKey and e.pressed and not e.echo):
+		return
+	var k := e as InputEventKey
+	if k.keycode == KEY_S and k.ctrl_pressed:
+		_save()
+	elif k.keycode == KEY_F5 and k.shift_pressed:
+		_stop()
+	elif k.keycode == KEY_F5:
+		_run()
+	elif k.keycode == KEY_F10:
+		_step_line()
+	else:
+		return
+	edit.accept_event()
+
+
+## What a word under the mouse is: a call's arguments and what it does.
+func _tooltip(word: String) -> String:
+	for c in PyLib.CALLS:
+		if c[0] == word:
+			return "%s%s\n%s" % [c[0], c[1], c[2]]
+	for m in PyLib.SHIP + PyLib.PART + PyLib.ORBIT:
+		if m[0] == word:
+			return "%s  %s" % [m[0], m[1]]
+	return ""
 
 
 # ---- suggestions -------------------------------------------------------------

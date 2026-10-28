@@ -141,6 +141,15 @@ static void m_take_output(void *self, const trs_val *a, trs_val *r) {
 	ret_buf(r, &b);
 }
 
+static void m_scripts(void *self, const trs_val *a, trs_val *r) {
+	(void)a;
+	Buf b;
+	buf_init(&b);
+	if (C(self))
+		computer_scripts(C(self), &b);
+	ret_buf(r, &b);
+}
+
 static void m_read_file(void *self, const trs_val *a, trs_val *r) {
 	Buf b;
 	buf_init(&b);
@@ -216,6 +225,7 @@ const trs_method_def TRS_COMPUTER_METHODS[] = {
 	{ "start", m_start, S, 1, { S }, { "path" } },
 	{ "tick", m_tick, V, 1, { I }, { "slices" } },
 	{ "take_output", m_take_output, S, 0, { 0 }, { 0 } },
+	{ "scripts", m_scripts, S, 0, { 0 }, { 0 } },
 	{ "read_file", m_read_file, S, 1, { S }, { "path" } },
 	{ "write_file", m_write_file, B, 2, { S, S }, { "path", "data" } },
 	{ "list_dir", m_list_dir, S, 1, { S }, { "path" } },

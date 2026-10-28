@@ -419,6 +419,8 @@ int64_t kernel_start_daemon(Machine *m, const char *path, const char *arg,
  * faults during its slice has crashed, and says so. */
 void kernel_tick(Machine *m, int slices, Buf *console);
 void kernel_tick_some(Machine *m, int slices, Buf *console, const char *name, int want);
+/* TUX ROCKET SCIENCE: the ship's scripts: "pid\trunning\texit\tscript" lines */
+void kernel_scripts(Machine *m, Buf *out);
 void kernel_stop_daemons(Machine *m);
 /* Stop ONE service, and ask one to re-read its configuration. The other half
  * of starting them: a service that can only be started is a machine whose

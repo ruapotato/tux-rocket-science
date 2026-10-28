@@ -68,8 +68,8 @@ typedef int _lang_bool;
 #define NOM_PATH_MAX      256
 #define NOM_NAME_MAX      64
 #define NOM_ARG_MAX       GARG_MAX
-#define NOM_STACK_MAX     256
-#define NOM_FRAMES_MAX    32
+#define NOM_STACK_MAX     2048    /* TUX ROCKET SCIENCE: 256, and recursion 200 deep */
+#define NOM_FRAMES_MAX    220
 #define NOM_LOCALS_MAX    64
 #define NOM_GLOBALS_MAX   256
 #define NOM_CONSTS_MAX    1024
@@ -190,14 +190,15 @@ typedef enum {
     VM_YIELD,     /* instruction budget exhausted this tick */
     VM_BLOCKED,   /* suspended on a blocking device read */
     VM_SLEEP,     /* explicitly waiting until vm->wake_tick */
-    VM_ERROR      /* runtime fault; vm->err set */
+    VM_ERROR,     /* runtime fault; vm->err set */
+    VM_RETURNED   /* TUX ROCKET SCIENCE: vm_call's function has returned */
 } VmStatus;
 typedef struct Vfs    Vfs;     /* never instantiated here; the VM holds NULL */
 typedef struct Sim    Sim;
 typedef struct Ship   Ship;
 
 typedef enum { V_NIL, V_BOOL, V_INT, V_NUM, V_OBJ } VKind;
-typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE } OKind;
+typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE, O_RANGE, O_CLOSURE } OKind;
 
 typedef struct {
     uint8_t k;
@@ -207,7 +208,7 @@ typedef struct {
 struct Obj { uint8_t kind; uint32_t rc; };
 
 typedef struct { Obj o; uint32_t len; char s[]; } Str;
-typedef struct { Obj o; uint32_t len, cap; Value *v; } List;
+typedef struct { Obj o; uint32_t len, cap; Value *v; uint8_t tuple; } List;   /* (tuple: a (a, b), as it prints) */
 typedef struct { Obj o; uint32_t len, cap; Value *k; Value *v; } Dict;
 
 #define VAL_NIL      ((Value){ .k = V_NIL,  .as.i = 0 })
@@ -221,6 +222,16 @@ typedef struct { Obj o; uint32_t len, cap; Value *k; Value *v; } Dict;
  * part, "orbit" its orbit. Its label is what it prints as. */
 typedef struct { Obj o; char path[48]; char label[48]; } Handle;
 #define IS_HANDLE(v) ((v).k == V_OBJ && (v).as.o->kind == O_HANDLE)
+/* range(a, b, step): counted, not a list (range(100000) is not 100000 values) */
+typedef struct { Obj o; int64_t start, stop, step; } Range;
+#define IS_RANGE(v) ((v).k == V_OBJ && (v).as.o->kind == O_RANGE)
+#define AS_RANGE(v) ((Range *)(v).as.o)
+Value   range_new(int64_t start, int64_t stop, int64_t step);
+/* a def inside a def (or a lambda) with the outer one's names it uses,
+ * as they were when it was made; index first, as a function value's */
+typedef struct { Obj o; int index; int n; Value cap[]; } Closure;
+Value   closure_new(int index, Value *caps, int n);
+int64_t range_len(Range *r);
 #define AS_HANDLE(v) ((Handle *)(v).as.o)
 Value  handle_new(const char *path, size_t plen, const char *label, size_t llen);
 

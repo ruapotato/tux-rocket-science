@@ -38,6 +38,8 @@ typedef struct {
     int    depth;              /* bracket nesting: suppresses INDENT/DEDENT */
     int    indent[32], nindent;
     bool   at_line_start;
+    uint32_t brace_dict;       /* TUX ROCKET SCIENCE: which open { are dict literals (bit per level) */
+    int    nbrace;
     TokenList *out;
     char  *err;
     size_t errsz;
@@ -53,7 +55,7 @@ static void lx_err(Lexer *lx, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    snprintf(lx->err, lx->errsz, "parse error [line %d]: %s", lx->line, msg);
+    snprintf(lx->err, lx->errsz, "[line %d]: %s", lx->line, msg);
 }
 
 static Token *push(Lexer *lx, TokType t)
@@ -81,6 +83,9 @@ static struct { const char *word; TokType t; } KEYWORDS[] = {
     /* Python spellings accepted too — muscle memory is not a bug */
     { "True", T_TRUE }, { "False", T_FALSE }, { "None", T_NIL },
     { "pass", T_PASS },
+    { "global", T_GLOBAL }, { "import", T_IMPORT }, { "from", T_FROM },
+    { "try", T_TRY }, { "except", T_EXCEPT }, { "finally", T_FINALLY },
+    { "raise", T_RAISE }, { "lambda", T_LAMBDA }, { "is", T_IS }, { "as", T_AS }, { "assert", T_ASSERT },
     { NULL, T_EOF }
 };
 
@@ -129,10 +134,14 @@ static void lex_string(Lexer *lx, char quote)
 {
     Buf b;
     buf_init(&b);
-    while (*lx->p && *lx->p != quote) {
+    /* TUX ROCKET SCIENCE: '''...''' and """...""": they may span lines */
+    bool triple = lx->p[0] == quote && lx->p[1] == quote;
+    if (triple) lx->p += 2;
+    while (*lx->p && (triple ? !(lx->p[0] == quote && lx->p[1] == quote && lx->p[2] == quote) : *lx->p != quote)) {
         char c = *lx->p++;
-        if (c == '\n') { lx_err(lx, "unterminated string"); buf_free(&b); return; }
-        if (c == '\\' && quote == '"') {
+        if (c == '\n' && !triple) { lx_err(lx, "unterminated string (a ' or \" left open)"); buf_free(&b); return; }
+        if (c == '\n') lx->line++;
+        if (c == '\\') {
             char e = *lx->p++;
             switch (e) {
             case 'n':  buf_putc(&b, '\n'); break;
@@ -148,8 +157,8 @@ static void lex_string(Lexer *lx, char quote)
             buf_putc(&b, c);
         }
     }
-    if (*lx->p != quote) { lx_err(lx, "unterminated string"); buf_free(&b); return; }
-    lx->p++;
+    if (*lx->p != quote) { lx_err(lx, "unterminated string (a ' or \" left open)"); buf_free(&b); return; }
+    lx->p += triple ? 3 : 1;
     Token *tk = push(lx, T_STR);
     if (tk) {
         tk->sval = b.p ? b.p : nom_strdup("");
@@ -266,8 +275,37 @@ bool lex_source(const char *src, TokenList *out, char *err, size_t errsz)
         case ')': t = T_RPAREN;   if (lx.depth) lx.depth--; break;
         case '[': t = T_LBRACKET; lx.depth++; break;
         case ']': t = T_RBRACKET; if (lx.depth) lx.depth--; break;
-        case '{': t = T_LBRACE;   break;
-        case '}': t = T_RBRACE;   break;
+        case '{': {
+            /* a dict literal (after =, (, [, a comma, an operator...) wraps
+             * lines like ( does; a { opening a block does not */
+            t = T_LBRACE;
+            int n = out->ntok;
+            TokType pv = n ? out->tok[n - 1].type : T_NEWLINE;
+            bool dict = !(pv == T_IDENT || pv == T_INT || pv == T_NUM || pv == T_STR || pv == T_RPAREN ||
+                          pv == T_RBRACKET || pv == T_RBRACE || pv == T_TRUE || pv == T_FALSE || pv == T_NIL || pv == T_ELSE);
+            if (lx.nbrace < 32) {
+                if (dict) { lx.brace_dict |= 1u << lx.nbrace; lx.depth++; }
+                else lx.brace_dict &= ~(1u << lx.nbrace);
+            }
+            lx.nbrace++;
+            break;
+        }
+        case '}':
+            t = T_RBRACE;
+            if (lx.nbrace > 0) {
+                lx.nbrace--;
+                if (lx.nbrace < 32 && (lx.brace_dict & (1u << lx.nbrace)) && lx.depth) lx.depth--;
+            }
+            break;
+        case ';':
+            /* two statements on one line */
+            if (lx.depth == 0) {
+                int n = out->ntok;
+                if (n && out->tok[n - 1].type != T_NEWLINE) push(&lx, T_NEWLINE);
+                continue;
+            }
+            lx_err(&lx, "unexpected ';'");
+            break;
         case ',': t = T_COMMA;  break;
         case ':': t = T_COLON;  break;
         case '.': t = T_DOT;    break;

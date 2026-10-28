@@ -617,6 +617,8 @@ func complete(m: Dictionary) -> void:
 ## Checks the active missions against vessel telemetry `t` (the craft being
 ## flown); `extra` carries {eva, target_distance, target_orbiting, docked}.
 ## Also notes where each vessel has landed, for "recover_from".
+var _hover_t0 := -1.0   # when a hover goal's band was entered (-1: not in it)
+
 func check(t: Dictionary, serial: int, extra := {}) -> void:
 	if not t.get("alive", false):
 		return
@@ -635,7 +637,20 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 	for m in active_missions():
 		var g: Dictionary = m.goal
 		var hit := false
+		# the computer flying: nobody at the flying keys since liftoff
+		if g.get("hands_off", false) and not extra.get("hands_off", false):
+			if g.kind == "hover":
+				_hover_t0 = -1.0
+			continue
 		match g.kind:
+			"hover":
+				var off := absf(float(t.get("altitude_terrain", 0.0)) - float(g.value))
+				if off <= float(g.get("band", 2.0)) and not t.landed:
+					if _hover_t0 < 0.0:
+						_hover_t0 = float(t.t)
+					hit = float(t.t) - _hover_t0 >= float(g.get("seconds", 20.0))
+				else:
+					_hover_t0 = -1.0
 			"altitude":
 				hit = t.body == g.body and float(t.altitude) >= float(g.value)
 			"space":

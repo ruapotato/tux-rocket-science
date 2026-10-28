@@ -187,6 +187,7 @@ double nom_strtod(const char *s, char **end)
 {
     double sign = 1.0;
     while (*s == ' ' || *s == '\t') s++;
+    const char *start = s;
     if (*s == '-') { sign = -1.0; s++; }
     else if (*s == '+') s++;
     u64 digits = 0;
@@ -220,6 +221,20 @@ double nom_strtod(const char *s, char **end)
     double b = 10.0;
     while (k) { if (k & 1) p10 *= b; b *= b; k >>= 1; }
     v = scale < 0 ? v / p10 : v * p10;
+    /* (that is close; the host's strtod is exact: 0.1 must be the double
+     * nearest 0.1, or 0.1 + 0.2 prints wrong) */
+    if (any) {
+        char t[64];
+        size_t n = (size_t)(s - start);
+        if (n < sizeof t) {
+            memcpy(t, start, n);
+            t[n] = 0;
+            i64 bits = sysc(SYS_num, NUM_PARSE, (i64)t, 0);
+            memcpy(&v, &bits, 8);
+            if (end) *end = (char *)s;
+            return v;
+        }
+    }
     if (end) *end = (char *)s;
     return sign * v;
 }
@@ -305,8 +320,12 @@ void buf_vprintf(Buf *b, const char *fmt, va_list ap)
          * which. It cost twenty minutes and it was the second thing to fix. */
         int star = 0;
         if (*p == '.' && p[1] == '*') { star = 1; p += 2; }
-        while (*p == 'l' || *p == 'z' || *p == 'u') p++;
+        /* TUX ROCKET SCIENCE: %lld and %zu read a 64-bit value (the l was
+         * skipped, and 10**18 printed as its low 32 bits) */
+        int wide = 0;
+        while (*p == 'l' || *p == 'z') { wide = 1; p++; }
         switch (*p) {
+        case 'u': buf_putll(b, wide ? (i64)va_arg(ap, u64) : (i64)va_arg(ap, unsigned)); break;
         case 's': {
             if (star) {
                 int n = va_arg(ap, int);
@@ -316,7 +335,7 @@ void buf_vprintf(Buf *b, const char *fmt, va_list ap)
             }
             const char *s = va_arg(ap, const char *); buf_puts(b, s ? s : "(null)"); break;
         }
-        case 'd': case 'i': buf_putll(b, (i64)va_arg(ap, int)); break;
+        case 'd': case 'i': buf_putll(b, wide ? (i64)va_arg(ap, i64) : (i64)va_arg(ap, int)); break;
         case 'c': buf_putc(b, (char)va_arg(ap, int)); break;
         case '%': buf_putc(b, '%'); break;
         default:  buf_putc(b, '%'); if (*p) buf_putc(b, *p); break;
@@ -338,50 +357,16 @@ void buf_printf(Buf *b, const char *fmt, ...)
  * integer, as in Python), and an exponent outside 1e-5 .. 1e15. */
 void buf_putnum(Buf *b, double v, int decimals)
 {
+    /* TUX ROCKET SCIENCE: as Python prints a float -- the shortest text
+     * that reads back to exactly v (0.1 + 0.2 is 0.30000000000000004) --
+     * which takes a C library's care, so the host does it (SYS_num) */
     (void)decimals;
-    if (v != v) { buf_puts(b, "nan"); return; }
-    if (v < 0 || (v == 0 && 1.0 / v < 0)) { buf_putc(b, '-'); v = -v; }
-    if (v > 1.7e308) { buf_puts(b, "inf"); return; }
-    if (v == 0) { buf_puts(b, "0.0"); return; }
-    int e = 0;
-    double m = v;
-    while (m >= 10.0) { m /= 10.0; e++; }
-    while (m < 1.0) { m *= 10.0; e--; }
-    if (e >= -5 && e < 15) {
-        int dec = 9 - e;
-        if (dec < 1) dec = 1;
-        if (dec > 15) dec = 15;
-        double p10 = 1.0;
-        for (int i = 0; i < dec; i++) p10 *= 10.0;
-        double whole = nom_floor(v);
-        double frac = v - whole;
-        u64 f = (u64)(frac * p10 + 0.5);
-        u64 w = (u64)whole;
-        u64 lim = 1;
-        for (int i = 0; i < dec; i++) lim *= 10;
-        if (f >= lim) { f -= lim; w++; }
-        buf_putll(b, (i64)w);
-        buf_putc(b, '.');
-        char t[20];
-        for (int i = dec - 1; i >= 0; i--) { t[i] = (char)('0' + f % 10); f /= 10; }
-        int n = dec;
-        while (n > 1 && t[n - 1] == '0') n--;
-        buf_put(b, t, (size_t)n);
-        return;
-    }
-    /* m in [1, 10): nine decimals of it, then the exponent */
-    u64 f = (u64)(m * 1e9 + 0.5);
-    if (f >= 10000000000ull) { f /= 10; e++; }
-    char t[12];
-    for (int i = 9; i >= 0; i--) { t[i] = (char)('0' + f % 10); f /= 10; }
-    buf_putc(b, t[0]);
-    int n = 10;
-    while (n > 2 && t[n - 1] == '0') n--;
-    buf_putc(b, '.');
-    buf_put(b, t + 1, (size_t)(n - 1));
-    buf_putc(b, 'e');
-    if (e < 0) { buf_putc(b, '-'); e = -e; } else buf_putc(b, '+');
-    buf_putll(b, e);
+    char t[48];
+    i64 bits;
+    memcpy(&bits, &v, 8);
+    i64 n = sysc(SYS_num, NUM_REPR, bits, (i64)t);
+    if (n > 0) { buf_put(b, t, (size_t)n); return; }
+    buf_puts(b, "?");
 }
 
 /* A cut-down (v)snprintf over the same formatter the buffer uses, so there is

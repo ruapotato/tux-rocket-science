@@ -33,6 +33,7 @@
  * separately-breakable binary.
  */
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -987,6 +988,66 @@ static int64_t kernel_syscall(Cpu *c, int64_t n, int64_t a0, int64_t a1,
         memcpy(&out, &r, 8);
         c->charge += 40; /* about what a libm call costs */
         return out;
+    }
+    case SYS_num: {
+        /* numbers as text, the way a C library gets them right */
+        c->charge += 60;
+        if (a0 == NUM_PARSE) {
+            char t[64];
+            if (!guest_str(c, (uint64_t)a1, t, sizeof t)) return 0;
+            double x = strtod(t, NULL);
+            int64_t out;
+            memcpy(&out, &x, 8);
+            return out;
+        }
+        if (a0 != NUM_REPR) return -1;
+        double x;
+        memcpy(&x, &a1, 8);
+        char o[48];
+        if (x != x) snprintf(o, sizeof o, "nan");
+        else if (isinf(x)) snprintf(o, sizeof o, x < 0 ? "-inf" : "inf");
+        else if (x == 0) snprintf(o, sizeof o, signbit(x) ? "-0.0" : "0.0");
+        else {
+            /* the fewest significant digits that read back to exactly x,
+             * then laid out as Python's repr does: plain from 1e-4 up to
+             * 1e16, else with an exponent (1e-05, 1.5e+16) */
+            char e[40];
+            int p = 1;
+            for (; p < 17; p++) {
+                snprintf(e, sizeof e, "%.*e", p - 1, x);
+                if (strtod(e, NULL) == x) break;
+            }
+            snprintf(e, sizeof e, "%.*e", p - 1, x);
+            char *ep = strchr(e, 'e');
+            int ex = atoi(ep + 1);
+            *ep = 0;
+            char dig[24];
+            int nd = 0;
+            for (char *q = e; *q; q++) if (*q >= '0' && *q <= '9') dig[nd++] = *q;
+            dig[nd] = 0;
+            const char *sg = x < 0 ? "-" : "";
+            if (ex >= -4 && ex < 16) {
+                char s[64] = "";
+                int k = 0;
+                if (ex < 0) {
+                    k += snprintf(s + k, sizeof s - (size_t)k, "0.");
+                    for (int i = 0; i < -ex - 1; i++) s[k++] = '0';
+                    k += snprintf(s + k, sizeof s - (size_t)k, "%s", dig);
+                } else {
+                    for (int i = 0; i <= ex; i++) s[k++] = i < nd ? dig[i] : '0';
+                    s[k++] = '.';
+                    if (nd > ex + 1) k += snprintf(s + k, sizeof s - (size_t)k, "%s", dig + ex + 1);
+                    else s[k++] = '0';
+                    s[k] = 0;
+                }
+                snprintf(o, sizeof o, "%s%s", sg, s);
+            } else {
+                snprintf(o, sizeof o, "%s%c%s%se%c%02d", sg, dig[0], nd > 1 ? "." : "", nd > 1 ? dig + 1 : "",
+                         ex < 0 ? '-' : '+', ex < 0 ? -ex : ex);
+            }
+        }
+        size_t n = strlen(o);
+        return cpu_write(c, (uint64_t)a2, o, n + 1) ? (int64_t)n : -1;
     }
     case SYS_rbapi: {
         char line[NOM_ARG_MAX];
@@ -2163,6 +2224,19 @@ void kernel_tick_some(Machine *m, int slices, Buf *console, const char *name, in
                 buf_printf(console, "kernel: %s died -- %s\n", d[i].name, d[i].died);
             }
         }
+    }
+}
+
+/* TUX ROCKET SCIENCE: the ship's scripts, running or done: "pid\trunning\t
+ * exit\tscript" a line (for the flight screen; no shell needed to ask) */
+void kernel_scripts(Machine *m, Buf *out)
+{
+    if (!m->daemon) return;
+    struct Daemon *d = daemons(m);
+    for (int i = 0; i < m->ndaemon; i++) {
+        if (strncmp(d[i].name, "script", 6) != 0 || !d[i].proc.info) continue;
+        buf_printf(out, "%d\t%d\t%lld\t%s\n", d[i].proc.info->pid, d[i].running ? 1 : 0,
+                   (long long)d[i].exit_code, d[i].proc.arg);
     }
 }
 

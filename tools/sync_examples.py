@@ -27,6 +27,7 @@ import re
 import sys
 
 GATE = "scripts/gates/test_by_hand.gd"
+TEMPLATES = "scripts/os/templates.gd"     # (flown by test-templates)
 IMAGE = "os/machine/image.c"
 
 HEADS = {
@@ -60,10 +61,12 @@ def main():
     src = open(GATE).read()
     to_orbit = const(src, "TO_ORBIT").replace("TRIGGER1\n", "").replace("        TRIGGER2\n", "")
     krill = const(src, "KRILL")
+    tpl = open(TEMPLATES).read()
     block = ["    /* BEGIN test-by-hand examples (tools/sync_examples.py writes these) */\n"]
-    for name, text in [("to_orbit.py", to_orbit), ("krill_by_hand.py", krill)]:
+    for name, text in [("to_orbit.py", to_orbit), ("krill_by_hand.py", krill), ("first_script.py", const(tpl, "FIRST")),
+                       ("hover.py", const(tpl, "HOVER")), ("watch.py", const(tpl, "WATCH"))]:
         lines = text.split("\n", 1)
-        body = lines[0] + "\n#\n" + HEADS[name] + lines[1]
+        body = (lines[0] + "\n#\n" + HEADS[name] + lines[1]) if name in HEADS else text
         block.append('    else if (strcmp(path, "/root/examples/%s") == 0)\n        buf_puts(out,\n%s        );\n' % (name, c_lit(body)))
     block.append("    /* END test-by-hand examples */\n")
     img = open(IMAGE).read()

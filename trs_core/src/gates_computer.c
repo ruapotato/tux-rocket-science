@@ -138,12 +138,12 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 		computer_write(c, "/root/maths.py", m, strlen(m));
 	}
 	sh(c, "py /root/maths.py", &b);
-	ok = has(&b, "2.5 1.414213562 1.414 45 29.43 75432 1501.0");
+	ok = has(&b, "2.5 1.4142135623730951 1.414 45 29.43 75432 1501.0");
 	failed += !ok;
 	trs_log_printf(out, "%s numbers are real and the maths is there: %s", ok ? "ok  " : "FAIL", b.p);
 	computer_set_state(c, "altitude\t12400.25\napoapsis\t91000\nsituation\tflying\nframe\t3\n");
 	sh(c, "py -c 'print(get(\"altitude\") + 0.75, get(\"apoapsis\") + 1, get(\"situation\"), get(\"nothing\"))'", &b);
-	ok = has(&b, "12401.0 91001 flying nil");
+	ok = has(&b, "12401.0 91001 flying None");
 	failed += !ok;
 	trs_log_printf(out, "%s get() reads a reading as the number it is (or the word): %s", ok ? "ok  " : "FAIL", b.p);
 	sh(c, "py -c 'wait(5)'", &b);
@@ -176,7 +176,7 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 	}
 	actions(c, &a);
 	sh(c, "py /root/dot.py", &b);
-	ok = has(&b, "81.2 km, 62% 105 {ok} Swivel 1, Swivel 2 3 2") && has(&b, "1,234,567.89 50% [   42] [\"a\", \"b\"] true false");
+	ok = has(&b, "81.2 km, 62% 105 {ok} Swivel 1, Swivel 2 3 2") && has(&b, "1,234,567.89 50% [   42] ['a', 'b'] True False");
 	actions(c, &a);
 	ok = ok && !strcmp(a.p, "set part.4.throttle 100\nset part.4.throttle 105\ncall part.7.decouple\n");
 	failed += !ok;
@@ -236,7 +236,7 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 	buf_clear(&b);
 	computer_read(c, vars, &b);
 	buf_putc(&b, 0);
-	ok = started && vars[0] && has(&b, "script /root/dbg.py") && has(&b, "count\t") && has(&b, "best\t{\"top\": ");
+	ok = started && vars[0] && has(&b, "script /root/dbg.py") && has(&b, "count\t") && has(&b, "best\t{'top': ");
 	failed += !ok;
 	trs_log_printf(out, "%s the watch: a running script's variables, live, in %s: %s", ok ? "ok  " : "FAIL", vars[0] ? vars : "(none)", b.p ? b.p : "\n");
 	computer_write(c, ctl, "break 4\nmode run\nstep 0\n", 23);
@@ -333,8 +333,8 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 		sh(c, "cat /run/py/console.in | wc", &b);
 		trs_log_printf(out, "     [in] %s", b.p);
 	}
-	ok = started && has(&con, "console ready") && has(&con, "\n42\n") && has(&con, "\n42.5\n") && has(&con, "\"km is 1000\"")
-			&& has(&con, "error: undefined name 'nope'") && has(&con, "error: undefined name 'undefined_thing'") && has(&con, "still here");
+	ok = started && has(&con, "console ready") && has(&con, "\n42\n") && has(&con, "\n42.5\n") && has(&con, "'km is 1000'")
+			&& has(&con, "error: name 'nope' is not defined") && has(&con, "error: name 'undefined_thing' is not defined") && has(&con, "still here");
 	failed += !ok;
 	trs_log_printf(out, "%s the console (py -i): x = 21, then x * 2 says 42; a def stays for the next piece (42.5); a mistake says so and it goes on: %s",
 			ok ? "ok  " : "FAIL", con.p);

@@ -36,6 +36,8 @@ typedef enum {
     /* keywords */
     T_IF, T_ELIF, T_ELSE, T_WHILE, T_FOR, T_IN, T_BREAK, T_CONTINUE,
     T_DEF, T_RETURN, T_AND, T_OR, T_NOT, T_TRUE, T_FALSE, T_NIL, T_PASS,
+    /* TUX ROCKET SCIENCE: the rest of the Python a player reaches for */
+    T_GLOBAL, T_IMPORT, T_FROM, T_TRY, T_EXCEPT, T_FINALLY, T_RAISE, T_LAMBDA, T_IS, T_AS, T_ASSERT,
     /* punctuation */
     T_LPAREN, T_RPAREN, T_LBRACKET, T_RBRACKET, T_LBRACE, T_RBRACE,
     T_COMMA, T_COLON, T_DOT, T_FSTR,
@@ -81,6 +83,11 @@ typedef enum {
     /* TUX ROCKET SCIENCE: a.b, a.b = v, a.b(...) (the ship and its parts
      * are things with names), and the [k] += v that needs two copies */
     OP_GETATTR, OP_SETATTR, OP_CALLMETHOD, OP_DUP2,
+    /* and Python's: a, b = ...; x[1:3]; [f(x) for x in s]; f(a, key=b);
+     * def f(a, b=1); try/except/raise */
+    OP_UNPACK, OP_SLICE, OP_APPENDN, OP_KWARGS, OP_SETDEFAULTS,
+    OP_TRY, OP_ENDTRY, OP_RAISE,
+    OP_TUPLE, OP_CLOSURE, OP_EXCMATCH, OP_EXCTEXT, OP_PUTN,
     OP_HALT
 } OpCode;
 
@@ -96,6 +103,10 @@ struct Func {
     int    nlocals;
     Chunk  chunk;
     char  *locals;      /* TUX ROCKET SCIENCE: its locals' names, "a,b,c" (the debugger's watch) */
+    int    ndefaults;   /* the last ndefaults parameters' defaults */
+    int    ncap;        /* a closure's: which local each captured value goes in */
+    int    cap_slot[16];
+    Value  defaults[NOM_ARGS_MAX];
 };
 
 struct Prog {
@@ -126,6 +137,8 @@ int           native_find(const char *name, int len);
 bool          host_getattr(VM *v, Value obj, Str *name, Value *out);
 bool          host_setattr(VM *v, Value obj, Str *name, Value val);
 VmStatus      host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value *out);
+/* "%d m at %.1f s" % (120, 3.25) */
+bool          host_percent(VM *v, Value fmt, Value args, Value *out);
 
 /* Objects for callables (defined in value.c). */
 Value func_obj_new(int index, bool native);
@@ -178,6 +191,14 @@ struct VM {
     Value   global[NOM_GLOBALS_MAX];
     bool    gdef[NOM_GLOBALS_MAX];
 
+    /* TUX ROCKET SCIENCE: f(a, key=b): the keyword arguments of the call
+     * being made (a native reads them and says it did); try's handlers */
+    Value    kw;            /* a dict, or nil */
+    bool     kw_used;
+    struct Handler { int frame, sp, ip; } handler[16];
+    int      nhandler;
+    int      stop_frames;   /* vm_call: stop when the frames are back to this */
+
     uint64_t steps;
     uint64_t wake_tick;
     bool     sleeping;      /* sleep() is mid-flight; see natives.c */
@@ -199,5 +220,8 @@ void vm_runtime_error(VM *v, const char *fmt, ...);
 int  prog_compile_more(Prog *pr, const char *src, bool echo, char *err, size_t errsz);
 /* run that chunk next, on the VM's globals as they are */
 void vm_start_func(VM *v, int fi);
+/* TUX ROCKET SCIENCE: calls a function value (a native, a def, a lambda)
+ * from a native -- sorted's key=, map(): its result, or false with v->err */
+bool vm_call(VM *v, Value fn, Value *args, int n, Value *out);
 
 #endif /* NOM_LANG_H */

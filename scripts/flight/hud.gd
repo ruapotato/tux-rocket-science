@@ -68,6 +68,9 @@ var _story_body: RichTextLabel
 var _fail: PanelContainer
 var _fail_title: Label
 var _fail_body: Label
+var _comp_panel: PanelContainer   # COMPUTER: the script flying, its words, its charts
+var _comp_text: RichTextLabel
+var _comp_chart: ChartView
 
 
 func _ready() -> void:
@@ -119,7 +122,18 @@ func _ready() -> void:
 	_column([_left, _stages], false)
 	_signal = _panel_text(Vector2(-280, 250), Vector2(270, 0), true)
 	_signal.get_parent().visible = false
-	_column([_right, _target_text, _signal], true)
+	_comp_text = _panel_text(Vector2(-280, 370), Vector2(270, 0), true)
+	_comp_panel = _comp_text.get_parent()
+	_comp_panel.visible = false
+	_comp_panel.remove_child(_comp_text)
+	var cv := VBoxContainer.new()
+	_comp_panel.add_child(cv)
+	cv.add_child(_comp_text)
+	_comp_chart = ChartView.new()
+	_comp_chart.custom_minimum_size = Vector2(250, 86)
+	_comp_chart.visible = false
+	cv.add_child(_comp_chart)
+	_column([_right, _target_text, _signal, cv], true)   # (cv: in the panel, as each text is)
 	_build_story()
 
 	# bottom centre: throttle | navball | g-meter, SAS row beneath
@@ -509,6 +523,34 @@ func set_target_text(s: String) -> void:
 
 ## The signal panel: the relics here a scanner hears or PASA knows of,
 ## from relic_text().
+## The ship's computer at work, on the flight screen (ShipComputer.panel()).
+func set_computer(p: Dictionary) -> void:
+	if _comp_panel == null:
+		return
+	var lines := PackedStringArray()
+	for s in p.get("scripts", []):
+		var st := str(s.state)
+		var col := "#ffcf6a" if st.begins_with("paused") else ("#ff8a7a" if st.begins_with("stopped") else "#8fd18f")
+		lines.append("[color=%s]▶[/color] [b]%s[/b]  line %d  [color=#9fb4cc]%s[/color]" % [col, str(s.path).get_file(), int(s.line), st])
+	if p.has("program"):
+		lines.append("[color=#82aaff]⚙[/color] %s" % str(p.program).replace("[", "("))
+	var said: Array = p.get("said", [])
+	for k in range(maxi(0, said.size() - 3), said.size()):
+		var t := str(said[k]).replace("[", "(")
+		lines.append(("[color=#ff8a7a]%s[/color]" if t.begins_with("py: ") else "[color=#d7dee6]%s[/color]") % t)
+	if p.has("hands_off"):
+		var ho: Array = p.hands_off
+		lines.append("[color=#8fd18f]HANDS OFF[/color] [color=#9fb4cc]for %s[/color]" % str(ho[0]) if ho[1]
+			else "[color=#ff8a7a]you flew it[/color] [color=#9fb4cc]: %s needs a flight the computer flies[/color]" % str(ho[0]))
+	var ch: Dictionary = p.get("charts", {})
+	_comp_chart.visible = not ch.is_empty()
+	if not ch.is_empty():
+		_comp_chart.set_series(ch)
+	_comp_panel.visible = not lines.is_empty() or not ch.is_empty()
+	if _comp_panel.visible:
+		_comp_text.text = "[color=#ffcf6a]COMPUTER[/color]  [color=#6f86a6](F2: the desktop)[/color]\n" + "\n".join(lines)
+
+
 func set_signal_text(s: String) -> void:
 	_signal.text = s
 	_signal.get_parent().visible = s != ""
@@ -766,7 +808,9 @@ func update_from(t: Dictionary, mission_t: float) -> void:
 	if int(t.get("jets", 0)) > 0:
 		st += " [color=#6f86a6]rockets only[/color]"
 	_stages.text = st
-	_throttle.set_meta("value", t.throttle)
+	# the engines' own throttles (a script's) count: thrust over what they could
+	var tm := float(t.get("thrust_max", 0.0))
+	_throttle.set_meta("value", float(t.get("thrust", 0.0)) / tm if tm > 0.0 and float(t.get("engines_lit", 0)) > float(t.get("solids_lit", 0)) else t.throttle)
 	_throttle.queue_redraw()
 	_gmeter.set_meta("value", t.g_force)
 	_gmeter.set_meta("max", 8.0)

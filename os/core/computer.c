@@ -151,6 +151,64 @@ static int name_is(const char *have, const char *want) {
 	return hl == wl ? 2 : have[wl] == ' ' ? 1 : 0;
 }
 
+/* edits from one name to the other (case aside), for "did you mean" */
+static int edits(const char *a, const char *b) {
+	int al = (int)strlen(a), bl = (int)strlen(b);
+	if (al > 40 || bl > 40)
+		return 99;
+	int d[41][41];
+	for (int i = 0; i <= al; i++)
+		d[i][0] = i;
+	for (int j = 0; j <= bl; j++)
+		d[0][j] = j;
+	for (int i = 1; i <= al; i++)
+		for (int j = 1; j <= bl; j++) {
+			int c = lower(a[i - 1]) == lower(b[j - 1]) ? 0 : 1;
+			int m = d[i - 1][j] + 1;
+			if (d[i][j - 1] + 1 < m)
+				m = d[i][j - 1] + 1;
+			if (d[i - 1][j - 1] + c < m)
+				m = d[i - 1][j - 1] + c;
+			d[i][j] = m;
+		}
+	return d[al][bl];
+}
+
+/* what `parent` has that's nearest to `name` ("" if nothing is near):
+ * engine.fule -> fuel; ship.altitud -> altitude */
+static void nearest_child(Computer *c, const char *parent, const char *name, char *out, size_t cap) {
+	out[0] = 0;
+	int nl = (int)strlen(name);
+	int best = nl <= 3 ? 1 : nl <= 6 ? 2 : 3;
+	size_t pl = strlen(parent);
+	for (int i = 0; i < c->nobj; i++) {
+		const char *p = c->objs[i].path;
+		const char *leaf;
+		if (pl) {
+			if (strncmp(p, parent, pl) || p[pl] != '.' || strchr(p + pl + 1, '.'))
+				continue;
+			leaf = p + pl + 1;
+		} else {
+			if (strchr(p, '.'))
+				continue;
+			leaf = p;
+		}
+		int e = edits(name, leaf);
+		if (e < best + 1 && e > 0) {
+			best = e - 1;
+			snprintf(out, cap, "%s", leaf);
+		}
+	}
+	if (!pl)
+		for (int i = 0; i < c->nstate; i++) {
+			int e = edits(name, c->state[i].key);
+			if (e < best + 1 && e > 0) {
+				best = e - 1;
+				snprintf(out, cap, "%s", c->state[i].key);
+			}
+		}
+}
+
 /* `ship obj get|set|call|find|dict ...`: the things aboard, for the
  * language's dot (py.c). */
 static void obj_api(Computer *c, const char *rest, Buf *out) {
@@ -194,7 +252,14 @@ static void obj_api(Computer *c, const char *rest, Buf *out) {
 				return;
 			}
 		}
-		buf_printf(out, "-ERR %s has no '%s'\n", dot ? "it" : "the ship", dot ? dot + 1 : path);
+		char parent[96] = "", near[64];
+		if (dot)
+			snprintf(parent, sizeof parent, "%.*s", (int)(dot - path), path);
+		nearest_child(c, parent, dot ? dot + 1 : path, near, sizeof near);
+		if (near[0])
+			buf_printf(out, "-ERR %s has no '%s' -- did you mean '%s'?\n", dot ? "it" : "the ship", dot ? dot + 1 : path, near);
+		else
+			buf_printf(out, "-ERR %s has no '%s' (the Script Editor lists what it has: type a dot)\n", dot ? "it" : "the ship", dot ? dot + 1 : path);
 		return;
 	}
 	if (!strcmp(verb, "set") || !strcmp(verb, "call")) {
@@ -206,8 +271,16 @@ static void obj_api(Computer *c, const char *rest, Buf *out) {
 			snprintf(whole, sizeof whole, "%.*s", dot ? (int)(dot - path) : 0, path);
 			if (!o && !strncmp(path, "part.", 5) && !obj_has_children(c, whole))
 				buf_puts(out, "-ERR not aboard\n");
-			else if (!o)
-				buf_printf(out, "-ERR it has no '%s'\n", dot ? dot + 1 : path);
+			else if (!o) {
+				char parent[96] = "", near[64];
+				if (dot)
+					snprintf(parent, sizeof parent, "%.*s", (int)(dot - path), path);
+				nearest_child(c, parent, dot ? dot + 1 : path, near, sizeof near);
+				if (near[0])
+					buf_printf(out, "-ERR it has no '%s' -- did you mean '%s'?\n", dot ? dot + 1 : path, near);
+				else
+					buf_printf(out, "-ERR it has no '%s'\n", dot ? dot + 1 : path);
+			}
 			else if (call)
 				buf_printf(out, "-ERR %s is a reading, not something it does (no ())\n", dot ? dot + 1 : path);
 			else if (!strcmp(o->val, "@call"))
@@ -705,6 +778,10 @@ void computer_tick(Computer *c, int slices) {
 	 * answer (nomde opening a window), not enough to eat the frame */
 	if (++c->ticks % 30 == 0)
 		kernel_tick_some(&c->m, 1, &c->boot_out, "script", 0);
+}
+
+void computer_scripts(Computer *c, Buf *out) {
+	kernel_scripts(&c->m, out);
 }
 
 void computer_take_output(Computer *c, Buf *out) {

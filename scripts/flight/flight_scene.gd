@@ -45,6 +45,9 @@ var _env: Environment
 var _sun: DirectionalLight3D
 var _throttle := 0.0
 var _launched := false
+## Did the pilot fly it (a flying key, a SAS button, a stage by hand) since
+## the launch? A hands-off contract wants the computer to have flown it.
+var hands_used := false
 var _flicker := 0.0
 var _map: MapView
 var _sas_follow := ""  # SAS chasing a moving direction: maneuver, target, antirel, dock
@@ -435,7 +438,7 @@ func _build() -> void:
 	_map.visible = false
 	hud = FlightHUD.new()
 	ui.add_child(hud)
-	hud.sas_pressed.connect(_on_sas)
+	hud.sas_pressed.connect(func(mode): hands_used = true; _on_sas(mode))
 	hud.menu_action.connect(_on_menu)
 	hud.warp_pressed.connect(func(dir: int):
 		if dir == 0:
@@ -443,7 +446,7 @@ func _build() -> void:
 		else:
 			_change_warp(dir))
 	hud.throttle_set.connect(func(x: float): _throttle = x)
-	hud.action_pressed.connect(_on_action)
+	hud.action_pressed.connect(func(a): hands_used = true; _on_action(a))
 	Career.mission_done.connect(_on_mission_done)
 	Career.relic_heard.connect(func(r: Dictionary):
 		Sfx.play("click")
@@ -514,6 +517,9 @@ func _key(k: InputEventKey) -> void:
 		return
 	if k.keycode != KEY_F1:
 		hud.hide_help()
+	if k.keycode in [KEY_Z, KEY_X, KEY_T, KEY_R, KEY_G, KEY_P, KEY_B, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9] \
+			and not _inside and not session.telemetry().get("eva", false):
+		hands_used = true   # (the pilot flying it: a hands-off contract no longer counts)
 	match k.keycode:
 		KEY_F1:
 			hud.toggle_help()
@@ -528,7 +534,14 @@ func _key(k: InputEventKey) -> void:
 				session.core.walker_command(session.active, PackedFloat64Array([0, 0, 0]), true)
 			elif session.telemetry().get("eva", false):
 				session.set_walk(0.0, 0.0, true)  # jump (the walk is set again next frame)
+			elif computer != null and computer.wants_space():
+				# a script is waiting for this press (wait_user_trigger): it's
+				# the script's, not a stage
+				computer.take_space()
+				hud.toast("Space: the script goes on", 1.2)
+				Sfx.play("click")
 			else:
+				hands_used = true
 				_stage()
 		KEY_F:
 			_eva_key()
@@ -927,14 +940,23 @@ func _process(delta: float) -> void:
 			_fill_science()
 
 
+## Lifted off without a press of space (a script lit the engine): the
+## mission clock starts all the same.
+func _note_liftoff(t: Dictionary) -> void:
+	if not _launched and t.get("liftoff_t") != null and not t.get("clamped", false):
+		_launched = true
+		mission_start = float(t.liftoff_t)
+
+
 ## PASA's missions, against the craft being flown.
 func _check_missions() -> void:
 	var t := session.telemetry()
 	if not t.get("alive", false):
 		return
+	_note_liftoff(t)
 	var ti := session.target_info()
 	Career.check(t, session.core.vessel_serial(session.active), {"eva": t.get("eva", false),
-		"target_distance": ti.get("distance", INF), "docked": _docked_seen})
+		"target_distance": ti.get("distance", INF), "docked": _docked_seen, "hands_off": _launched and not hands_used})
 	_docked_seen = false
 
 
@@ -1136,9 +1158,11 @@ func _controls(delta: float) -> void:
 	elif computer != null:
 		if Input.is_key_pressed(KEY_SHIFT) or Input.is_key_pressed(KEY_CTRL):
 			ShipComputer.engines_follow(session)
+			hands_used = true
 		for key in [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]:
 			if Input.is_key_pressed(key):
 				computer._let_go_aim()  # steering by hand
+				hands_used = true
 				break
 	if Input.is_key_pressed(KEY_SHIFT):
 		_throttle = minf(1.0, _throttle + THROTTLE_RATE * delta)
@@ -1955,6 +1979,16 @@ func _render(delta: float) -> void:
 	hud.follow_mode = _sas_follow
 	hud.set_target_text(_target_text())
 	hud.set_signal_text(FlightHUD.relic_text(t, Career.heard))
+	_note_liftoff(t)
+	if computer != null:
+		var cp := computer.panel()
+		if Career.is_career() and (not (cp.get("scripts", []) as Array).is_empty() or cp.has("program")):
+			for m in Career.active_missions():
+				if m.goal.get("hands_off", false):
+					cp = cp.duplicate()
+					cp["hands_off"] = [str(m.title), not hands_used]
+					break
+		hud.set_computer(cp)
 	# crew and mission bookkeeping
 	_mission.max_altitude = maxf(_mission.max_altitude, t.altitude)
 	_mission.max_g = maxf(_mission.max_g, t.g_force)

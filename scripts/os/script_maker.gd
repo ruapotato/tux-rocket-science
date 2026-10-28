@@ -46,8 +46,9 @@ static func kind_of(d: Dictionary) -> String:
 	return "part"
 
 
-## parts: the craft's parts ({part, stage, ...}), as built.
-static func make(parts: Array, craft_name: String) -> String:
+## parts: the craft's parts ({part, stage, ...}), as built; in flight, only
+## the stages up to next_stage are still to fire.
+static func make(parts: Array, craft_name: String, next_stage := 999) -> String:
 	# the flight computer's view of them: uid in build order, name, kind
 	var flat := []
 	for i in parts.size():
@@ -56,7 +57,7 @@ static func make(parts: Array, craft_name: String) -> String:
 	var names := ShipComputer.part_names(flat)
 	var stages := []
 	for p in flat:
-		if int(p.stage) >= 0 and not int(p.stage) in stages:
+		if int(p.stage) >= 0 and int(p.stage) <= next_stage and not int(p.stage) in stages:
 			stages.append(int(p.stage))
 	stages.sort()
 	stages.reverse()   # firing order: the highest goes first

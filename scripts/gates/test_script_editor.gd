@@ -199,7 +199,7 @@ func run(runner: Node) -> Dictionary:
 		comp.machine.start("/root/scripts/career.py")
 		_fly(scene, app, 40)
 	var heard := " / ".join(comp.log)
-	_check(heard.contains("needs the Guidance Computer") and heard.contains("needs the Flight Planner") and heard.contains("aimed true 100"),
+	_check(heard.contains("needs the Guidance Computer") and heard.contains("needs the Flight Planner") and heard.contains("aimed True 100"),
 		"in a career, launch() and when_to_leave() wait on R&D (and say so); aiming and the parts don't: %s" % heard)
 	Career.unlocked.append("planner")
 	comp.log.clear()

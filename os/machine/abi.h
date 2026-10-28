@@ -195,6 +195,14 @@ typedef unsigned long      uint64_t;
                              * in and out. TUX ROCKET SCIENCE: the CPU has
                              * F and D now (cpu_fp.inc), and these are the
                              * functions a libm would be: MATH_* below.    */
+#define SYS_num      1092   /* TUX ROCKET SCIENCE: (NUM_REPR, x bits, buf) ->
+                             * length: x as Python prints it (the shortest
+                             * text that reads back to exactly x), into buf
+                             * (32 bytes); (NUM_PARSE, text, 0) -> the bits
+                             * of the double that text names, correctly
+                             * rounded.                                    */
+#define NUM_REPR  0
+#define NUM_PARSE 1
 #define SYS_yield    1091   /* () -> 1: the rest of this slice is given up
                              * (a background script waiting for the ship to
                              * move on); 0, and nothing happens, in the

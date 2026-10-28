@@ -70,6 +70,8 @@ void computer_list(Computer *c, const char *path, Buf *out);
  * window requests programs have made (`open g2048`), drained. */
 void computer_de_apps(Computer *c, Buf *out);
 void computer_de_requests(Computer *c, Buf *out);
+/* The scripts it has run: "pid\trunning\texit\tpath" lines. */
+void computer_scripts(Computer *c, Buf *out);
 /* How the machine answers `ship <line>` (the same function the bridge calls). */
 void computer_api(Computer *c, const char *line, Buf *out);
 

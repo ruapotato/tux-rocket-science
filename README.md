@@ -250,8 +250,17 @@ print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
   travel time, pass height) and `what_if(forward, sideways, outward, when)`, which predicts the
   path as if that burn were made without making it, so a script can try course corrections for
   free.
-- **The language:** real numbers, f-strings, `def`, lists and dicts, `"a,b".split(",")`,
-  `sqrt`/`sin`/`atan2`/`pi`, and `km = 1000`.
+- **The language is Python** as you'd write it: `for i in range(10)`, `a, b = b, a`, list and
+  dict comprehensions, slices, f-strings (`f"{x:,.1f}"`, `f"{x=}"`), `%` and `.format()`,
+  `lambda` and `sorted(key=...)`, default and keyword arguments, `try`/`except ... as e`/`raise`,
+  `import math` (and `time`, `random`), tuples, closures and `global`. Floats print as Python
+  prints them, and a typo says what you meant (`name 'throtle' is not defined -- did you mean
+  'throttle'?`). `km = 1000` is built in.
+
+While a script flies, the flight screen's **COMPUTER** panel shows it: the file and the line
+it's on, what it last said, and live graphs of whatever it `chart()`s. In a career, **hands-off
+contracts** pay for flights the computer flies alone (pressing space when a script asks is
+fine): a hop, holding 50 m for 20 seconds, an orbit, a landing on Krill.
 
 The **Script Editor** on the computer's desktop colours Python and suggests what fits as you
 type: every call with what it takes, and after a dot what that thing has, read from the ship as
@@ -259,7 +268,9 @@ it is. After an engine's name it offers `throttle`, `fuel` and `ignite()`, and i
 `ship.part("` it offers the names of the parts aboard. **Run** starts the script. The **watch**
 shows every variable as it flies, the line it's on is marked, a click in the gutter sets a
 breakpoint, and **Step** runs one line. Its **console** runs Python on the ship there and then
-and keeps its variables (`m = ship.mass`, then `m / 1000`). In the hangar, **Make script from
+and keeps its variables (`m = ship.mass`, then `m / 1000`; Ctrl+C stops it). **New** starts
+from a template: a first script that explains every line, a hover controller to tune, a
+co-pilot that warns you while you fly, or the ship you're flying, stage by stage. In the hangar, **Make script from
 these stages** writes your rocket as a script: each part by its stage, and each stage waiting for
 your space. Swap a wait for your own test and that stage goes by itself.
 

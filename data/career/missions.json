@@ -1,5 +1,5 @@
 {
-  "_doc": "PASA missions, offered in order once their 'after' missions are done. goal kinds: altitude (above sea level, m, at body), space (above the air at body), orbit (periapsis above the air at body), soi (in body's sphere of influence), landed (at body, not at Floe's launch site), eva_space (a penguin out in space), eva_landed (a penguin standing on body), recover_from (a craft that landed at body comes home), flag (a flag planted on body), rendezvous (within value m of another craft), docked, refine (making propellant away from Floe), hear (a Signal Scanner hears relic), investigate (a penguin on foot at relic). story is told when it is done.",
+  "_doc": "PASA missions, offered in order once their 'after' missions are done. goal kinds: altitude (above sea level, m, at body), space (above the air at body), orbit (periapsis above the air at body), soi (in body's sphere of influence), landed (at body, not at Floe's launch site), eva_space (a penguin out in space), eva_landed (a penguin standing on body), recover_from (a craft that landed at body comes home), flag (a flag planted on body), rendezvous (within value m of another craft), docked, refine (making propellant away from Floe), hear (a Signal Scanner hears relic), investigate (a penguin on foot at relic), hover (value m above the ground, within band m, for seconds). hands_off: only if nobody touched the flying keys since liftoff (the ship's computer flew it). story is told when it is done.",
   "start_funds": 25000,
   "recovery_refund": 0.9,
   "missions": [
@@ -65,6 +65,14 @@
     { "id": "meet", "title": "Rendezvous", "text": "Fly within 200 m of another craft in orbit.", "goal": { "kind": "rendezvous", "value": 200 },
       "funds": 30000, "research": 25, "after": ["orbit"] },
     { "id": "dock", "title": "Docking", "text": "Dock two craft together.", "goal": { "kind": "docked" },
-      "funds": 40000, "research": 30, "after": ["meet"] }
+      "funds": 40000, "research": 30, "after": ["meet"] },
+    { "id": "auto_hop", "title": "The computer flies", "text": "Get 1 km up with nobody at the controls: a script on the ship's computer flies it (F2, the Script Editor). Pressing space when a script asks for it is fine.",
+      "goal": { "kind": "altitude", "body": "floe", "value": 1000, "hands_off": true }, "funds": 6000, "research": 6, "after": ["hop"] },
+    { "id": "hover_50", "title": "Steady as she goes", "text": "Hold 50 m above the ground, give or take 2 m, for 20 seconds, the computer at the controls. hover.py in the examples is a start: tune it.",
+      "goal": { "kind": "hover", "value": 50, "band": 2, "seconds": 20, "hands_off": true }, "funds": 9000, "research": 8, "after": ["auto_hop"] },
+    { "id": "auto_orbit", "title": "Orbit, hands off", "text": "Reach orbit with your own script flying: no flying keys from the pad to the orbit (to_orbit.py is one way).",
+      "goal": { "kind": "orbit", "body": "floe", "hands_off": true }, "funds": 25000, "research": 20, "after": ["orbit", "auto_hop"] },
+    { "id": "auto_krill", "title": "Krill, hands off", "text": "Land on Krill with the computer flying all the way from the pad (krill_by_hand.py shows how; doing it your own way pays the same).",
+      "goal": { "kind": "landed", "body": "krill", "hands_off": true }, "funds": 70000, "research": 50, "after": ["krill_land", "auto_orbit"] }
   ]
 }

@@ -109,6 +109,34 @@ Value handle_new(const char *path, size_t plen, const char *label, size_t llen)
     return VAL_OBJ(h);
 }
 
+Value range_new(int64_t start, int64_t stop, int64_t step)
+{
+    Range *r = nom_alloc(sizeof(Range));
+    r->o.kind = O_RANGE;
+    r->o.rc = 1;
+    r->start = start;
+    r->stop = stop;
+    r->step = step ? step : 1;
+    return VAL_OBJ(r);
+}
+
+int64_t range_len(Range *r)
+{
+    if (r->step > 0) return r->stop > r->start ? (r->stop - r->start + r->step - 1) / r->step : 0;
+    return r->start > r->stop ? (r->start - r->stop - r->step - 1) / -r->step : 0;
+}
+
+Value closure_new(int index, Value *caps, int n)
+{
+    Closure *c = nom_alloc(sizeof(Closure) + sizeof(Value) * (size_t)n);
+    c->o.kind = O_CLOSURE;
+    c->o.rc = 1;
+    c->index = index;
+    c->n = n;
+    for (int i = 0; i < n; i++) c->cap[i] = caps[i];
+    return VAL_OBJ(c);
+}
+
 Value func_obj_new(int index, bool native)
 {
     RefObj *r = nom_alloc(sizeof(RefObj));
@@ -145,6 +173,11 @@ void val_release(Value v)
         nom_free(d->v);
         break;
     }
+    case O_CLOSURE: {
+        Closure *c = (Closure *)o;
+        for (int i = 0; i < c->n; i++) val_release(c->cap[i]);
+        break;
+    }
     default: break;
     }
     nom_free(o);
@@ -162,6 +195,7 @@ bool val_truthy(Value v)
         case O_STR:  return AS_STR(v)->len != 0;
         case O_LIST: return AS_LIST(v)->len != 0;
         case O_DICT: return AS_DICT(v)->len != 0;
+        case O_RANGE: return range_len(AS_RANGE(v)) != 0;
         default:     return true;
         }
     }
@@ -185,6 +219,8 @@ bool val_equal(Value a, Value b)
         }
         if (a.as.o->kind == O_HANDLE)
             return strcmp(AS_HANDLE(a)->path, AS_HANDLE(b)->path) == 0;
+        if (a.as.o->kind == O_FUNC || a.as.o->kind == O_NATIVE)   /* (type(x) == float) */
+            return func_obj_index(a) == func_obj_index(b);
         return a.as.o == b.as.o;
     }
     if (a.k == V_OBJ || b.k == V_OBJ) return false;
@@ -216,36 +252,42 @@ int64_t val_int(Value v)
 static void emit(Buf *b, Value v, bool quoted)
 {
     switch (v.k) {
-    case V_NIL:  buf_puts(b, "nil"); return;
-    case V_BOOL: buf_puts(b, v.as.i ? "true" : "false"); return;
-    case V_INT:  buf_printf(b, "%lld", (long long)v.as.i); return;
+    case V_NIL:  buf_puts(b, "None"); return;     /* (TUX ROCKET SCIENCE: as Python says them) */
+    case V_BOOL: buf_puts(b, v.as.i ? "True" : "False"); return;
+    case V_INT:  buf_printf(b, "%lld", (long long)v.as.i); return;  /* (64-bit since gheap.c reads the l) */
     case V_NUM:  buf_putnum(b, v.as.d, 4); return;
     case V_OBJ: break;
     }
     switch (v.as.o->kind) {
     case O_STR:
         if (quoted) {
-            buf_putc(b, '"');
+            /* as Python's repr: in ' unless it holds a ' and no " */
             Str *s = AS_STR(v);
+            bool sq = false, dq = false;
+            for (uint32_t i = 0; i < s->len; i++) { sq |= s->s[i] == '\''; dq |= s->s[i] == '"'; }
+            char q = (sq && !dq) ? '"' : '\'';
+            buf_putc(b, q);
             for (uint32_t i = 0; i < s->len; i++) {
                 char c = s->s[i];
-                if (c == '"' || c == '\\') { buf_putc(b, '\\'); buf_putc(b, c); }
+                if (c == q || c == '\\') { buf_putc(b, '\\'); buf_putc(b, c); }
                 else if (c == '\n') buf_puts(b, "\\n");
+                else if (c == '\t') buf_puts(b, "\\t");
                 else buf_putc(b, c);
             }
-            buf_putc(b, '"');
+            buf_putc(b, q);
         } else {
             buf_put(b, AS_STR(v)->s, AS_STR(v)->len);
         }
         return;
     case O_LIST: {
         List *l = AS_LIST(v);
-        buf_putc(b, '[');
+        buf_putc(b, l->tuple ? '(' : '[');
         for (uint32_t i = 0; i < l->len; i++) {
             if (i) buf_puts(b, ", ");
             emit(b, l->v[i], true);
         }
-        buf_putc(b, ']');
+        if (l->tuple && l->len == 1) buf_putc(b, ',');
+        buf_putc(b, l->tuple ? ')' : ']');
         return;
     }
     case O_DICT: {
@@ -258,6 +300,13 @@ static void emit(Buf *b, Value v, bool quoted)
             emit(b, d->v[i], true);
         }
         buf_putc(b, '}');
+        return;
+    }
+    case O_RANGE: {
+        Range *r = AS_RANGE(v);
+        buf_printf(b, "range(%lld, %lld", (long long)r->start, (long long)r->stop);
+        if (r->step != 1) buf_printf(b, ", %lld", (long long)r->step);
+        buf_putc(b, ')');
         return;
     }
     case O_HANDLE: {
