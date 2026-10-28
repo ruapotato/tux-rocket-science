@@ -81,7 +81,10 @@ for p in init rc svcinit login sh ls cat ps ns pkg stat chmod mount umount chroo
     # TUX ROCKET SCIENCE: /bin/py has reals (machine/cpu_fp.inc), so it is
     # built for the F and D extensions; everything else stays rv64im.
     FP=""
-    [ "$p" = py ] && FP="-march=rv64imfd -mabi=lp64d -fno-math-errno"
+    # and for speed (-O2: a script's every line runs through its VM, and
+    # since cpu_load_elf gives a big program the memory it needs, size is
+    # no longer the thing to save)
+    [ "$p" = py ] && FP="-march=rv64imfd -mabi=lp64d -fno-math-errno -fno-strict-aliasing ${PYOPT:--O2}"
     if ! $CC -Iguest/$p.d $CFLAGS $FP -fuse-ld=lld -Wl,-Ttext=0x10000 -Wl,--build-id=none \
              -o "$TMP/$p.elf" "guest/$p.c" $EXTRA; then
         echo "mkguest: FAILED to build guest/$p.c -- $OUT left UNCHANGED" >&2

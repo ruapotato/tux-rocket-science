@@ -134,7 +134,7 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 
 	/* real numbers, and the maths: on the machine's own floating point */
 	{
-		const char *m = "print(10 / 4, 2 ** 0.5, round(sqrt(2) * 1000) / 1000, round(deg(atan2(1, 1))), 9.81 * 3, int(\"75432.9\"), float(\"1.5e3\") + 1)\n";
+		const char *m = "print(10 / 4, 2 ** 0.5, round(sqrt(2) * 1000) / 1000, round(deg(atan2(1, 1))), 9.81 * 3, int(75432.9), float(\"1.5e3\") + 1)\n";
 		computer_write(c, "/root/maths.py", m, strlen(m));
 	}
 	sh(c, "py /root/maths.py", &b);
@@ -342,7 +342,7 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 		trs_log_printf(out, "     [in] %s", b.p);
 	}
 	ok = started && has(&con, "console ready") && has(&con, "\n42\n") && has(&con, "\n42.5\n") && has(&con, "'km is 1000'")
-			&& has(&con, "error: name 'nope' is not defined") && has(&con, "error: name 'undefined_thing' is not defined") && has(&con, "still here");
+			&& has(&con, "error: this '(' is never closed") && has(&con, "error: name 'undefined_thing' is not defined") && has(&con, "still here");
 	failed += !ok;
 	trs_log_printf(out, "%s the console (py -i): x = 21, then x * 2 says 42; a def stays for the next piece (42.5); a mistake says so and it goes on: %s",
 			ok ? "ok  " : "FAIL", con.p);

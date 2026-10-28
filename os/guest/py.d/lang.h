@@ -38,12 +38,16 @@ typedef enum {
     T_DEF, T_RETURN, T_AND, T_OR, T_NOT, T_TRUE, T_FALSE, T_NIL, T_PASS,
     /* TUX ROCKET SCIENCE: the rest of the Python a player reaches for */
     T_GLOBAL, T_IMPORT, T_FROM, T_TRY, T_EXCEPT, T_FINALLY, T_RAISE, T_LAMBDA, T_IS, T_AS, T_ASSERT, T_CLASS,
+    T_DEL, T_NONLOCAL, T_YIELD, T_WITH,
     /* punctuation */
     T_LPAREN, T_RPAREN, T_LBRACKET, T_RBRACKET, T_LBRACE, T_RBRACE,
     T_COMMA, T_COLON, T_DOT, T_FSTR,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_DSLASH, T_PERCENT, T_DSTAR,
     T_ASSIGN, T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE,
-    T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ
+    T_PLUSEQ, T_MINUSEQ, T_STAREQ, T_SLASHEQ,
+    /* and the rest of Python's operators */
+    T_DSLASHEQ, T_PERCENTEQ, T_DSTAREQ, T_AMPEQ, T_PIPEEQ, T_CARETEQ, T_SHLEQ, T_SHREQ,
+    T_AMP, T_PIPE, T_CARET, T_TILDE, T_SHL, T_SHR, T_ARROW, T_WALRUS, T_AT
 } TokType;
 
 typedef struct {
@@ -88,6 +92,12 @@ typedef enum {
     OP_UNPACK, OP_SLICE, OP_APPENDN, OP_KWARGS, OP_SETDEFAULTS,
     OP_TRY, OP_ENDTRY, OP_RAISE,
     OP_TUPLE, OP_CLOSURE, OP_EXCMATCH, OP_EXCTEXT, OP_PUTN, OP_CLASS,
+    /* and: & | ^ ~ << >>; {a, b}; f(*a, **k); yield; nonlocal's cells;
+     * a[i], b.x = ...; del; bare raise; with */
+    OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR, OP_INV,
+    OP_SET, OP_TOSET, OP_EXTEND, OP_UPDATE, OP_CALLEX,
+    OP_YIELD, OP_GETCELL, OP_SETCELL, OP_ROT, OP_SETSLICE,
+    OP_DELINDEX, OP_DELATTR, OP_DELNAME, OP_RERAISE, OP_WITHEXIT, OP_UNPACKEX,
     OP_HALT
 } OpCode;
 
@@ -107,6 +117,16 @@ struct Func {
     int    ncap;        /* a closure's: which local each captured value goes in */
     int    cap_slot[16];
     Value  defaults[NOM_ARGS_MAX];
+    /* TUX ROCKET SCIENCE: def f(a, *rest, key=1, **more): the slots of
+     * *rest and **more (-1: none), the keyword-only ones after *, and their
+     * defaults (kwreq: the ones that have none) */
+    int    star, dstar;
+    int    nkwonly;     /* (their defaults follow the positional ones' in defaults[]) */
+    unsigned kwreq;
+    bool   is_gen;      /* it has yield in it: a call makes a generator */
+    bool   is_method;   /* a def in a class (its first parameter is self) */
+    int    ncells;      /* its locals a def inside it shares (made boxes at the call) */
+    uint8_t cell_slot[32];
 };
 
 struct Prog {
@@ -118,6 +138,14 @@ struct Prog {
     Func   func[NOM_FUNCS_MAX];
     int    nfuncs;          /* func[0] is the top level */
 };
+
+/* TUX ROCKET SCIENCE: Python's exceptions, real classes, the first globals
+ * of every program: name, and the one it is a kind of (-1: none). __name__
+ * is the last of the builtin globals. */
+#define NEXC 22
+extern const char *const EXC_NAME[NEXC];
+extern const signed char EXC_BASE[NEXC];
+#define NBUILTIN_GLOBALS (NEXC + 1)
 
 /* --------------------------------------------------------------- natives */
 typedef VmStatus (*NativeFn)(VM *v, Value *args, int n, Value *out);
@@ -186,6 +214,7 @@ struct VM {
         int    ip;
         int    base;        /* stack index of local slot 0 */
         Value  init_self;   /* TUX ROCKET SCIENCE: __init__'s instance, what the call gives back */
+        Obj   *gen;         /* the generator this frame is running, or NULL */
     } frame[NOM_FRAMES_MAX];
     int     nframes;
 
@@ -196,9 +225,12 @@ struct VM {
      * being made (a native reads them and says it did); try's handlers */
     Value    kw;            /* a dict, or nil */
     bool     kw_used;
-    struct Handler { int frame, sp, ip; } handler[16];
+    struct Handler { int frame, sp, ip; } handler[32];
     int      nhandler;
     int      stop_frames;   /* vm_call: stop when the frames are back to this */
+    Value    exc;           /* the exception being raised (an instance), with err its words */
+    Value    handling;      /* the one an except block has (what a bare raise raises again) */
+    int      cdepth;        /* calls run from inside a native (vm_call, a generator): bounded */
 
     uint64_t steps;
     uint64_t wake_tick;
@@ -224,5 +256,20 @@ void vm_start_func(VM *v, int fi);
 /* TUX ROCKET SCIENCE: calls a function value (a native, a def, a lambda)
  * from a native -- sorted's key=, map(): its result, or false with v->err */
 bool vm_call(VM *v, Value fn, Value *args, int n, Value *out);
+/* a generator's next value: true with *got (false: it has ended), or
+ * false with v->err */
+bool gen_next(VM *v, Value gen, Value *out, bool *got);
+/* any sequence's items as a new list (a generator run to its end): false with v->err */
+bool vm_items(VM *v, Value s, Value *out);
+/* an instance of class cls, made as cls(args...) is */
+bool vm_new_instance(VM *v, Value cls, Value *args, int n, Value *out);
+/* x's class's method called name (borrowed), or false */
+bool vm_method(Value x, const char *name, Value *out);
+/* raise: the error is this exception (an instance or a class) */
+void vm_raise(VM *v, Value exc);
+/* the builtin exception class called this, or nil */
+Value vm_exc_class(VM *v, const char *name);
+/* is x an instance of cls (or of a class built on it)? */
+bool vm_isinstance(Value x, Value cls);
 
 #endif /* NOM_LANG_H */

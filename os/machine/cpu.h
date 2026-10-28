@@ -63,6 +63,9 @@
  * 192 MB of host memory for nothing. */
 #define CPU_MEM_BYTES  (1024u * 1024u)
 #define CPU_STACK_TOP  (CPU_MEM_BYTES - 64u)
+/* a program that needs more (cpu_load_elf): up to this, with this much stack */
+#define CPU_MEM_MAX    (4u * 1024u * 1024u)
+#define CPU_STACK_ROOM (192u * 1024u)
 
 typedef enum {
     TRAP_NONE = 0,

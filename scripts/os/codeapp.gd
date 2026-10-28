@@ -703,6 +703,24 @@ func _members(owner: String, chain: Array) -> Array:
 		return PyLib.ORBIT
 	if chain.size() == 2 and chain[0] == "ship" and chain[1] == "body":
 		return PyLib.BODY
+	if chain.size() == 1:
+		# a module (import math, or import math as m), self in a class's
+		# def, a name the script set to text, a list, a dict, a set, a file,
+		# an instance of one of its classes
+		var mod := _module_of(owner)
+		if mod != "":
+			return PyLib.MODULES[mod]
+		if owner == "self":
+			return _class_members(_class_around())
+		var vk := _value_kind(owner)
+		match vk:
+			"str": return PyLib.STR
+			"list": return PyLib.LIST
+			"dict": return PyLib.DICT
+			"set": return PyLib.SET
+			"file": return PyLib.FILE
+			"": pass
+			_: return _class_members(vk)
 	# a name set to a part (engine = ship.part("Walrus")): what that kind has
 	var kind := _kind_of(owner)
 	if kind != "":
@@ -712,6 +730,91 @@ func _members(owner: String, chain: Array) -> Array:
 				out.append(m)
 		return out
 	return PyLib.PART
+
+
+## The module a name is (import math, import math as m), or "".
+func _module_of(name: String) -> String:
+	for mod in PyLib.MODULES:
+		if name == mod and RegEx.create_from_string("(?m)^\\s*import\\s+[^\\n]*\\b" + mod + "\\b").search(edit.text) != null:
+			return mod
+		if RegEx.create_from_string("(?m)^\\s*import\\s+" + mod + "\\s+as\\s+" + name + "\\b").search(edit.text) != null:
+			return mod
+	return ""
+
+
+## What a name holds, from the last line before the caret that set it:
+## "str", "list", "dict", "set", "file", one of the script's classes by
+## name, or "".
+func _value_kind(name: String) -> String:
+	if not name.is_valid_identifier():
+		return ""
+	var re := RegEx.create_from_string("(?m)^\\s*" + name + "\\s*=\\s*(.+)$")
+	var rhs := ""
+	var caret_at := 0
+	for i in edit.get_caret_line():
+		caret_at += edit.get_line(i).length() + 1
+	for m in re.search_all(edit.text):
+		if m.get_start() <= caret_at:
+			rhs = m.get_string(1).strip_edges()
+	var wa := RegEx.create_from_string("(?m)^\\s*with\\s+open\\(.*\\bas\\s+" + name + "\\s*:")
+	if rhs == "" and wa.search(edit.text) != null:
+		return "file"
+	if rhs == "":
+		return ""
+	if rhs.begins_with("\"") or rhs.begins_with("'") or rhs.begins_with("f\"") or rhs.begins_with("f'") or rhs.begins_with("str(") \
+			or rhs.begins_with("format(") or rhs.ends_with(".upper()") or rhs.ends_with(".lower()") or rhs.ends_with(".strip()"):
+		return "str"
+	if rhs.begins_with("[") or rhs.begins_with("list(") or rhs.begins_with("sorted(") or rhs.contains(".split(") or rhs.ends_with(".readlines()"):
+		return "list"
+	if rhs.begins_with("set(") or rhs.begins_with("frozenset("):
+		return "set"
+	if rhs.begins_with("open("):
+		return "file"
+	if rhs.begins_with("dict(") or rhs == "{}" or (rhs.begins_with("{") and rhs.contains(":")):
+		return "dict"
+	if rhs.begins_with("{"):
+		return "set"
+	var cm := RegEx.create_from_string("^([A-Z][A-Za-z0-9_]*)\\(").search(rhs)
+	if cm != null and RegEx.create_from_string("(?m)^class\\s+" + cm.get_string(1) + "\\b").search(edit.text) != null:
+		return cm.get_string(1)
+	return ""
+
+
+## The class whose body the caret is in, or "".
+func _class_around() -> String:
+	for i in range(edit.get_caret_line(), -1, -1):
+		var m := RegEx.create_from_string("^class\\s+([A-Za-z_][A-Za-z0-9_]*)").search(edit.get_line(i))
+		if m != null:
+			return m.get_string(1)
+	return ""
+
+
+## A class's methods and the self.x it sets (and its base's), from the text.
+func _class_members(cls: String, depth := 0) -> Array:
+	var out := []
+	if cls == "" or depth > 4:
+		return out
+	var head := RegEx.create_from_string("(?m)^class\\s+" + cls + "\\s*(?:\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\))?\\s*:").search(edit.text)
+	if head == null:
+		return out
+	var lines := edit.text.substr(head.get_end()).split("\n")
+	var seen := {}
+	for l in lines:
+		if l.strip_edges() != "" and not l.begins_with(" ") and not l.begins_with("\t"):
+			break
+		var dm := RegEx.create_from_string("^\\s+def\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\w+\\s*,?\\s*([^)]*)\\)").search(l)
+		if dm != null and not dm.get_string(1).begins_with("__") and not seen.has(dm.get_string(1)):
+			seen[dm.get_string(1)] = true
+			out.append([dm.get_string(1), "(" + dm.get_string(2) + ")", "a method of " + cls])
+		for am in RegEx.create_from_string("self\\.([A-Za-z_][A-Za-z0-9_]*)\\s*=[^=]").search_all(l):
+			if not seen.has(am.get_string(1)):
+				seen[am.get_string(1)] = true
+				out.append([am.get_string(1), "", cls + "'s"])
+	if head.get_string(1) != "" and head.get_string(1) not in ["object", "Exception"]:
+		for m in _class_members(head.get_string(1), depth + 1):
+			if not seen.has(m[0]):
+				out.append(m)
+	return out
 
 
 ## The kind of part a script's name holds, from the line that set it.

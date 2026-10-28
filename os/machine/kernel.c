@@ -1000,6 +1000,16 @@ static int64_t kernel_syscall(Cpu *c, int64_t n, int64_t a0, int64_t a1,
             memcpy(&out, &x, 8);
             return out;
         }
+        if ((a0 & 0xff) == NUM_FIXED) {
+            double x;
+            memcpy(&x, &a1, 8);
+            int places = (int)((a0 >> 8) & 0xff);
+            if (places > 40 || !(x < 1e17 && x > -1e17)) return -1;
+            char o[64];
+            int n = snprintf(o, sizeof o, "%.*f", places, x);
+            if (n < 0 || n >= (int)sizeof o) return -1;
+            return cpu_write(c, (uint64_t)a2, o, (size_t)n + 1) ? n : -1;
+        }
         if (a0 != NUM_REPR) return -1;
         double x;
         memcpy(&x, &a1, 8);

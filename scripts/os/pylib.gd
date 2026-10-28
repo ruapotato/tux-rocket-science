@@ -86,12 +86,75 @@ const CALLS := [
 	["startswith", "(text, part)", ""], ["endswith", "(text, part)", ""],
 	["read", "(path)", "a file's text"], ["write", "(path, text)", ""], ["exit", "(code=0)", "ends the script"],
 	["json", "(text)", ""], ["lines", "(text)", ""], ["do", "(command)", "one `ship` command, as a button sends it"],
+	# -- the rest of Python's builtins
+	["range", "(stop) / (start, stop, step)", "the numbers from start up to (not including) stop"],
+	["list", "(xs)", "a list of them"], ["tuple", "(xs)", "a tuple of them"], ["dict", "(pairs)", "a dict (dict(a=1), dict(zip(keys, values)))"],
+	["set", "(xs)", "them with no repeats: | & - work"], ["frozenset", "(xs)", "the same as set here"],
+	["sum", "(xs, start=0)", ""], ["sorted", "(xs, key=f, reverse=False)", "a sorted copy"], ["reversed", "(xs)", ""],
+	["any", "(xs)", "True if any is"], ["all", "(xs)", "True if all are"],
+	["enumerate", "(xs, start=0)", "(i, x) pairs: for i, x in enumerate(xs)"], ["zip", "(xs, ys, ...)", "pairs, side by side"],
+	["map", "(f, xs)", "f of each"], ["filter", "(f, xs)", "the ones f says True to"],
+	["bool", "(x)", ""], ["repr", "(x)", "x as Python writes it"], ["type", "(x)", "what x is: type(x).__name__"],
+	["isinstance", "(x, kind)", "isinstance(x, (int, float))"], ["callable", "(x)", "can it be called"],
+	["next", "(generator, default)", "a generator's next value"], ["iter", "(xs)", ""],
+	["ord", "(letter)", "its code"], ["chr", "(code)", "the letter"], ["hex", "(n)", "'0xff'"], ["bin", "(n)", "'0b101'"], ["oct", "(n)", ""],
+	["hash", "(x)", ""], ["id", "(x)", ""], ["divmod", "(a, b)", "(a // b, a % b)"], ["pow", "(x, y)", ""],
+	["getattr", "(x, \"name\", default)", "x.name, by its name"], ["hasattr", "(x, \"name\")", ""], ["setattr", "(x, \"name\", value)", ""],
+	["open", "(path, \"w\")", "a file on the ship's computer: with open(\"/root/log.csv\", \"w\") as f: f.write(...)"],
+	["staticmethod", "(f)", "@staticmethod"], ["classmethod", "(f)", "@classmethod"], ["property", "(f)", "@property: worked out when read"],
+	["Exception", "(\"why\")", "raise it; class MyError(Exception): ..."], ["ValueError", "(\"why\")", ""], ["TypeError", "(\"why\")", ""],
+	["KeyError", "(key)", ""], ["IndexError", "(\"why\")", ""], ["ZeroDivisionError", "(\"why\")", ""], ["RuntimeError", "(\"why\")", ""],
+	["AttributeError", "(\"why\")", ""], ["AssertionError", "(\"why\")", ""], ["StopIteration", "()", ""], ["NameError", "(\"why\")", ""],
 ]
 
 const KEYWORDS := ["if", "elif", "else", "while", "for", "in", "break", "continue", "def", "return",
-	"and", "or", "not", "True", "False", "None", "pass"]
+	"and", "or", "not", "True", "False", "None", "pass", "global", "nonlocal", "import", "from", "try", "except",
+	"finally", "raise", "lambda", "is", "as", "assert", "class", "del", "yield", "with", "super"]
 
-const NAMES := ["ship", "km", "pi"]
+const NAMES := ["ship", "km", "pi", "math", "time", "random", "self"]
+
+## A string's, a list's, a dict's, a set's, a file's methods, and the
+## modules' (after a dot on a name the script set to one).
+const STR := [
+	["split", "(sep=None, maxsplit=-1)", "the pieces"], ["join", "(xs)", "\", \".join(names)"], ["strip", "(chars)", "spaces off the ends"],
+	["lstrip", "(chars)", ""], ["rstrip", "(chars)", ""], ["lower", "()", ""], ["upper", "()", ""], ["title", "()", ""],
+	["capitalize", "()", ""], ["replace", "(old, new, count)", ""], ["find", "(part)", "where, or -1"], ["rfind", "(part)", ""],
+	["index", "(part)", "where (a ValueError if not)"], ["count", "(part)", ""], ["startswith", "(part)", ""], ["endswith", "(part)", ""],
+	["format", "(...)", "\"{} at {:.1f}\".format(a, b)"], ["isdigit", "()", ""], ["isalpha", "()", ""], ["isspace", "()", ""],
+	["splitlines", "()", ""], ["partition", "(sep)", "(before, sep, after)"], ["zfill", "(width)", ""], ["center", "(width)", ""],
+	["ljust", "(width)", ""], ["rjust", "(width)", ""], ["removeprefix", "(part)", ""], ["removesuffix", "(part)", ""],
+]
+const LIST := [
+	["append", "(x)", "on the end"], ["extend", "(xs)", ""], ["insert", "(i, x)", ""], ["pop", "(i=-1)", "takes one off (the last)"],
+	["remove", "(x)", "the first that equals x"], ["index", "(x)", ""], ["count", "(x)", ""], ["sort", "(key=f, reverse=False)", "in place"],
+	["reverse", "()", "in place"], ["copy", "()", ""], ["clear", "()", ""],
+]
+const DICT := [
+	["keys", "()", ""], ["values", "()", ""], ["items", "()", "(key, value) pairs: for k, v in d.items()"], ["get", "(key, default=None)", ""],
+	["pop", "(key, default)", ""], ["setdefault", "(key, value)", ""], ["update", "(other)", ""], ["copy", "()", ""], ["clear", "()", ""],
+	["popitem", "()", ""],
+]
+const SET := [
+	["add", "(x)", ""], ["discard", "(x)", "out, if it's in"], ["remove", "(x)", "out (a KeyError if not)"], ["pop", "()", ""],
+	["union", "(other)", "| does it too"], ["intersection", "(other)", "&"], ["difference", "(other)", "-"],
+	["symmetric_difference", "(other)", "^"], ["issubset", "(other)", "<="], ["issuperset", "(other)", ">="],
+	["isdisjoint", "(other)", ""], ["update", "(other)", ""], ["copy", "()", ""], ["clear", "()", ""],
+]
+const FILE := [
+	["write", "(text)", "onto the end of the file"], ["read", "()", "the rest of it"], ["readline", "()", "the next line"],
+	["readlines", "()", "every line"], ["close", "()", "(with open(...) as f: closes it for you)"],
+]
+const MODULES := {
+	"math": [["sqrt", "(x)", ""], ["sin", "(radians)", ""], ["cos", "(radians)", ""], ["tan", "(radians)", ""],
+		["asin", "(x)", ""], ["acos", "(x)", ""], ["atan", "(x)", ""], ["atan2", "(y, x)", ""], ["degrees", "(radians)", ""],
+		["radians", "(degrees)", ""], ["hypot", "(x, y)", ""], ["exp", "(x)", ""], ["log", "(x, base=e)", ""], ["log10", "(x)", ""],
+		["log2", "(x)", ""], ["floor", "(x)", ""], ["ceil", "(x)", ""], ["trunc", "(x)", ""], ["fabs", "(x)", ""],
+		["isclose", "(a, b, rel_tol=1e-9)", ""], ["copysign", "(x, y)", ""], ["fmod", "(x, y)", ""], ["factorial", "(n)", ""],
+		["gcd", "(a, b)", ""], ["dist", "(p, q)", "between two points"], ["prod", "(xs)", ""], ["fsum", "(xs)", "an exact sum"],
+		["isfinite", "(x)", ""], ["isnan", "(x)", ""], ["pi", "3.14159...", ""], ["e", "2.71828...", ""], ["tau", "2 pi", ""], ["inf", "", ""]],
+	"time": [["time", "()", "game seconds"], ["sleep", "(seconds)", ""], ["monotonic", "()", ""]],
+	"random": [["random", "()", "0 to 1"], ["uniform", "(a, b)", ""], ["randint", "(a, b)", "a to b, both"], ["choice", "(xs)", ""], ["seed", "(n)", ""]],
+}
 
 ## What the ship has (ship.X), beyond its readings (`ship status`).
 const SHIP := [

@@ -203,6 +203,10 @@ typedef unsigned long      uint64_t;
                              * rounded.                                    */
 #define NUM_REPR  0
 #define NUM_PARSE 1
+#define NUM_FIXED 2         /* (NUM_FIXED | places << 8, x bits, buf): x with
+                             * that many decimals, correctly rounded (as
+                             * printf's %.*f and Python's .2f), into buf (64
+                             * bytes) -> length; |x| < 1e17, places <= 40 */
 #define SYS_yield    1091   /* () -> 1: the rest of this slice is given up
                              * (a background script waiting for the ship to
                              * move on); 0, and nothing happens, in the

@@ -117,6 +117,25 @@ bool cpu_load_elf(Cpu *c, const uint8_t *elf, size_t len, char *err, size_t errs
         return false;
     }
 
+    /* TUX ROCKET SCIENCE: a program bigger than the machine's megabyte
+     * (/bin/py: the language and its heap) gets the memory it needs, with
+     * CPU_STACK_ROOM of stack above it -- the stack used to grow down into
+     * the end of py's heap. Up to CPU_MEM_MAX; everything else keeps 1 MB. */
+    uint64_t top = 0;
+    for (uint16_t i = 0; i < phnum; i++) {
+        const uint8_t *ph = elf + phoff + (uint64_t)i * phsz;
+        if (rd32(ph) == 1 && rd64(ph + 16) + rd64(ph + 40) > top) top = rd64(ph + 16) + rd64(ph + 40);
+    }
+    if (top + CPU_STACK_ROOM > c->memsz && top + CPU_STACK_ROOM <= CPU_MEM_MAX) {
+        uint64_t want = (top + CPU_STACK_ROOM + 0xffff) & ~(uint64_t)0xffff;
+        uint8_t *mem = nom_alloc((size_t)want);
+        memset(mem, 0, (size_t)want);
+        nom_free(c->mem);
+        c->mem = mem;
+        c->memsz = want;
+        c->x[2] = want - 64u;                             /* sp, at the new top */
+    }
+
     int loaded = 0;
     for (uint16_t i = 0; i < phnum; i++) {
         const uint8_t *ph = elf + phoff + (uint64_t)i * phsz;

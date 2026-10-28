@@ -27,74 +27,145 @@
 #include "gsys.h"
 #include "nom.h"
 
-/* ------------------------------------------------------------------ heap */
-unsigned char g_heap[HEAP_BYTES];
-Blk *g_free = 0;
+/* ------------------------------------------------------------------ heap
+ *
+ * TUX ROCKET SCIENCE: boundary tags and bins. Each block says its size and
+ * the size of the one before it, so a block freed joins whichever of its
+ * neighbours are free (no slivers: a script growing a list or a string
+ * over and over doesn't run the heap out). Free blocks sit in bins by size
+ * -- one per size up to SMALL_MAX, then one per power of two -- so taking
+ * one is a look in the right bin, not a walk past every object a script
+ * has alive (the first fit over every block this replaced did that walk on
+ * every allocation). */
+unsigned char g_heap[HEAP_BYTES] __attribute__((aligned(16)));
 u64 g_heap_used = 0, g_heap_peak = 0;
 
-#define ALIGN(n) (((n) + 15u) & ~15u)
+#define ALIGN(n) (((n) + 15u) & ~(u64)15u)
+#define SMALL_MAX 512u
+#define NSMALL (SMALL_MAX / 16u + 1u)
+#define NBIN (NSMALL + 24u)
+#define USED 1u
+
+typedef struct FreeLinks { Blk *next, *prev; } FreeLinks;
+#define LINKS(b) ((FreeLinks *)((unsigned char *)(b) + sizeof(Blk)))
+#define SIZE(b) ((b)->size & ~(u64)15u)
+#define NEXT_PHYS(b) ((Blk *)((unsigned char *)(b) + sizeof(Blk) + SIZE(b)))
+#define HEAP_END ((Blk *)(g_heap + HEAP_BYTES))
+
+static Blk *g_bin[NBIN];
+static int g_ready;
+
+static u32 bin_of(u64 size)
+{
+    if (size <= SMALL_MAX) return (u32)(size / 16u);
+    u32 k = NSMALL;
+    for (u64 s = SMALL_MAX * 2; s < size && k < NBIN - 1; s <<= 1) k++;
+    return k;
+}
+
+static void bin_put(Blk *b)
+{
+    u32 k = bin_of(SIZE(b));
+    LINKS(b)->prev = 0;
+    LINKS(b)->next = g_bin[k];
+    if (g_bin[k]) LINKS(g_bin[k])->prev = b;
+    g_bin[k] = b;
+}
+
+static void bin_take(Blk *b)
+{
+    FreeLinks *l = LINKS(b);
+    if (l->prev) LINKS(l->prev)->next = l->next;
+    else g_bin[bin_of(SIZE(b))] = l->next;
+    if (l->next) LINKS(l->next)->prev = l->prev;
+}
+
+/* b's size is now `size`: the one after it is told */
+static void set_size(Blk *b, u64 size, u64 used)
+{
+    b->size = size | used;
+    Blk *n = NEXT_PHYS(b);
+    if (n < HEAP_END) n->prev = size;
+}
 
 static void heap_init(void)
 {
-    g_free = (Blk *)g_heap;
-    g_free->size = HEAP_BYTES - sizeof(Blk);
-    g_free->next = 0;
-    g_free->used = 0;
+    Blk *b = (Blk *)g_heap;
+    b->prev = 0;
+    set_size(b, HEAP_BYTES - sizeof(Blk), 0);
+    bin_put(b);
+    g_ready = 1;
 }
 
-void *nom_alloc(size_t n)
+/* b (free, taken from its bin) holding n: the rest split off, if worth
+ * it; zeroed from `from` on (an allocation: all of it) */
+static void *carve(Blk *b, u64 n, u64 from)
 {
-    if (!g_free) heap_init();
-    n = ALIGN(n ? n : 1);
+    u64 have = SIZE(b);
+    if (have >= n + sizeof(Blk) + 32u) {
+        set_size(b, n, USED);
+        Blk *rest = NEXT_PHYS(b);
+        rest->prev = n;
+        set_size(rest, have - n - sizeof(Blk), 0);
+        bin_put(rest);
+    } else set_size(b, have, USED);
+    g_heap_used += SIZE(b) + sizeof(Blk);
+    if (g_heap_used > g_heap_peak) g_heap_peak = g_heap_used;
+    u64 *w = (u64 *)((unsigned char *)b + sizeof(Blk));
+    for (u64 i = from / 8; i < n / 8; i++) w[i] = 0;
+    return w;
+}
 
-    /* First fit, splitting what is left over. First fit rather than best fit
-     * because the allocation pattern here is a VM's -- many small, short-
-     * lived objects of similar size -- and best fit spends its time walking
-     * a list to find a marginally tidier answer. */
-    for (Blk *b = g_free; b; b = b->next) {
-        if (b->used || b->size < n) continue;
-        if (b->size >= n + sizeof(Blk) + 32u) {
-            Blk *split = (Blk *)((unsigned char *)b + sizeof(Blk) + n);
-            split->size = b->size - n - sizeof(Blk);
-            split->used = 0;
-            split->next = b->next;
-            b->next = split;
-            b->size = n;
-        }
-        b->used = 1;
-        g_heap_used += b->size;
-        if (g_heap_used > g_heap_peak) g_heap_peak = g_heap_used;
-        unsigned char *p = (unsigned char *)b + sizeof(Blk);
-        for (u64 i = 0; i < n; i++) p[i] = 0;
-        return p;
-    }
+void *nom_alloc(size_t want)
+{
+    if (!g_ready) heap_init();
+    u64 n = ALIGN(want ? want : 1);
+    if (n < 16) n = 16;
+    u32 k = bin_of(n);
+    /* the exact small bin, then the bins above (the first block in a big
+     * bin that's big enough) */
+    if (n <= SMALL_MAX && g_bin[k]) { Blk *b = g_bin[k]; bin_take(b); return carve(b, n, 0); }
+    for (u32 j = k; j < NBIN; j++)
+        for (Blk *b = g_bin[j]; b; b = LINKS(b)->next)
+            if (SIZE(b) >= n) { bin_take(b); return carve(b, n, 0); }
     return 0;      /* out of memory: every caller checks, because it must */
 }
 
-/* Coalesce forward on free. Without it a script that grows and drops a list
- * repeatedly fragments the arena into unusable slivers within a few thousand
- * iterations -- and a loop over four hundred tickets IS a few thousand
- * iterations. */
 void nom_free(void *p)
 {
     if (!p) return;
     Blk *b = (Blk *)((unsigned char *)p - sizeof(Blk));
-    b->used = 0;
-    if (g_heap_used >= b->size) g_heap_used -= b->size;
-    while (b->next && !b->next->used) {
-        b->size += sizeof(Blk) + b->next->size;
-        b->next = b->next->next;
+    if (!(b->size & USED)) return;          /* (freed twice: let it be) */
+    u64 size = SIZE(b);
+    if (g_heap_used >= size + sizeof(Blk)) g_heap_used -= size + sizeof(Blk);
+    /* join the free neighbours */
+    Blk *n = NEXT_PHYS(b);
+    if (n < HEAP_END && !(n->size & USED)) { bin_take(n); size += sizeof(Blk) + SIZE(n); }
+    if (b != (Blk *)g_heap) {
+        Blk *pv = (Blk *)((unsigned char *)b - sizeof(Blk) - b->prev);
+        if (!(pv->size & USED)) { bin_take(pv); size += sizeof(Blk) + SIZE(pv); b = pv; }
     }
+    set_size(b, size, 0);
+    bin_put(b);
 }
 
-void *nom_realloc(void *p, size_t n)
+void *nom_realloc(void *p, size_t want)
 {
-    if (!p) return nom_alloc(n);
+    if (!p) return nom_alloc(want);
     Blk *b = (Blk *)((unsigned char *)p - sizeof(Blk));
-    if (b->size >= ALIGN(n)) return p;
-    void *q = nom_alloc(n);
+    u64 n = ALIGN(want ? want : 1), have = SIZE(b);
+    if (have >= n) return p;
+    /* the free block after it, if that makes room: grown where it is */
+    Blk *nx = NEXT_PHYS(b);
+    if (nx < HEAP_END && !(nx->size & USED) && have + sizeof(Blk) + SIZE(nx) >= n) {
+        bin_take(nx);
+        g_heap_used -= have + sizeof(Blk);
+        set_size(b, have + sizeof(Blk) + SIZE(nx), 0);
+        return carve(b, n, have);
+    }
+    void *q = nom_alloc(want);
     if (!q) return 0;
-    nom_memcpy(q, p, b->size);
+    nom_memcpy(q, p, have);
     nom_free(p);
     return q;
 }
@@ -107,14 +178,16 @@ char *nom_strdup(const char *s)
     return d;
 }
 
-/* ----------------------------------------------------------------- meter */
-static size_t meter_used, meter_cap;
+/* ----------------------------------------------------------------- meter
+ * TUX ROCKET SCIENCE: what the script has allocated since it began (it
+ * counted nothing before: a runaway list ran the heap out instead) */
+static size_t meter_base, meter_cap;
 static int    meter_on;
 
-void nom_meter_begin(size_t cap) { meter_used = 0; meter_cap = cap; meter_on = 1; }
+void nom_meter_begin(size_t cap) { meter_base = g_heap_used; meter_cap = cap; meter_on = 1; }
 void nom_meter_end(void)         { meter_on = 0; }
-bool nom_meter_over(void)        { return meter_on && meter_used > meter_cap; }
-size_t nom_meter_used(void)      { return meter_used; }
+bool nom_meter_over(void)        { return meter_on && g_heap_used > meter_base + meter_cap; }
+size_t nom_meter_used(void)      { return g_heap_used > meter_base ? g_heap_used - meter_base : 0; }
 
 /* --------------------------------------------------------------- strings */
 size_t nom_strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
@@ -122,7 +195,12 @@ size_t nom_strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
 void *nom_memcpy(void *d, const void *s, size_t n)
 {
     unsigned char *a = d; const unsigned char *b = s;
-    for (size_t i = 0; i < n; i++) a[i] = b[i];
+    size_t i = 0;
+    /* eight at a time when both line up (a byte at a time was most of a
+     * string's cost) */
+    if ((((u64)a | (u64)b) & 7) == 0)
+        for (; i + 8 <= n; i += 8) *(u64 *)(a + i) = *(const u64 *)(b + i);
+    for (; i < n; i++) a[i] = b[i];
     return d;
 }
 
@@ -166,7 +244,12 @@ void *memmove(void *d, const void *s, size_t n) { return nom_memmove(d, s, n); }
 void *nom_memset(void *d, int c, size_t n)
 {
     unsigned char *p = d;
-    for (size_t i = 0; i < n; i++) p[i] = (unsigned char)c;
+    size_t i = 0;
+    if (((u64)p & 7) == 0) {
+        u64 w = (unsigned char)c * 0x0101010101010101ull;
+        for (; i + 8 <= n; i += 8) *(u64 *)(p + i) = w;
+    }
+    for (; i < n; i++) p[i] = (unsigned char)c;
     return d;
 }
 

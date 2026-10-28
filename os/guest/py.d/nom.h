@@ -70,12 +70,12 @@ typedef int _lang_bool;
 #define NOM_ARG_MAX       GARG_MAX
 #define NOM_STACK_MAX     2048    /* TUX ROCKET SCIENCE: 256, and recursion 200 deep */
 #define NOM_FRAMES_MAX    220
-#define NOM_LOCALS_MAX    64
+#define NOM_LOCALS_MAX    96
 #define NOM_GLOBALS_MAX   256
 #define NOM_CONSTS_MAX    1024
 #define NOM_CODE_MAX      16384
 #define NOM_FUNCS_MAX     128
-#define NOM_ARGS_MAX      8
+#define NOM_ARGS_MAX      16
 #define NOM_LIST_MAX      4096
 #define NOM_SRC_MAX       32768
 #define NOM_TOK_MAX       8192
@@ -93,11 +93,14 @@ typedef int _lang_bool;
  * that -- for each ticket, fetch, parse, discard -- is the FIRST thing
  * anybody writes here.
  */
-#define HEAP_BYTES (640u * 1024u)
+/* TUX ROCKET SCIENCE: a megabyte (cpu_load_elf gives /bin/py the memory
+ * it needs, its stack above it), and size classes: a first-fit walk over
+ * every block, used ones too, made each allocation pass every object the
+ * script had alive. */
+#define HEAP_BYTES (1024u * 1024u)
 
-typedef struct Blk { u64 size; struct Blk *next; int used; } Blk;
+typedef struct Blk { u64 size; u64 prev; } Blk;     /* size | 1 when used; prev: the size of the block before */
 extern unsigned char g_heap[HEAP_BYTES];
-extern Blk *g_free;
 extern u64 g_heap_used, g_heap_peak;
 
 void *nom_alloc(size_t n);
@@ -198,7 +201,8 @@ typedef struct Sim    Sim;
 typedef struct Ship   Ship;
 
 typedef enum { V_NIL, V_BOOL, V_INT, V_NUM, V_OBJ } VKind;
-typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE, O_RANGE, O_CLOSURE, O_CLASS, O_INSTANCE } OKind;
+typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE, O_RANGE, O_CLOSURE, O_CLASS, O_INSTANCE,
+               O_BOUND, O_SUPER, O_GEN, O_CELL } OKind;
 
 typedef struct {
     uint8_t k;
@@ -208,7 +212,9 @@ typedef struct {
 struct Obj { uint8_t kind; uint32_t rc; };
 
 typedef struct { Obj o; uint32_t len; char s[]; } Str;
-typedef struct { Obj o; uint32_t len, cap; Value *v; uint8_t tuple; } List;   /* (tuple: a (a, b), as it prints) */
+typedef struct { Obj o; uint32_t len, cap; Value *v; uint8_t tuple; } List;   /* (tuple: 1 a (a, b), 2 a set {a, b}) */
+#define IS_TUPLE(v) (IS_LIST(v) && AS_LIST(v)->tuple == 1)
+#define IS_SET(v)   (IS_LIST(v) && AS_LIST(v)->tuple == 2)
 typedef struct { Obj o; uint32_t len, cap; Value *k; Value *v; } Dict;
 
 #define VAL_NIL      ((Value){ .k = V_NIL,  .as.i = 0 })
@@ -242,6 +248,23 @@ Value   instance_new(Value cls);
 /* a name on the class or its bases (borrowed), or false */
 bool    class_find(Value cls, const char *name, size_t len, Value *out);
 int64_t range_len(Range *r);
+/* obj.method as a value: self and the function (a def, a native), or for a
+ * list's, a string's, a part's own methods, nil and the method's name;
+ * super(): self and the class to look in (O_SUPER) */
+typedef struct { Obj o; Value self; Value fn; Value name; } Bound;
+#define IS_BOUND(v) ((v).k == V_OBJ && (v).as.o->kind == O_BOUND)
+Value   bound_new(int kind, Value self, Value fn, Value name);
+/* a generator: a def with yield in it, called -- its frame, put by between
+ * the values it gives (its stack, where it is, its try blocks) */
+typedef struct { Obj o; int fn; int ip; int n, cap; Value *vals; int nh; int hsp[8], hip[8]; uint8_t state; } Gen;
+#define IS_GEN(v) ((v).k == V_OBJ && (v).as.o->kind == O_GEN)
+Value   gen_new(int fn);
+/* a name a def and the defs inside it share (nonlocal, a closure that sees
+ * the name change): the box they both hold */
+typedef struct { Obj o; Value v; bool set; } Cell;
+Value   cell_new(Value v, bool set);
+/* the str()/repr() of an instance (its __str__, __repr__), set by the VM */
+extern bool (*g_inst_text)(Buf *b, Value v, bool repr);
 #define AS_HANDLE(v) ((Handle *)(v).as.o)
 Value  handle_new(const char *path, size_t plen, const char *label, size_t llen);
 

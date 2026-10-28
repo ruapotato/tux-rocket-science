@@ -171,6 +171,39 @@ bool class_find(Value cls, const char *name, size_t len, Value *out)
     return false;
 }
 
+Value bound_new(int kind, Value self, Value fn, Value name)
+{
+    Bound *b = nom_alloc(sizeof(Bound));
+    b->o.kind = (uint8_t)kind;
+    b->o.rc = 1;
+    b->self = val_retain(self);
+    b->fn = val_retain(fn);
+    b->name = val_retain(name);
+    return VAL_OBJ(b);
+}
+
+Value gen_new(int fn)
+{
+    Gen *g = nom_alloc(sizeof(Gen));
+    memset(g, 0, sizeof *g);
+    g->o.kind = O_GEN;
+    g->o.rc = 1;
+    g->fn = fn;
+    return VAL_OBJ(g);
+}
+
+Value cell_new(Value v, bool set)
+{
+    Cell *c = nom_alloc(sizeof(Cell));
+    c->o.kind = O_CELL;
+    c->o.rc = 1;
+    c->v = v;
+    c->set = set;
+    return VAL_OBJ(c);
+}
+
+bool (*g_inst_text)(Buf *b, Value v, bool repr);
+
 Value func_obj_new(int index, bool native)
 {
     RefObj *r = nom_alloc(sizeof(RefObj));
@@ -214,6 +247,14 @@ void val_release(Value v)
     }
     case O_CLASS: val_release(((Klass *)o)->dict); val_release(((Klass *)o)->base); break;
     case O_INSTANCE: val_release(((Instance *)o)->cls); val_release(((Instance *)o)->fields); break;
+    case O_BOUND: case O_SUPER: val_release(((Bound *)o)->self); val_release(((Bound *)o)->fn); val_release(((Bound *)o)->name); break;
+    case O_GEN: {
+        Gen *g = (Gen *)o;
+        for (int i = 0; i < g->n; i++) val_release(g->vals[i]);
+        nom_free(g->vals);
+        break;
+    }
+    case O_CELL: val_release(((Cell *)o)->v); break;
     default: break;
     }
     nom_free(o);
@@ -248,11 +289,23 @@ bool val_equal(Value a, Value b)
         }
         if (a.as.o->kind == O_LIST) {
             List *x = AS_LIST(a), *y = AS_LIST(b);
-            if (x->len != y->len) return false;
+            if (x->len != y->len || x->tuple != y->tuple) return false;   /* ([1] != (1,)) */
+            if (x->tuple == 2) {
+                /* sets: the same things, in any order */
+                for (uint32_t i = 0; i < x->len; i++) {
+                    bool in = false;
+                    for (uint32_t j = 0; j < y->len && !in; j++) in = val_equal(x->v[i], y->v[j]);
+                    if (!in) return false;
+                }
+                return true;
+            }
             for (uint32_t i = 0; i < x->len; i++)
                 if (!val_equal(x->v[i], y->v[i])) return false;
             return true;
         }
+        if (a.as.o->kind == O_BOUND)
+            return val_equal(((Bound *)a.as.o)->self, ((Bound *)b.as.o)->self) && val_equal(((Bound *)a.as.o)->fn, ((Bound *)b.as.o)->fn) &&
+                   val_equal(((Bound *)a.as.o)->name, ((Bound *)b.as.o)->name);
         if (a.as.o->kind == O_HANDLE)
             return strcmp(AS_HANDLE(a)->path, AS_HANDLE(b)->path) == 0;
         if (a.as.o->kind == O_FUNC || a.as.o->kind == O_NATIVE)   /* (type(x) == float) */
@@ -317,6 +370,13 @@ static void emit(Buf *b, Value v, bool quoted)
         return;
     case O_LIST: {
         List *l = AS_LIST(v);
+        if (l->tuple == 2) {
+            if (!l->len) { buf_puts(b, "set()"); return; }
+            buf_putc(b, '{');
+            for (uint32_t i = 0; i < l->len; i++) { if (i) buf_puts(b, ", "); emit(b, l->v[i], true); }
+            buf_putc(b, '}');
+            return;
+        }
         buf_putc(b, l->tuple ? '(' : '[');
         for (uint32_t i = 0; i < l->len; i++) {
             if (i) buf_puts(b, ", ");
@@ -339,7 +399,23 @@ static void emit(Buf *b, Value v, bool quoted)
         return;
     }
     case O_CLASS: buf_printf(b, "<class '%s'>", ((Klass *)v.as.o)->name); return;
-    case O_INSTANCE: buf_printf(b, "<%s object>", ((Klass *)((Instance *)v.as.o)->cls.as.o)->name); return;
+    case O_INSTANCE:
+        /* its __str__ / __repr__, when it has one */
+        if (g_inst_text && g_inst_text(b, v, quoted)) return;
+        buf_printf(b, "<%s object>", ((Klass *)((Instance *)v.as.o)->cls.as.o)->name);
+        return;
+    case O_BOUND: {
+        Bound *bd = (Bound *)v.as.o;
+        buf_puts(b, "<bound method ");
+        if (IS_STR(bd->name)) buf_put(b, AS_STR(bd->name)->s, AS_STR(bd->name)->len);
+        buf_puts(b, " of ");
+        emit(b, bd->self, true);
+        buf_putc(b, '>');
+        return;
+    }
+    case O_SUPER: buf_puts(b, "<super>"); return;
+    case O_GEN: buf_puts(b, "<generator object>"); return;
+    case O_CELL: emit(b, ((Cell *)v.as.o)->v, quoted); return;
     case O_RANGE: {
         Range *r = AS_RANGE(v);
         buf_printf(b, "range(%lld, %lld", (long long)r->start, (long long)r->stop);

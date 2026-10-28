@@ -250,14 +250,25 @@ print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
   travel time, pass height) and `what_if(forward, sideways, outward, when)`, which predicts the
   path as if that burn were made without making it, so a script can try course corrections for
   free.
-- **The language is Python** as you'd write it: `for i in range(10)`, `a, b = b, a`, list and
-  dict comprehensions, slices, f-strings (`f"{x:,.1f}"`, `f"{x=}"`), `%` and `.format()`,
-  `lambda` and `sorted(key=...)`, default and keyword arguments, `try`/`except ... as e`/`raise`,
-  `import math` (and `time`, `random`), tuples, closures, `global` and classes (`class PID:`
-  with `__init__`, methods and inheritance). `dir(ship)` or `dir(engine)` lists what a thing has;
-  `help()` says where to look. Floats print as Python
-  prints them, and a typo says what you meant (`name 'throtle' is not defined -- did you mean
-  'throttle'?`). `km = 1000` is built in.
+- **The language is Python** as you'd write it: `for i in range(10)`, `a, b = b, a`,
+  `for i, (k, v) in enumerate(d.items())`, list, dict and set comprehensions (several `for`s and
+  `if`s), slices, f-strings (`f"{x:,.1f}"`, `f"{x=}"`, `{name!r}`, `{x:{width}.2f}`), `%` and
+  `.format()`, `lambda`, `*args` and `**kwargs` (both ways), keyword-only arguments, closures
+  that share their variables (and `nonlocal`), generators (`yield`, `yield from`, `next()`),
+  `try`/`except`/`else`/`finally`, exceptions as classes (`class Abort(Exception)`, `except
+  (ValueError, KeyError) as e`, `e.args`, a bare `raise`), `with` (and `open()` for files on the
+  ship's computer), classes with inheritance, `super()`, `@property`/`@staticmethod`/
+  `@classmethod`, `__str__`/`__add__`/`__eq__`/`__len__`/`__call__`/`__getitem__`..., sets,
+  bit operators, `del`, the walrus `:=`, type annotations (skipped, as Python does), `import
+  math` (and `time`, `random`), and the builtins you'd reach for. 207 cases of everyday Python
+  are checked against CPython 3.11's own output; what's left different: a string's `len()` counts
+  bytes (`"é"` is 2), integers past 64 bits become floats, a set keeps the order things went in,
+  `except` with no kind is `except Exception` (Ctrl+C still stops a script), and there's no
+  multiple inheritance, `send()` to a generator, or `async`. `dir(ship)` or `dir(engine)` lists
+  what a thing has; `help()` says where to look. Mistakes say what's wrong, on the right line:
+  `name 'throtle' is not defined -- did you mean 'throttle'?`, `'else if' is spelled 'elif'`,
+  `this '(' is never closed`, `f() is missing its 'b'`, and an error inside a function says
+  where each was called from. `km = 1000` is built in.
 
 While a script flies, the flight screen's **COMPUTER** panel shows it: the file and the line
 it's on, what it last said, and live graphs of whatever it `chart()`s. In a career, **hands-off
