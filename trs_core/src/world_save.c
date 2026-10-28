@@ -100,6 +100,179 @@ static trs_quat get_q(const trs_json *o, const char *k) {
 #define GET_V(o, s, f) ((s)->f = get_v3(o, #f))
 #define GET_Q(o, s, f) ((s)->f = get_q(o, #f))
 
+static trs_json *thing_j(trs_thing t) {
+	trs_json *a = trs_json_new(TRS_JSON_ARRAY);
+	trs_json_push(a, trs_json_new_num(t.kind));
+	trs_json_push(a, trs_json_new_num(t.id));
+	trs_json_push(a, trs_json_new_num(t.serial));
+	return a;
+}
+
+static trs_thing get_thing(const trs_json *o, const char *k) {
+	const trs_json *a = trs_json_get(o, k);
+	trs_thing t = { (int)dval(trs_json_at(a, 0), 0), (int)dval(trs_json_at(a, 1), 0), (int)dval(trs_json_at(a, 2), 0) };
+	return t;
+}
+
+static trs_json *patch_j(trs_patch_id p) {
+	trs_json *a = trs_json_new(TRS_JSON_ARRAY);
+	trs_json_push(a, trs_json_new_num(p.face));
+	trs_json_push(a, trs_json_new_num(p.level));
+	trs_json_push(a, trs_json_new_num(p.i));
+	trs_json_push(a, trs_json_new_num(p.j));
+	return a;
+}
+
+static trs_patch_id get_patch(const trs_json *o, const char *k) {
+	const trs_json *a = trs_json_get(o, k);
+	trs_patch_id p = { (int)dval(trs_json_at(a, 0), 0), (int)dval(trs_json_at(a, 1), 0), (int)dval(trs_json_at(a, 2), 0),
+		(int)dval(trs_json_at(a, 3), 0) };
+	return p;
+}
+
+#define PUT_T(o, s, f) trs_json_set(o, #f, thing_j((s)->f))
+#define GET_T(o, s, f) ((s)->f = get_thing(o, #f))
+
+/* the live animals, what's down, and the nests' losses */
+static trs_json *wild_json(const trs_world *w) {
+	const trs_wild *wd = &w->wild;
+	trs_json *o = trs_json_new(TRS_JSON_OBJECT);
+	PUT_I(o, wd, body);
+	PUT_D(o, wd, acc);
+	PUT_D(o, wd, scan_t);
+	PUT_I(o, wd, next_id);
+	trs_json *cl = trs_json_new(TRS_JSON_ARRAY);
+	for (int i = 0; i < wd->n; i++) {
+		const trs_critter *c = &wd->c[i];
+		trs_json *cj = trs_json_new(TRS_JSON_OBJECT);
+		PUT_I(cj, c, id);
+		trs_json_set(cj, "cell", patch_j(c->cell));
+		PUT_I(cj, c, kind);
+		PUT_I(cj, c, idx);
+		PUT_I(cj, c, state);
+		PUT_D(cj, c, t_state);
+		PUT_V(cj, c, pos);
+		PUT_V(cj, c, vel);
+		PUT_V(cj, c, fwd);
+		PUT_D(cj, c, hp);
+		PUT_D(cj, c, size);
+		PUT_T(cj, c, other);
+		PUT_D(cj, c, next_bite);
+		PUT_V(cj, c, centre);
+		const trs_life_instance *li = &c->inst;
+		trs_json *ij = trs_json_new(TRS_JSON_OBJECT);
+		PUT_I(ij, li, kind);
+		PUT_V(ij, li, pos);
+		PUT_V(ij, li, up);
+		PUT_D(ij, li, scale);
+		PUT_D(ij, li, yaw);
+		trs_json *lp = trs_json_new(TRS_JSON_ARRAY);
+		for (int e = 0; e < li->nloop; e++)
+			trs_json_push(lp, v3j(li->loop[e]));
+		trs_json_set(ij, "loop", lp);
+		trs_json_set(cj, "inst", ij);
+		trs_json_push(cl, cj);
+	}
+	trs_json_set(o, "critters", cl);
+	trs_json *dl = trs_json_new(TRS_JSON_ARRAY);
+	for (int i = 0; i < wd->ndead; i++) {
+		trs_json *dj = trs_json_new(TRS_JSON_OBJECT);
+		trs_json_set(dj, "body_id", trs_json_new_str(w->sys.bodies[wd->dead[i].body].id));
+		trs_json_set(dj, "cell", patch_j(wd->dead[i].cell));
+		PUT_I(dj, &wd->dead[i], kind);
+		PUT_I(dj, &wd->dead[i], idx);
+		PUT_D(dj, &wd->dead[i], until);
+		trs_json_push(dl, dj);
+	}
+	trs_json_set(o, "dead", dl);
+	trs_json *nl = trs_json_new(TRS_JSON_ARRAY);
+	for (int b = 0; b < w->sys.count; b++)
+		for (int k = 0; k < w->sys.bodies[b].nnests; k++)
+			if (w->nest_lost[b][k] || w->nest_lost_t[b][k] != 0) {
+				trs_json *nj = trs_json_new(TRS_JSON_OBJECT);
+				trs_json_set(nj, "body_id", trs_json_new_str(w->sys.bodies[b].id));
+				trs_json_set(nj, "nest", trs_json_new_str(w->sys.bodies[b].nests[k].id));
+				trs_json_set(nj, "lost", trs_json_new_num(w->nest_lost[b][k]));
+				trs_json_set(nj, "lost_t", dnum(w->nest_lost_t[b][k]));
+				trs_json_push(nl, nj);
+			}
+	trs_json_set(o, "nests", nl);
+	return o;
+}
+
+static void wild_load(trs_world *w, const trs_json *o) {
+	trs_wild *wd = &w->wild;
+	memset(w->nest_lost, 0, sizeof w->nest_lost);
+	memset(w->nest_lost_t, 0, sizeof w->nest_lost_t);
+	wd->n = wd->ndead = 0;
+	wd->body = -1;
+	if (!o)
+		return;
+	GET_I(o, wd, body);
+	GET_D(o, wd, acc);
+	GET_D(o, wd, scan_t);
+	GET_I(o, wd, next_id);
+	if (wd->body >= w->sys.count)
+		wd->body = -1;
+	const trs_json *cl = trs_json_get(o, "critters");
+	for (size_t i = 0; cl && i < cl->count && wd->n < TRS_WILD_MAX; i++) {
+		const trs_json *cj = trs_json_at(cl, i);
+		trs_critter *c = &wd->c[wd->n++];
+		memset(c, 0, sizeof *c);
+		GET_I(cj, c, id);
+		c->cell = get_patch(cj, "cell");
+		GET_I(cj, c, kind);
+		GET_I(cj, c, idx);
+		GET_I(cj, c, state);
+		GET_D(cj, c, t_state);
+		GET_V(cj, c, pos);
+		GET_V(cj, c, vel);
+		GET_V(cj, c, fwd);
+		GET_D(cj, c, hp);
+		GET_D(cj, c, size);
+		GET_T(cj, c, other);
+		GET_D(cj, c, next_bite);
+		GET_V(cj, c, centre);
+		const trs_json *ij = trs_json_get(cj, "inst");
+		trs_life_instance *li = &c->inst;
+		GET_I(ij, li, kind);
+		GET_V(ij, li, pos);
+		GET_V(ij, li, up);
+		GET_D(ij, li, scale);
+		GET_D(ij, li, yaw);
+		const trs_json *lp = trs_json_get(ij, "loop");
+		for (size_t e = 0; lp && e < lp->count && li->nloop < TRS_LIFE_LOOP; e++) {
+			const trs_json *a = trs_json_at(lp, e);
+			li->loop[li->nloop++] = v3(dval(trs_json_at(a, 0), 0), dval(trs_json_at(a, 1), 0), dval(trs_json_at(a, 2), 0));
+		}
+		if (wd->body < 0 || c->kind < 0 || c->kind >= w->sys.bodies[wd->body].nlife)
+			wd->n--;
+	}
+	const trs_json *dl = trs_json_get(o, "dead");
+	for (size_t i = 0; dl && i < dl->count && wd->ndead < TRS_WILD_DEAD; i++) {
+		const trs_json *dj = trs_json_at(dl, i);
+		int b = trs_system_find(&w->sys, trs_json_str(dj, "body_id", ""));
+		if (b < 0)
+			continue;
+		trs_wild_dead *d = &wd->dead[wd->ndead++];
+		d->body = b;
+		d->cell = get_patch(dj, "cell");
+		GET_I(dj, d, kind);
+		GET_I(dj, d, idx);
+		GET_D(dj, d, until);
+	}
+	const trs_json *nl = trs_json_get(o, "nests");
+	for (size_t i = 0; nl && i < nl->count; i++) {
+		const trs_json *nj = trs_json_at(nl, i);
+		int b = trs_system_find(&w->sys, trs_json_str(nj, "body_id", ""));
+		for (int k = 0; b >= 0 && k < w->sys.bodies[b].nnests; k++)
+			if (!strcmp(w->sys.bodies[b].nests[k].id, trs_json_str(nj, "nest", ""))) {
+				w->nest_lost[b][k] = (int)trs_json_num(nj, "lost", 0);
+				w->nest_lost_t[b][k] = get_d(nj, "lost_t");
+			}
+	}
+}
+
 static trs_json *craft_json(const trs_craft *c) {
 	trs_json *cj = trs_json_new(TRS_JSON_OBJECT);
 	trs_json_set(cj, "name", trs_json_new_str(c->name));
@@ -139,6 +312,12 @@ static trs_json *craft_json(const trs_craft *c) {
 		if (p->dock_name[0])
 			trs_json_set(pj, "dock_name", trs_json_new_str(p->dock_name));
 		PUT_I(pj, p, dock_wait_uid);
+		if (p->damage != 0 || p->hurt_t != 0) {
+			PUT_D(pj, p, damage);
+			PUT_D(pj, p, hurt_t);
+		}
+		if (p->aim.x != 0 || p->aim.y != 0 || p->aim.z != 0)
+			PUT_V(pj, p, aim);
 		trs_json_push(parts, pj);
 	}
 	trs_json_set(cj, "parts", parts);
@@ -184,6 +363,9 @@ static int craft_load(trs_craft *c, const trs_part_catalog *cat, const trs_json 
 		GET_D(pj, p, fin_flap);
 		snprintf(p->dock_name, sizeof p->dock_name, "%s", trs_json_str(pj, "dock_name", ""));
 		GET_I(pj, p, dock_wait_uid);
+		GET_D(pj, p, damage);
+		GET_D(pj, p, hurt_t);
+		GET_V(pj, p, aim);
 		const trs_json *rf = trs_json_get(pj, "rcs_fire");
 		for (int n = 0; n < TRS_MAX_NOZZLES; n++)
 			p->rcs_fire[n] = dval(trs_json_at(rf, (size_t)n), 0);
@@ -251,6 +433,22 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_D(o, vs, rcs_dv_expended);
 		PUT_V(o, vs, sensed_accel);
 		PUT_D(o, vs, spin);
+		if (vs->nlasers || vs->guard || vs->lock.kind || vs->pilot) {
+			PUT_I(o, vs, guard);
+			PUT_T(o, vs, lock);
+			PUT_I(o, vs, hand);
+			PUT_V(o, vs, hand_at);
+			PUT_T(o, vs, guard_on);
+			PUT_D(o, vs, guard_pick_t);
+		}
+		if (vs->pilot) {
+			PUT_I(o, vs, pilot);
+			PUT_I(o, vs, pilot_state);
+			PUT_T(o, vs, pilot_target);
+			PUT_D(o, vs, pilot_t);
+			PUT_D(o, vs, pilot_phase);
+			PUT_V(o, vs, lift);
+		}
 		if (vs->walker.active) {
 			const trs_walker *wk = &vs->walker;
 			trs_json *wj = trs_json_new(TRS_JSON_OBJECT);
@@ -302,6 +500,10 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		trs_json_push(vl, o);
 	}
 	trs_json_set(j, "vessels", vl);
+	PUT_I(j, w, focus);
+	PUT_I(j, w, focus_serial);
+	PUT_D(j, w, nest_check_t);
+	trs_json_set(j, "wild", wild_json(w));
 	return j;
 }
 
@@ -340,6 +542,10 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 	GET_D(j, w, t_comp);
 	GET_I(j, w, next_uid);
 	GET_I(j, w, next_serial);
+	w->focus = (int)trs_json_num(j, "focus", -1);
+	GET_I(j, w, focus_serial);
+	GET_D(j, w, nest_check_t);
+	wild_load(w, trs_json_get(j, "wild"));
 	for (size_t i = 0; i < n; i++) {
 		const trs_json *o = trs_json_at(vl, i);
 		int id = (int)trs_json_num(o, "id", -1);
@@ -385,6 +591,18 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_D(o, vs, rcs_dv_expended);
 		GET_V(o, vs, sensed_accel);
 		GET_D(o, vs, spin);
+		GET_I(o, vs, guard);
+		GET_T(o, vs, lock);
+		GET_I(o, vs, hand);
+		GET_V(o, vs, hand_at);
+		GET_T(o, vs, guard_on);
+		GET_D(o, vs, guard_pick_t);
+		GET_I(o, vs, pilot);
+		GET_I(o, vs, pilot_state);
+		GET_T(o, vs, pilot_target);
+		GET_D(o, vs, pilot_t);
+		GET_D(o, vs, pilot_phase);
+		GET_V(o, vs, lift);
 		const trs_json *wj = trs_json_get(o, "walker");
 		if (wj) {
 			trs_walker *wk = &vs->walker;

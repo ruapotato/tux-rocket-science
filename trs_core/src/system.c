@@ -190,6 +190,19 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			L->spread = trs_json_num(e, "spread", 10);
 			L->loop = trs_json_num(e, "loop", 0);
 			L->fly = trs_json_num(e, "fly", 0);
+			L->speed = trs_json_num(e, "speed", 0.5);
+			L->run = trs_json_num(e, "run", fmax(2.5, L->speed * (L->fly > 0 ? 1.6 : 4.0)));
+			const trs_json *sz = trs_json_get(e, "size");
+			L->size_min = sz ? trs_json_at(sz, 0)->num : 1.0;
+			L->size_max = sz && sz->count > 1 ? trs_json_at(sz, 1)->num : L->size_min;
+			L->hp = trs_json_num(e, "hp", 40.0 * (L->size_min + L->size_max) * 0.5);
+			L->wary = trs_json_num(e, "wary", 25);
+			L->aggro = trs_json_num(e, "aggro", 60);
+			L->bite = trs_json_num(e, "bite", 15);
+			L->penguin = trs_json_bool(e, "penguin", 0);
+			const char *tm = trs_json_str(e, "temper", "calm");
+			L->temper = !strcmp(tm, "shy") ? TRS_TEMPER_SHY : !strcmp(tm, "curious") ? TRS_TEMPER_CURIOUS
+				: !strcmp(tm, "hostile") ? TRS_TEMPER_HOSTILE : TRS_TEMPER_CALM;
 			const trs_json *bl = trs_json_get(e, "biomes");
 			for (size_t q = 0; bl && q < bl->count; q++) {
 				const trs_json *s = trs_json_at(bl, q);
@@ -211,6 +224,21 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 				b->terrain.calm_dir[b->terrain.ncalm] = r->dir;
 				b->terrain.calm_radius[b->terrain.ncalm++] = 300.0;
 			}
+		}
+		const trs_json *nj = trs_json_get(j, "nests");
+		for (size_t k = 0; nj && k < nj->count && b->nnests < TRS_MAX_NESTS; k++) {
+			const trs_json *e = trs_json_at(nj, k);
+			trs_nest *ne = &b->nests[b->nnests++];
+			snprintf(ne->id, sizeof ne->id, "%s", trs_json_str(e, "id", "?"));
+			snprintf(ne->name, sizeof ne->name, "%s", trs_json_str(e, "name", ne->id));
+			snprintf(ne->craft, sizeof ne->craft, "%s", trs_json_str(e, "craft", "jaeger_raider"));
+			double la = trs_json_num(e, "lat_deg", 0) * DEG, lo = trs_json_num(e, "lon_deg", 0) * DEG;
+			ne->dir = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+			ne->count = (int)trs_json_num(e, "count", 3);
+			ne->height = trs_json_num(e, "height", 250);
+			ne->patrol = trs_json_num(e, "patrol_km", 2) * 1000.0;
+			ne->detect = trs_json_num(e, "detect_km", 4) * 1000.0;
+			ne->respawn = trs_json_num(e, "respawn_h", 6) * 3600.0;
 		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {

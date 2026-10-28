@@ -188,7 +188,7 @@
           "range": 1500
         },
         {
-          "id": "stags",
+          "id": "stags", "name": "Stags", "temper": "shy", "wary": 40, "hp": 150, "about": "Antlered, proud and quick to bolt.",
           "animal": true,
           "shape": "grazer",
           "horns": true,
@@ -207,7 +207,7 @@
           "range": 900
         },
         {
-          "id": "seals",
+          "id": "seals", "name": "Seals", "temper": "calm", "hp": 160, "about": "Big, slow and not bothered by anyone. They keep the fish down and the beaches warm.",
           "animal": true,
           "shape": "seal",
           "biomes": [
@@ -225,7 +225,7 @@
           "range": 700
         },
         {
-          "id": "gulls",
+          "id": "gulls", "name": "Gulls", "temper": "shy", "wary": 15, "hp": 15, "about": "Loud, everywhere, and after your lunch.",
           "animal": true,
           "shape": "bird",
           "biomes": [
@@ -244,7 +244,7 @@
           "range": 1000
         },
         {
-          "id": "glimmers",
+          "id": "glimmers", "name": "Glimmers", "temper": "calm", "hp": 30, "about": "Little lights that drift among the trees of Mere's forests. The builders put them in their pictures.",
           "animal": true,
           "shape": "drifter",
           "biomes": [

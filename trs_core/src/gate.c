@@ -105,6 +105,8 @@ trs_gate_status trs_gate_mining(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_relativity(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_interstellar(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_actions(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_wild(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_aliens(trs_log *log, const char *data_dir);
 
 static const trs_gate_def GATES[] = {
 	{ "test-smoke", "M0", gate_smoke },
@@ -133,6 +135,8 @@ static const trs_gate_def GATES[] = {
 	{ "test-interior", "M25", trs_gate_interior },
 	{ "test-inside", "M25", NULL },
 	{ "test-life", "M26", trs_gate_life },
+	{ "test-wild", "M31", trs_gate_wild },
+	{ "test-aliens", "M31", trs_gate_aliens },
 	{ "test-shapes", "M27", trs_gate_shapes },
 	{ "test-spaceship", "M27", NULL },
 	{ "test-computer", "M28", trs_gate_computer },

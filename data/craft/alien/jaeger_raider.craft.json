@@ -1,0 +1,12 @@
+{
+  "format": "trs-craft",
+  "version": 1,
+  "name": "Jaeger Raider",
+  "description": "Not ours. A lens of dark metal on a lift drive, two lances under its rim.",
+  "parts": [
+    { "part": "jaeger_hull", "parent": -1, "node": "", "parent_node": "", "pos": [0, 0, 0], "rot": [0, 0, 0, 1], "stage": -1, "sym": 0 },
+    { "part": "jaeger_lift", "parent": 0, "node": "top", "parent_node": "bottom", "pos": [0, -0.9, 0], "rot": [0, 0, 0, 1], "stage": -1, "sym": 0 },
+    { "part": "jaeger_lance", "parent": 0, "node": "", "parent_node": "", "pos": [2.55, -0.25, 0], "rot": [0, 0.70710678118654757, 0, 0.70710678118654757], "stage": -1, "sym": 1 },
+    { "part": "jaeger_lance", "parent": 0, "node": "", "parent_node": "", "pos": [-2.55, -0.25, 0], "rot": [0, -0.70710678118654757, 0, 0.70710678118654757], "stage": -1, "sym": 1 }
+  ]
+}

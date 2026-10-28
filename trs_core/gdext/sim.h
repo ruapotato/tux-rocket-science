@@ -42,5 +42,7 @@ extern const trs_method_def TRS_SIM_CRAFT_METHODS[];
 extern const int TRS_SIM_CRAFT_METHOD_COUNT;
 extern const trs_method_def TRS_SIM_FLIGHT_METHODS[];
 extern const int TRS_SIM_FLIGHT_METHOD_COUNT;
+extern const trs_method_def TRS_SIM_COMBAT_METHODS[];
+extern const int TRS_SIM_COMBAT_METHOD_COUNT;
 
 #endif

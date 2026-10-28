@@ -55,9 +55,22 @@ static void m_load_system(void *self, const trs_val *a, trs_val *r) {
 		r->s = trs_strdup_printf("%s", h->err);
 		return;
 	}
+	int keep_n = 0;
+	char keep_id[8][32] = { { 0 } };
+	trs_craft *keep[8] = { 0 };
 	if (!h->world)
 		h->world = malloc(sizeof(trs_world));
+	else {
+		/* (a fresh world keeps the ships the nests put up) */
+		trs_world_free(h->world);
+		keep_n = h->world->nnest_crafts;
+		memcpy(keep_id, h->world->nest_craft_id, sizeof keep_id);
+		memcpy(keep, h->world->nest_craft, sizeof keep);
+	}
 	trs_world_init(h->world, &sys, 0);
+	h->world->nnest_crafts = keep_n;
+	memcpy(h->world->nest_craft_id, keep_id, sizeof keep_id);
+	memcpy(h->world->nest_craft, keep, sizeof keep);
 	r->s = trs_strdup_printf("%s", "");
 }
 
@@ -387,7 +400,7 @@ static void m_warp(void *self, const trs_val *a, trs_val *r) {
 		return;
 	}
 	for (int i = 0; i < h->world->nvessels; i++)
-		if (h->world->vessels[i].alive && h->world->vessels[i].mode == TRS_MODE_PHYSICS) {
+		if (h->world->vessels[i].alive && h->world->vessels[i].mode == TRS_MODE_PHYSICS && !h->world->vessels[i].pilot) {
 			trs_json_set(j, "event", trs_json_new_str("refused"));
 			trs_json_set(j, "reason", trs_json_new_str("vessel in physics mode"));
 			ret_json(r, j);

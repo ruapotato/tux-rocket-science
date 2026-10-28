@@ -304,7 +304,7 @@
           "range": 1500
         },
         {
-          "id": "selkies",
+          "id": "selkies", "name": "Selkies", "temper": "curious", "hp": 140, "about": "They haul out on Selkie's shores and stare. One will follow a penguin about all day.",
           "animal": true,
           "shape": "seal",
           "biomes": [
@@ -322,7 +322,7 @@
           "range": 700
         },
         {
-          "id": "terns",
+          "id": "terns", "name": "Terns", "temper": "shy", "wary": 15, "hp": 15, "about": "Sea birds, white and grey, on the wing over every shore.",
           "animal": true,
           "shape": "bird",
           "biomes": [

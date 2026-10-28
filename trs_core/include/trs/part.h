@@ -129,6 +129,18 @@ typedef struct {
 	/* signal scanner: hears a relic's hum out to scanner_range m, in sight
 	 * of it and with the power on */
 	double scanner_range;
+	/* what a part takes (hp) before it breaks: laser fire, bites (combat.c) */
+	double hp;
+	/* a laser: a beam out to laser_range m doing laser_dps hp a second to
+	 * whatever it meets first, for laser_kw; it turns at laser_slew rad/s
+	 * and reaches laser_arc rad off its mount's axis (local +Z, off the
+	 * hull; pi or more: any way at all) */
+	double laser_range, laser_dps, laser_kw, laser_slew, laser_arc;
+	/* the Jaegers' own (a ship with one aboard is theirs), and their lift
+	 * drive: it pushes the whole ship any way at all, up to lift_force N,
+	 * for lift_kw at full push */
+	int is_alien, alien_pilot; /* (alien_pilot: the hull its pilot sits in) */
+	double lift_force, lift_kw;
 
 	/* a penguin out on a walk (EVA): its feet carry it at up to eva_walk m/s
 	 * over the ground (as far as friction lets them), it jumps off at

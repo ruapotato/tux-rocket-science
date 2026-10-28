@@ -592,6 +592,29 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "in_atmosphere", trs_json_new_bool(b->atm.height > 0 && rl - b->radius < b->atm.height));
 	trs_json_set(j, "landed", trs_json_new_bool(vs->landed || vs->mode == TRS_MODE_LANDED));
 	trs_json_set(j, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
+	if (vs->craft) {
+		/* how much it has taken: a penguin's own health, a ship's worst-hurt part */
+		double worst = 0;
+		for (int i = 0; i < vs->craft->count; i++)
+			worst = fmax(worst, vs->craft->parts[i].damage / fmax(trs_craft_def(vs->craft, i)->hp, 1e-9));
+		trs_json_set(j, "hurt", trs_json_new_num(worst));
+		if (trs_vessel_is_eva(vs))
+			trs_json_set(j, "health", trs_json_new_num(fmax(0, 100.0 * (1 - worst))));
+		trs_json_set(j, "lasers", trs_json_new_num(vs->nlasers));
+		trs_json_set(j, "guard", trs_json_new_num(vs->guard));
+		trs_json_set(j, "alien", trs_json_new_bool(vs->is_alien));
+		int firing = 0;
+		for (int i = 0; i < vs->craft->count; i++)
+			firing += vs->craft->parts[i].beam > 0;
+		trs_json_set(j, "firing", trs_json_new_num(firing));
+		if (vs->lock.kind) {
+			trs_json *lj = trs_json_new(TRS_JSON_ARRAY);
+			trs_json_push(lj, trs_json_new_num(vs->lock.kind));
+			trs_json_push(lj, trs_json_new_num(vs->lock.id));
+			trs_json_push(lj, trs_json_new_num(vs->lock.serial));
+			trs_json_set(j, "lock", lj);
+		}
+	}
 	trs_json_set(j, "brakes", trs_json_new_bool(vs->brakes));
 	if (vs->craft) {
 		double ec_cap, ec = trs_craft_ec(vs->craft, &ec_cap), ant = 0, antf = 0;
@@ -998,6 +1021,15 @@ static void m_vessel_part_states(void *self, const trs_val *a, trs_val *r) {
 		trs_json_set(pj, "stage", trs_json_new_num(p->stage));
 		trs_json_set(pj, "temp", trs_json_new_num(p->temp));
 		trs_json_set(pj, "max_temp", trs_json_new_num(d->max_temp));
+		trs_json_set(pj, "damage", trs_json_new_num(p->damage));
+		trs_json_set(pj, "hp", trs_json_new_num(d->hp));
+		if (d->laser_range > 0) {
+			trs_json_set(pj, "laser_range", trs_json_new_num(d->laser_range));
+			trs_json_set(pj, "laser_dps", trs_json_new_num(d->laser_dps));
+			trs_json_set(pj, "firing", trs_json_new_bool(p->beam > 0));
+			if (strcmp(kind, "part") == 0 || strcmp(kind, d->category) == 0)
+				kind = "laser";
+		}
 		double cap = d->fuel_liquid + d->fuel_solid;
 		if (cap > 0) {
 			trs_json_set(pj, "fuel", trs_json_new_num(p->fuel));
@@ -1119,6 +1151,9 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(vj, "pods", pods);
 			trs_json_set(vj, "eva", trs_json_new_bool(trs_vessel_is_eva(vs)));
 			trs_json_set(vj, "anchored", trs_json_new_bool(vs->anchored));
+			trs_json_set(vj, "alien", trs_json_new_bool(vs->is_alien));
+			trs_json_set(vj, "pilot", trs_json_new_bool(vs->pilot != 0));
+			trs_json_set(vj, "lasers", trs_json_new_num(vs->nlasers));
 			/* something aboard can steer it (a pod, a probe core, a
 			 * wheel): a craft, not debris */
 			int control = 0;
@@ -1143,7 +1178,7 @@ static void m_vessel_list(void *self, const trs_val *a, trs_val *r) {
 }
 
 static const char *EVENT_NAMES[] = { "", "part_destroyed", "vessel_created", "soi_change", "landed", "liftoff",
-	"flameout", "docked", "undocked", "interstellar" };
+	"flameout", "docked", "undocked", "interstellar", "downed" };
 
 /* events_drain() -> JSON [{kind, t, vessel, other, uid, part, speed}] */
 static void m_events_drain(void *self, const trs_val *a, trs_val *r) {

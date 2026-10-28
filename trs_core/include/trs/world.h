@@ -109,6 +109,69 @@ typedef struct {
 	trs_quat rot; /* part rotation, and the box's yaw on top */
 } trs_room;
 
+/* Something that can be aimed at, shot or bitten: a vessel (by id and
+ * serial), an animal of the wild (by its own id), or the ground. */
+typedef enum { TRS_THING_NONE = 0, TRS_THING_VESSEL, TRS_THING_CRITTER, TRS_THING_GROUND } trs_thing_kind;
+typedef struct {
+	int kind;
+	int id;
+	int serial;
+} trs_thing;
+
+/* An animal near the focus, alive to what goes on round it (wild.c).
+ * Until something disturbs it, it walks its loop exactly where the
+ * scenery would draw it (trs_life_animal_at); after that it goes its own
+ * way. Which one it is: the cell, its kind, and its place in that kind's
+ * list for the cell. Positions body-fixed. */
+typedef enum {
+	TRS_CRIT_ROAM = 0, /* on its loop */
+	TRS_CRIT_WANDER,   /* free, ambling */
+	TRS_CRIT_FLEE,
+	TRS_CRIT_FOLLOW,   /* curious, at a penguin's heels */
+	TRS_CRIT_CHARGE,   /* hostile, going for something (and biting it) */
+	TRS_CRIT_DOWN,     /* zapped: lies there a moment, then gone */
+} trs_crit_state;
+typedef struct {
+	int id;
+	trs_patch_id cell;
+	int kind, idx;
+	int state;
+	double t_state;
+	trs_v3 pos, vel; /* body-fixed, m and m/s */
+	trs_v3 fwd;      /* the way it faces, body-fixed */
+	double hp, size;
+	trs_thing other; /* what it runs from, follows or goes for */
+	double next_bite;
+	trs_v3 centre;   /* its cell's centre: the loop is relative to it */
+	trs_life_instance inst;
+} trs_critter;
+#define TRS_WILD_MAX 160
+#define TRS_WILD_DEAD 256
+#define TRS_WILD_CELLS 24
+typedef struct {
+	int body;
+	trs_patch_id cell;
+	int kind, idx;
+	double until; /* the herd has made up the loss by then */
+} trs_wild_dead;
+typedef struct {
+	int body;         /* where the live ones are (-1: none) */
+	double acc;       /* time since the last step */
+	double scan_t;    /* when it last looked for who is near */
+	int n, next_id;
+	trs_critter c[TRS_WILD_MAX];
+	int ndead;
+	trs_wild_dead dead[TRS_WILD_DEAD];
+	/* what lives in the cells near (generated once a visit) */
+	int ncells;
+	struct {
+		trs_patch_id p;
+		int kind, n;
+		trs_v3 centre;
+		trs_life_instance *inst;
+	} cells[TRS_WILD_CELLS * TRS_MAX_LIFE];
+} trs_wild;
+
 typedef struct {
 	int alive;
 	int body;
@@ -169,6 +232,28 @@ typedef struct {
 	trs_walker walker;
 	double spin;      /* spin hold: SAS turns the craft about its +Y at this rate (rad/s), 0 = off */
 
+	/* lasers (combat.c): what they do by themselves (0 hold fire, 1 fire on
+	 * what threatens the ship, 2 on anything alive but penguins), what
+	 * they are locked on (they track it and fire while it's in reach), and
+	 * fire by hand at a point (body-fixed: it turns with the ground) */
+	int guard;
+	trs_thing lock;
+	int hand;
+	trs_v3 hand_at;
+	trs_thing guard_on;  /* what guard picked */
+	double guard_pick_t; /* ... and when */
+	/* a Jaeger at the controls (alien.c): its nest (body * TRS_MAX_NESTS +
+	 * nest + 1; 0 = none), what it is doing, what it is after, its turn
+	 * round its beat; and its lift drive's push this tick (m/s2, SOI) */
+	int pilot;
+	int pilot_state;
+	trs_thing pilot_target;
+	double pilot_t, pilot_phase;
+	trs_v3 lift;
+	trs_v3 lift_accel_now; /* what the drive gave last tick (telemetry) */
+	int is_alien;     /* cache: any part aboard is the Jaegers' */
+	int nlasers;      /* cache: lasers aboard */
+
 	/* Telemetry (true numbers for the HUD) */
 	trs_v3 sensed_accel; /* non-gravitational acceleration last tick, SOI frame */
 	double dv_expended;  /* integral of |thrust accel| dt */
@@ -220,6 +305,7 @@ typedef enum {
 	TRS_WEV_DOCKED,   /* vessel absorbed `other` (now gone) */
 	TRS_WEV_UNDOCKED, /* vessel let go of `other` (new) */
 	TRS_WEV_INTERSTELLAR, /* vessel passed star `other`'s heliopause, out into the space between the stars */
+	TRS_WEV_DOWNED,   /* a Jaeger raider lost its pilot's hull over body `other`: wreckage now */
 } trs_world_event_kind;
 
 typedef struct {
@@ -240,6 +326,8 @@ typedef struct {
 #define TRS_DESTROY_BLAST (-1.0)
 #define TRS_DESTROY_OVERHEAT (-2.0)
 #define TRS_DESTROY_CRUSH (-3.0) /* deep in a gas giant */
+#define TRS_DESTROY_LASER (-4.0) /* shot to pieces */
+#define TRS_DESTROY_BITTEN (-5.0) /* an animal's doing */
 
 typedef struct {
 	trs_system sys;
@@ -250,6 +338,19 @@ typedef struct {
 	int nevents;
 	int next_uid; /* part uids are unique across the whole world */
 	int next_serial; /* vessel serials likewise (vessel slots are reused) */
+	/* the vessel the player is with: the wild wakes round it, and the
+	 * Jaegers' nests put up their ships when it comes near (id, serial) */
+	int focus, focus_serial;
+	trs_wild wild;
+	/* each nest's losses: how many down, and when the last went */
+	int nest_lost[TRS_MAX_BODIES][TRS_MAX_NESTS];
+	double nest_lost_t[TRS_MAX_BODIES][TRS_MAX_NESTS];
+	double nest_check_t;
+	/* the ships the nests put up, by craft id (set by whoever loads the
+	 * world; not saved, not freed with the vessels) */
+	int nnest_crafts;
+	char nest_craft_id[8][32];
+	trs_craft *nest_craft[8];
 } trs_world;
 
 void trs_world_init(trs_world *w, const trs_system *sys, double t0);
@@ -396,6 +497,63 @@ double trs_lead_slant(const trs_part_def *d, double cs);
 void trs_world_vessel_contacts(trs_world *w);
 /* Lets vessel v pass through `other` until they are apart and t >= until. */
 void trs_vessel_add_ghost(trs_vessel *v, int other, double until);
+/* ---- the wild (wild.c) ---------------------------------------------- */
+/* Where an undisturbed animal (instance li of kind L, in the cell centred
+ * at `centre`) is at time t on its loop, and the way it faces: the
+ * scenery draws it there too. Body-fixed. */
+void trs_life_animal_at(const trs_life *L, const trs_life_instance *li, trs_v3 centre, double t, trs_v3 *pos, trs_v3 *fwd);
+/* The vessel the player is with (-1: none): the wild and the nests wake round it. */
+void trs_world_set_focus(trs_world *w, int id);
+/* internal: dt of the wild (called every physics step; it moves at 10 Hz) */
+void trs_wild_step(trs_world *w, double dt);
+/* the live one with this id (-1: gone) */
+int trs_wild_find(const trs_world *w, int id);
+/* Hurts animal i: hp off, and it reacts to who did it. */
+void trs_critter_hurt(trs_world *w, int i, double hp, trs_thing by);
+/* Forgets the live animals (they are back on their loops) and the cells. */
+void trs_wild_clear(trs_world *w);
+/* Is it alive and one of ours as the lasers see it (a penguin)? Its
+ * kind's data. */
+const trs_life *trs_critter_kind(const trs_world *w, const trs_critter *c);
+
+/* ---- lasers and damage (combat.c) ------------------------------------ */
+/* Part `part` of vessel `id` takes hp of damage (code: how it went, a
+ * TRS_DESTROY_*): past its def's hp it breaks after this tick. */
+void trs_part_hurt(trs_world *w, int id, int part, double hp, double code);
+/* Where a thing is now (SOI frame of body `body`) and how big (radius, m);
+ * 0 if it's gone or elsewhere. */
+int trs_thing_where(const trs_world *w, int body, trs_thing th, trs_v3 *at, double *radius);
+/* What a ray from o along unit d (SOI frame of body `body`) meets first
+ * within `range` m: a vessel's part (not vessel `skip`'s), an animal, the
+ * ground. *dist gets how far; *part the part's index for a vessel. */
+trs_thing trs_world_ray(const trs_world *w, int body, trs_v3 o, trs_v3 d, double range, int skip, double *dist, int *part);
+/* The lasers' orders: guard mode (0..2), a lock (TRS_THING_NONE lets go),
+ * fire by hand at a point (SOI frame), or not. Return the lasers aboard. */
+int trs_world_set_guard(trs_world *w, int id, int mode);
+int trs_world_lock(trs_world *w, int id, trs_thing th);
+int trs_world_hand_fire(trs_world *w, int id, int on, trs_v3 at);
+/* Whether a thing is alive and fair game for guard mode `mode` from vessel id. */
+int trs_thing_threat(const trs_world *w, int id, trs_thing th, int mode);
+/* A laser part's beam origin and its mount axis (SOI frame). */
+void trs_laser_mount(const trs_world *w, const trs_vessel *vs, int part, trs_v3 *at, trs_v3 *axis);
+/* internal: one tick of every vessel's lasers */
+void trs_world_lasers_step(trs_world *w, double h);
+
+/* ---- the Jaegers (alien.c) ------------------------------------------- */
+/* The craft a nest puts up, by craft id (copied). */
+void trs_world_set_nest_craft(trs_world *w, const char *craft_id, const trs_craft *c);
+/* internal: the nests put up and take down their ships, every step */
+void trs_world_nests_step(trs_world *w, double h);
+/* internal: one tick of a Jaeger's piloting (lift push, aim, lasers) */
+void trs_alien_pilot(trs_world *w, trs_vessel *vs, double h);
+/* A raider has lost its pilot (its hull broke): the nest counts the loss,
+ * and what is left is wreckage. */
+void trs_alien_downed(trs_world *w, int id);
+/* Takes every Jaeger ship home (before a rails warp). Returns how many. */
+int trs_world_recall_aliens(trs_world *w);
+/* Where nest k of body b hangs its ships (body-fixed). */
+trs_v3 trs_nest_home(const trs_body *b, int k);
+
 /* Linear and angular momentum (about the SOI body centre) of one vessel. */
 void trs_vessel_momentum(const trs_world *w, int id, trs_v3 *p, trs_v3 *L);
 

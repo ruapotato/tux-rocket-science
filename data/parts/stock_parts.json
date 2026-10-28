@@ -547,8 +547,10 @@
       "id": "eva_penguin",
       "name": "Penguin on EVA",
       "category": "eva",
-      "description": "A penguin out of the pod: walks (WASD), jumps (Space), climbs back in from anywhere on the hull (F), and on a jetpack's few kilograms of mono flies about (R, then WASD and Shift / Ctrl).",
+      "description": "A penguin out of the pod: walks (WASD), jumps (Space), climbs back in from anywhere on the hull (F), and on a jetpack's few kilograms of mono flies about (R, then WASD and Shift / Ctrl). It carries a zapper too: hold the left mouse button on whatever is after it.",
       "mass": 95,
+      "hp": 100,
+      "laser": { "range_m": 60, "dps": 20, "kw": 0, "slew_deg_s": 720, "arc_deg": 360 },
       "cost": 0,
       "science": ["eva_report", "surface_sample"],
       "crew": 1,
@@ -742,6 +744,22 @@
       "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
       "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.1, "area_side": 0.08 },
       "shape": { "type": "dish", "radius": 0.35, "height": 0.4 },
+      "nodes": [],
+      "surface_attach": true
+    },
+    {
+      "id": "laser_turret",
+      "name": "Tern Laser Turret",
+      "category": "utility",
+      "description": "A laser on a swivel: 60 hp a second to whatever it meets first, out to 1.5 km, for 15 kW while it fires. Fire it by hand (hold the left mouse button on what you want gone), let the computer see to it (F6: guard), or from a script: ship.fire_at(thing).",
+      "mass": 90,
+      "cost": 1800,
+      "hp": 140,
+      "laser": { "range_m": 1500, "dps": 60, "kw": 15, "slew_deg_s": 150, "arc_deg": 135 },
+      "crash_tolerance": 10,
+      "thermal": { "max_temp": 1400, "skin_heat": 8000, "emissivity": 0.8 },
+      "aero": { "cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.12, "area_side": 0.1 },
+      "shape": { "type": "turret", "radius": 0.26, "height": 0.4 },
       "nodes": [],
       "surface_attach": true
     },
@@ -984,6 +1002,9 @@
     {"id": "hab_box", "name": "Igloo Box Hab", "category": "pods", "description": "A square room for four with its own reaction wheels, resizable: stretch it into a long corridor or a wide hall. Walk about inside (Enter); its floor is whichever wall what you feel presses you to.", "mass": 3200, "cost": 5000, "crew": 4, "torque": 10000, "crash_tolerance": 10, "power": {"battery_kj": 800, "draw_kw": 0.4, "torque_kw_per_knm": 0.1}, "resize": {"kind": "box", "min": [0.6, 0.6, 0.6], "max": [3, 4, 3]}, "interior": {"volumes": [{"type": "box", "min": [-1.25, -1.25, -1.25], "max": [1.25, 1.25, 1.25]}]}, "thermal": {"max_temp": 1000, "skin_heat": 9000, "emissivity": 0.8}, "aero": {"cd_top": 1.0, "cd_bottom": 1.0, "cd_side": 1.05}, "shape": {"type": "box", "width": 2.5, "depth": 2.5, "height": 2.5, "windows": true}, "nodes": [{"name": "top", "pos": [0, 1.25, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.25, 0], "dir": [0, -1, 0], "radius": 1.25}, {"name": "east", "pos": [1.25, 0, 0], "dir": [1, 0, 0], "radius": 1.25}, {"name": "west", "pos": [-1.25, 0, 0], "dir": [-1, 0, 0], "radius": 1.25}, {"name": "north", "pos": [0, 0, 1.25], "dir": [0, 0, 1], "radius": 1.25}, {"name": "south", "pos": [0, 0, -1.25], "dir": [0, 0, -1], "radius": 1.25}], "surface_attach": true},
     {"id": "glasswing_hull", "name": "Glasswing Hull", "category": "structural", "description": "Alien. Copied from the Hearth's own casing: a third the weight of a Floe-Block, and it shrugs off 4000 K, so a ship of it comes home through the air without a heat shield.", "mass": 200, "cost": 6000, "crash_tolerance": 14, "resize": {"kind": "box", "min": [0.2, 0.2, 0.2], "max": [4, 4, 4]}, "thermal": {"max_temp": 4000, "skin_heat": 20000, "emissivity": 0.9}, "aero": {"cd_top": 0.9, "cd_bottom": 0.9, "cd_side": 1.0}, "shape": {"type": "box", "width": 2.5, "depth": 2.5, "height": 2.5, "alien": true}, "nodes": [{"name": "top", "pos": [0, 1.25, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.25, 0], "dir": [0, -1, 0], "radius": 1.25}, {"name": "east", "pos": [1.25, 0, 0], "dir": [1, 0, 0], "radius": 1.25}, {"name": "west", "pos": [-1.25, 0, 0], "dir": [-1, 0, 0], "radius": 1.25}, {"name": "north", "pos": [0, 0, 1.25], "dir": [0, 0, 1], "radius": 1.25}, {"name": "south", "pos": [0, 0, -1.25], "dir": [0, 0, -1], "radius": 1.25}], "surface_attach": true},
     {"id": "glasswing_wedge", "name": "Glasswing Prow", "category": "aero", "description": "Alien. The Glasswing hull as a blade-edged prow: light, and good to 4000 K on the way back down.", "mass": 110, "cost": 4000, "crash_tolerance": 14, "resize": {"kind": "box", "min": [0.2, 0.2, 0.2], "max": [4, 4, 4]}, "thermal": {"max_temp": 4000, "skin_heat": 20000, "emissivity": 0.9}, "aero": {"cd_top": 0.3, "cd_bottom": 0.9, "cd_side": 0.85}, "shape": {"type": "wedge", "width": 2.5, "depth": 2.5, "width_top": 2.5, "depth_top": 0.15, "height": 2.5, "alien": true}, "nodes": [{"name": "bottom", "pos": [0, -1.25, 0], "dir": [0, -1, 0], "radius": 1.25}], "surface_attach": true},
-    {"id": "hearth_torch", "name": "Hearth Torch", "category": "engines", "description": "Alien, half understood: a white-hot jet of ordinary propellant at fifteen times a rocket's exhaust speed, 800 kN of it. The jet carries some 20 GW; the 40 MW it draws (a Hearth Core) only holds the fire, and nobody at PASA knows where the rest comes from. Short of those 40 MW it gives what the power pays for. Real thrust: felt aboard as weight.", "mass": 4000, "cost": 120000, "engine": {"propellant": "liquid", "thrust_vac": 800000, "isp_vac": 5000, "isp_sl": 4200, "gimbal_deg": 3, "kw": 40000}, "crash_tolerance": 10, "thermal": {"max_temp": 3500, "skin_heat": 40000, "emissivity": 0.8}, "aero": {"cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0}, "shape": {"type": "engine", "radius": 1.25, "radius_bell": 1.0, "height": 2.0, "alien": true}, "nodes": [{"name": "top", "pos": [0, 1.0, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.0, 0], "dir": [0, -1, 0], "radius": 1.25}], "surface_attach": true}
+    {"id": "hearth_torch", "name": "Hearth Torch", "category": "engines", "description": "Alien, half understood: a white-hot jet of ordinary propellant at fifteen times a rocket's exhaust speed, 800 kN of it. The jet carries some 20 GW; the 40 MW it draws (a Hearth Core) only holds the fire, and nobody at PASA knows where the rest comes from. Short of those 40 MW it gives what the power pays for. Real thrust: felt aboard as weight.", "mass": 4000, "cost": 120000, "engine": {"propellant": "liquid", "thrust_vac": 800000, "isp_vac": 5000, "isp_sl": 4200, "gimbal_deg": 3, "kw": 40000}, "crash_tolerance": 10, "thermal": {"max_temp": 3500, "skin_heat": 40000, "emissivity": 0.8}, "aero": {"cd_top": 0.8, "cd_bottom": 0.9, "cd_side": 1.0}, "shape": {"type": "engine", "radius": 1.25, "radius_bell": 1.0, "height": 2.0, "alien": true}, "nodes": [{"name": "top", "pos": [0, 1.0, 0], "dir": [0, 1, 0], "radius": 1.25}, {"name": "bottom", "pos": [0, -1.0, 0], "dir": [0, -1, 0], "radius": 1.25}], "surface_attach": true},
+    {"id": "jaeger_hull", "name": "Jaeger Hull", "category": "alien", "alien": true, "alien_pilot": true, "description": "The Jaegers' own: a lens of dark metal with its pilot inside. Break it and the rest of the ship falls.", "mass": 1800, "cost": 0, "hp": 300, "torque": 40000, "power": {"battery_kj": 40000, "generator_kw": 90}, "crash_tolerance": 25, "thermal": {"max_temp": 3000, "skin_heat": 20000, "emissivity": 0.8}, "aero": {"cd_top": 0.3, "cd_bottom": 0.5, "cd_side": 0.25, "area_axial": 28.0, "area_side": 8.0}, "shape": {"type": "saucer", "radius": 3.0, "height": 1.3}, "nodes": [{"name": "top", "pos": [0, 0.65, 0], "dir": [0, 1, 0], "radius": 0.6}, {"name": "bottom", "pos": [0, -0.65, 0], "dir": [0, -1, 0], "radius": 1.2}], "surface_attach": true},
+    {"id": "jaeger_lift", "name": "Jaeger Lift Drive", "category": "alien", "alien": true, "description": "It pushes the ship whichever way the pilot likes, and nothing comes out of it.", "mass": 500, "cost": 0, "hp": 260, "lift": {"force_kn": 95, "kw": 45}, "crash_tolerance": 25, "thermal": {"max_temp": 3000, "skin_heat": 20000, "emissivity": 0.8}, "aero": {"cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.5, "area_axial": 4.5, "area_side": 1.0}, "shape": {"type": "lift_ring", "radius": 1.2, "height": 0.5}, "nodes": [{"name": "top", "pos": [0, 0.25, 0], "dir": [0, 1, 0], "radius": 1.2}], "surface_attach": false},
+    {"id": "jaeger_lance", "name": "Jaeger Lance", "category": "alien", "alien": true, "description": "The Jaegers' laser: 10 hp a second out to 900 m.", "mass": 120, "cost": 0, "hp": 110, "laser": {"range_m": 900, "dps": 10, "kw": 10, "slew_deg_s": 80, "arc_deg": 110}, "crash_tolerance": 25, "thermal": {"max_temp": 3000, "skin_heat": 20000, "emissivity": 0.8}, "aero": {"cd_top": 0.4, "cd_bottom": 0.4, "cd_side": 0.6, "area_axial": 0.1, "area_side": 0.2}, "shape": {"type": "lance", "radius": 0.2, "height": 0.5}, "nodes": [], "surface_attach": true}
   ]
 }

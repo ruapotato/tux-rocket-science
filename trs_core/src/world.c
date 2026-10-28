@@ -42,6 +42,8 @@ static void time_set(trs_world *w, double t) {
 void trs_world_init(trs_world *w, const trs_system *sys, double t0) {
 	memset(w, 0, sizeof(*w));
 	w->sys = *sys;
+	w->focus = -1;
+	w->wild.body = -1;
 	time_set(w, t0);
 }
 
@@ -70,6 +72,7 @@ void trs_world_free(trs_world *w) {
 	for (int i = 0; i < w->nvessels; i++)
 		vessel_release(&w->vessels[i]);
 	w->nvessels = 0;
+	trs_wild_clear(w);
 }
 
 int trs_world_add_vessel(trs_world *w, int body, trs_v3 r, trs_v3 v) {
@@ -394,6 +397,9 @@ void trs_world_step_physics(trs_world *w) {
 	for (int i = 0; i < nbefore; i++)
 		if (w->vessels[i].alive && w->vessels[i].walker.active)
 			trs_walker_step(w, &w->vessels[i], wq0[i], ww0[i], wcm0[i], h);
+	trs_world_lasers_step(w, h);
+	trs_wild_step(w, h);
+	trs_world_nests_step(w, h);
 	trs_world_dock_check(w);
 	int n = w->nvessels; /* destruction may append vessels */
 	for (int i = 0; i < n; i++) {
@@ -526,6 +532,9 @@ static void warp_power(trs_world *w, double t0, double t1) {
 }
 
 void trs_world_warp(trs_world *w, double dt, int stop_on, trs_event *stop) {
+	/* the Jaegers go home, and the wild is back on its loops, until it's 1x again */
+	trs_world_recall_aliens(w);
+	trs_wild_clear(w);
 	double t0 = w->t, t1 = w->t + dt;
 	trs_event result = { TRS_EV_NONE, t1, -1 };
 	if (stop_on >= 0 && w->vessels[stop_on].alive && w->vessels[stop_on].mode == TRS_MODE_RAILS) {

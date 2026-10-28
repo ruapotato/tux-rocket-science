@@ -68,6 +68,11 @@ typedef struct {
 	double fin_flap; /* fins: control flap angle last tick, rad, + swings the trailing edge toward +X (runtime only) */
 	char dock_name[48]; /* docking ports: the vessel it brought in when it docked */
 	int dock_wait_uid;  /* docking ports: won't latch onto this port again until clear of it */
+	double damage;      /* hp taken (laser fire, bites); it breaks at its def's hp */
+	double hurt_t;      /* when it was last hurt (a penguin heals once left alone a while) */
+	trs_v3 aim;         /* lasers: where the beam points, vessel-local (0 = along its mount) */
+	double beam;        /* lasers: the beam's length last tick, m (0 = not firing; runtime only) */
+	int beam_hit;       /* ... and what it met: a trs_thing_kind (runtime only) */
 } trs_part;
 
 /* A resized part's def, built from the catalog's at its size (cached

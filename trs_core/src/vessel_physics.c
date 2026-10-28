@@ -154,6 +154,12 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	free(wide_bottom);
 	trs_craft_mass_props(c, &vs->mass, &vs->cm, &vs->inertia);
 	build_contacts(vs);
+	vs->is_alien = 0, vs->nlasers = 0;
+	for (int i = 0; i < c->count; i++) {
+		const trs_part_def *d = trs_craft_def(c, i);
+		vs->is_alien |= d->is_alien;
+		vs->nlasers += d->laser_range > 0;
+	}
 	vs->dirty = 0;
 }
 
@@ -1264,6 +1270,34 @@ static void system_drive(trs_world *w, trs_vessel *vs, double h) {
 	vs->ec_use += need * f;
 }
 
+/* The Jaegers' lift drive: whatever push the pilot asks for (vs->lift,
+ * m/s2, SOI frame), up to what the drives aboard give this ship and the
+ * power pays for. Like the Stillwater Drive it moves the whole ship at
+ * once, after the rest of the tick. */
+static void lift_drive(trs_world *w, trs_vessel *vs, double h) {
+	vs->lift_accel_now = v3(0, 0, 0);
+	if (vs->pilot)
+		trs_alien_pilot(w, vs, h);
+	double f = 0, kw = 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		f += d->lift_force, kw += d->lift_kw;
+	}
+	double want = v3_len(vs->lift);
+	if (f <= 0 || want <= 0)
+		return;
+	double amax = f / vs->mass, k = fmin(1, amax / want);
+	double need = kw * want * k / amax, have = trs_craft_ec(vs->craft, NULL) / h;
+	if (need > 0 && have < need)
+		k *= fmax(0, have / need), need = have;
+	trs_v3 a = v3_scale(vs->lift, k);
+	vs->r = v3_madd(vs->r, a, 0.5 * h * h);
+	vs->v = v3_madd(vs->v, a, h);
+	vs->lift_accel_now = a;
+	trs_craft_ec_add(vs->craft, -need * h);
+	vs->ec_use += need;
+}
+
 /* Between the stars: steering as usual (wheels and SAS on the batteries),
  * the drive's push, relativistic motion; no air, ground or gravity. */
 static void interstellar_tick(trs_world *w, trs_vessel *vs, double h) {
@@ -1440,6 +1474,7 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 	vs->dv_expended += dv;
 	vs->sensed_accel = sensed;
 	system_drive(w, vs, h);
+	lift_drive(w, vs, h);
 	integrate_attitude(vs, torque, h);
 
 	/* a penguin jumps off the ground (the planet takes the other end) */
@@ -1895,6 +1930,8 @@ void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed) {
 	trs_craft *c = vs->craft;
 	if (!c || part < 0 || part >= c->count)
 		return;
+	if (vs->pilot && trs_craft_def(c, part)->alien_pilot)
+		trs_alien_downed(w, id); /* (before the pieces part: the pilot was in this one) */
 	{
 		const trs_part_def *d = trs_craft_def(c, part);
 		double fuel = ((d->fuel_liquid > 0 || d->fuel_solid > 0) ? c->parts[part].fuel : 0) + c->parts[part].mono;

@@ -70,7 +70,33 @@ typedef struct {
 	double height_min, height_max;
 	int herd;
 	double spread, loop, fly;
+	/* an animal's ways (wild.c): its walk (m/s) and its run, how big it
+	 * stands (m, picked between size_min and size_max like the game's
+	 * model), how much it takes (hp), and its temper: calm ones carry on
+	 * until hurt, shy ones run from anyone within `wary` m, curious ones
+	 * come up to a penguin, hostile ones go for anything within `aggro` m
+	 * and bite for `bite` hp. A penguin of the wild (`penguin`) is one of
+	 * ours as far as the lasers are concerned. */
+	double speed, run, size_min, size_max, hp, wary, aggro, bite;
+	int temper;
+	int penguin;
 } trs_life;
+
+typedef enum { TRS_TEMPER_CALM = 0, TRS_TEMPER_SHY, TRS_TEMPER_CURIOUS, TRS_TEMPER_HOSTILE } trs_temper;
+
+#define TRS_MAX_NESTS 4
+/* Where the Jaegers keep their ships on a body (alien.c): `count` raiders
+ * of craft `craft` hang `height` m over the ground at dir, wandering
+ * `patrol` m round it, and go for any ship that isn't theirs within
+ * `detect` m. One lost comes back after `respawn` s. */
+typedef struct {
+	char id[32];
+	char name[48];
+	char craft[32];
+	trs_v3 dir;
+	int count;
+	double height, patrol, detect, respawn;
+} trs_nest;
 
 #define TRS_MAX_RELICS 4
 
@@ -112,6 +138,8 @@ typedef struct {
 	int nrelics;
 	trs_life life[TRS_MAX_LIFE];
 	int nlife;
+	trs_nest nests[TRS_MAX_NESTS];
+	int nnests;
 	/* stars: several systems can share one world, each star fixed at its
 	 * galactic position (m, the home star at the origin, shared axes);
 	 * every body knows its star. A star's soi is its heliopause, past which

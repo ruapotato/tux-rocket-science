@@ -127,6 +127,22 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 	const trs_json *sc = trs_json_get(j, "scanner");
 	if (sc)
 		d->scanner_range = trs_json_num(sc, "range_km", 0) * 1000.0;
+	d->hp = trs_json_num(j, "hp", 50.0 + 0.5 * d->mass);
+	const trs_json *lz = trs_json_get(j, "laser");
+	if (lz) {
+		d->laser_range = trs_json_num(lz, "range_m", 1000);
+		d->laser_dps = trs_json_num(lz, "dps", 30);
+		d->laser_kw = trs_json_num(lz, "kw", 0);
+		d->laser_slew = trs_json_num(lz, "slew_deg_s", 90) * TRS_PI / 180.0;
+		d->laser_arc = trs_json_num(lz, "arc_deg", 100) * TRS_PI / 180.0;
+	}
+	d->is_alien = trs_json_bool(j, "alien", 0);
+	d->alien_pilot = trs_json_bool(j, "alien_pilot", 0);
+	const trs_json *lf = trs_json_get(j, "lift");
+	if (lf) {
+		d->lift_force = trs_json_num(lf, "force_kn", 0) * 1000.0;
+		d->lift_kw = trs_json_num(lf, "kw", 0);
+	}
 	const trs_json *dj = trs_json_get(j, "drive");
 	if (dj) {
 		d->drive_accel = trs_json_num(dj, "accel_g", 0) * 9.80665;

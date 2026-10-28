@@ -114,6 +114,9 @@
       "relics": [
         { "id": "gloam_lamp", "name": "the Lamp", "lat_deg": 4, "lon_deg": 92 }
       ],
+      "nests": [
+        {"id": "lamp_camp", "name": "the Jaeger camp by the Lamp", "count": 3, "height": 220, "patrol_km": 2, "detect_km": 4, "lat_deg": 5.322, "lon_deg": 92, "craft": "jaeger_raider", "respawn_h": 6}
+      ],
       "life": [
         {
           "id": "lamp_moss",
@@ -189,7 +192,7 @@
           "range": 1800
         },
         {
-          "id": "lantern_moths",
+          "id": "lantern_moths", "name": "Lantern moths", "temper": "calm", "hp": 20, "about": "Glowing drifters of the dusk ring, each the size of a penguin. They light the long twilight.",
           "animal": true,
           "shape": "drifter",
           "biomes": [
@@ -207,7 +210,7 @@
           "range": 1200
         },
         {
-          "id": "crawlers",
+          "id": "crawlers", "name": "Dusk crawlers", "temper": "hostile", "hp": 35, "bite": 12, "aggro": 40, "run": 3.5, "about": "Eight legs and a mouthful of hooks, and they come for anything warm. Keep a zapper handy in the dusk.",
           "animal": true,
           "shape": "grazer",
           "legs": 8,
