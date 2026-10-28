@@ -114,6 +114,16 @@ func run(runner: Node) -> Dictionary:
 	scene.queue_free()
 	await tree.process_frame
 
+	# 2b. the suicide burn: down on the pad on its engine
+	scene = await _gate._scene(tree, "hopper", "pad")
+	r = _fly(scene, "/root/scripts/suicide_burn.py", Templates.SUICIDE, 200.0)
+	said = " / ".join(r.said)
+	var tl: Dictionary = scene.session.telemetry()
+	_check(r.started and tl.get("alive", false) and tl.get("landed", false) and float(tl.get("max_impact", 99.0)) < 5.0 and said.contains("down!"),
+		"suicide_burn.py: up to 3 km and down on its engine, worst contact %.1f m/s (%s)" % [float(tl.get("max_impact", -1.0)), said])
+	scene.queue_free()
+	await tree.process_frame
+
 	# 3. the co-pilot, while a pilot burns a few seconds and lets it fall
 	scene = await _gate._scene(tree, "hopper", "pad")
 	var sc: Node3D = scene

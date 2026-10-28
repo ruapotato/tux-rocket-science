@@ -37,7 +37,7 @@ typedef enum {
     T_IF, T_ELIF, T_ELSE, T_WHILE, T_FOR, T_IN, T_BREAK, T_CONTINUE,
     T_DEF, T_RETURN, T_AND, T_OR, T_NOT, T_TRUE, T_FALSE, T_NIL, T_PASS,
     /* TUX ROCKET SCIENCE: the rest of the Python a player reaches for */
-    T_GLOBAL, T_IMPORT, T_FROM, T_TRY, T_EXCEPT, T_FINALLY, T_RAISE, T_LAMBDA, T_IS, T_AS, T_ASSERT,
+    T_GLOBAL, T_IMPORT, T_FROM, T_TRY, T_EXCEPT, T_FINALLY, T_RAISE, T_LAMBDA, T_IS, T_AS, T_ASSERT, T_CLASS,
     /* punctuation */
     T_LPAREN, T_RPAREN, T_LBRACKET, T_RBRACKET, T_LBRACE, T_RBRACE,
     T_COMMA, T_COLON, T_DOT, T_FSTR,
@@ -87,7 +87,7 @@ typedef enum {
      * def f(a, b=1); try/except/raise */
     OP_UNPACK, OP_SLICE, OP_APPENDN, OP_KWARGS, OP_SETDEFAULTS,
     OP_TRY, OP_ENDTRY, OP_RAISE,
-    OP_TUPLE, OP_CLOSURE, OP_EXCMATCH, OP_EXCTEXT, OP_PUTN,
+    OP_TUPLE, OP_CLOSURE, OP_EXCMATCH, OP_EXCTEXT, OP_PUTN, OP_CLASS,
     OP_HALT
 } OpCode;
 
@@ -185,6 +185,7 @@ struct VM {
         Func  *fn;
         int    ip;
         int    base;        /* stack index of local slot 0 */
+        Value  init_self;   /* TUX ROCKET SCIENCE: __init__'s instance, what the call gives back */
     } frame[NOM_FRAMES_MAX];
     int     nframes;
 

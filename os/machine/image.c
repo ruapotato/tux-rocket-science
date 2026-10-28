@@ -1487,6 +1487,7 @@ static const Package PKG_SHELL = {
       { "/root/examples/first_script.py", NULL, 0644, NULL },
       { "/root/examples/hover.py", NULL, 0644, NULL },
       { "/root/examples/watch.py", NULL, 0644, NULL },
+      { "/root/examples/suicide_burn.py", NULL, 0644, NULL },
       { "/bin/ed", NULL, 0755, NULL },
       { "/bin/echo", NULL, 0755, NULL },
       { "/bin/wc", NULL, 0755, NULL },
@@ -1699,7 +1700,7 @@ static const Package PKG_SHELL = {
         "\n"
         "1.4  -- find and netstat, because everybody reached for them and they were\n"
         "       not there.\n", 0644, NULL },
-    }, 77   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen */
+    }, 78   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen */
 };
 
 
@@ -3731,6 +3732,7 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "  ship run /root/examples/first_script.py  start here: a hop, every line explained\n"
         "  ship run /root/examples/hover.py      hold a height on a controller you can tune\n"
         "  ship run /root/examples/watch.py      a co-pilot: it warns you while you fly\n"
+        "  ship run /root/examples/suicide_burn.py  up 3 km and down on the engine, like a booster\n"
         "  ship run /root/examples/to_orbit.py   the pad to orbit by YOUR logic: the parts\n"
         "                                        by name, the maths, a look and a fix\n"
         "  ship run /root/examples/krill_by_hand.py  to Krill and down: when_to_leave,\n"
@@ -4232,6 +4234,42 @@ else if (strcmp(path, "/root/examples/orbit.py") == 0)
         "        clear(\"ground\")\n"
         "    chart(\"height\", ship.height)\n"
         "    sleep(0.5)\n"
+        );
+    else if (strcmp(path, "/root/examples/suicide_burn.py") == 0)
+        buf_puts(out,
+        "# suicide_burn.py -- up 3 km, fall, and light the engine at the last moment\n"
+        "#\n"
+        "# The way boosters land: no fuel spent hovering, just one hard burn that\n"
+        "# ends at the ground. stopping_distance() says how far it takes to stop at\n"
+        "# full power; the trick is lighting it no sooner than that.\n"
+        "e = ship.engines[0]\n"
+        "e.throttle = 100\n"
+        "aim(\"up\")\n"
+        "while ship.height < 3000:\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.1)\n"
+        "e.throttle = 0\n"
+        "print(\"engine off: up, and over the top...\")\n"
+        "while ship.vertical_speed > 0:\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.2)\n"
+        "aim(\"surface_retrograde\")\n"
+        "while ship.height > stopping_distance() * 1.1 + 20:\n"
+        "    chart(\"height\", ship.height)\n"
+        "    sleep(0.05)\n"
+        "print(f\"burn! {ship.height:.0f} m up, falling {ship.falling_speed:.0f} m/s\")\n"
+        "# just enough to stop at the ground: the push that turns this speed to\n"
+        "# nothing in the height left, gravity on top\n"
+        "while not ship.landed:\n"
+        "    push = e.max_thrust * 1000 / ship.mass\n"
+        "    left = max(ship.height - 4, 0.5)\n"
+        "    need = ship.falling_speed ** 2 / (2 * left) + ship.body.gravity\n"
+        "    if ship.falling_speed < 2:\n"
+        "        need = ship.body.gravity * 0.95       # the last metres, gently\n"
+        "    e.throttle = clamp(100 * need / push, 0, 100)\n"
+        "    chart(\"height\", ship.height)\n"
+        "e.throttle = 0\n"
+        "print(f\"down! {ship.fuel:.0f}% fuel left\")\n"
         );
     /* END test-by-hand examples */
     else if (strcmp(path, "/root/examples/hop.py") == 0)

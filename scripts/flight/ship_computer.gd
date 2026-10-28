@@ -100,6 +100,7 @@ var aim_fso := []             # aim_along(): [forward, sideways, outward], held 
 var _wake := [-100, 0.0]      # [frame said, game time] a sleeping script wakes at
 var _ship_id := [-1, -1]      # the vessel (id, serial) the aim was held for
 var _session: FlightSession = null
+var _ship_alive := true
 
 
 static func get_shared() -> ShipComputer:
@@ -218,6 +219,15 @@ static func _path_ahead(session: FlightSession, now: float) -> Dictionary:
 func update(scene: Node, t: Dictionary) -> void:
 	if machine == null or t.is_empty():
 		return
+	if not t.get("alive", true):
+		# the ship is gone, and its computer with it: what ran on it stops
+		if _ship_alive:
+			_ship_alive = false
+			var n := stop_scripts()
+			if n > 0:
+				_note("the ship was lost: its computer stopped %d script%s" % [n, "" if n == 1 else "s"])
+		return
+	_ship_alive = true
 	var rows := PackedStringArray()
 	var r := readings(t, programs, scene.session)
 	_frame += 1
@@ -675,6 +685,23 @@ func _let_go_aim() -> void:
 	aim_vec = Vector3.ZERO
 	aim_ph = []
 	aim_fso = []
+
+
+## Stops every running script but the console (a new flight); how many.
+func stop_scripts() -> int:
+	if machine == null:
+		return 0
+	var n := 0
+	for row in str(machine.scripts()).split("\n", false):
+		var f := row.split("\t")
+		if f.size() >= 4 and f[1] == "1" and f[3] != "-i":
+			machine.sh("kill " + f[0])
+			n += 1
+	if programs.running():
+		programs.stop("a new flight")
+	_let_go_aim()
+	charts.clear()
+	return n
 
 
 ## Every engine back on the ship's throttle (the keys, a program, throttle()).

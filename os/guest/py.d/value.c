@@ -137,6 +137,40 @@ Value closure_new(int index, Value *caps, int n)
     return VAL_OBJ(c);
 }
 
+Value class_new(const char *name, Value base)
+{
+    Klass *k = nom_alloc(sizeof(Klass));
+    k->o.kind = O_CLASS;
+    k->o.rc = 1;
+    snprintf(k->name, sizeof k->name, "%s", name);
+    k->dict = dict_new();
+    k->base = val_retain(base);
+    return VAL_OBJ(k);
+}
+
+Value instance_new(Value cls)
+{
+    Instance *i = nom_alloc(sizeof(Instance));
+    i->o.kind = O_INSTANCE;
+    i->o.rc = 1;
+    i->cls = val_retain(cls);
+    i->fields = dict_new();
+    return VAL_OBJ(i);
+}
+
+bool class_find(Value cls, const char *name, size_t len, Value *out)
+{
+    for (int depth = 0; IS_CLASS(cls) && depth < 32; depth++) {
+        Klass *k = (Klass *)cls.as.o;
+        Value key = str_new(name, len);
+        bool ok = dict_get(AS_DICT(k->dict), key, out);
+        val_release(key);
+        if (ok) return true;
+        cls = k->base;
+    }
+    return false;
+}
+
 Value func_obj_new(int index, bool native)
 {
     RefObj *r = nom_alloc(sizeof(RefObj));
@@ -178,6 +212,8 @@ void val_release(Value v)
         for (int i = 0; i < c->n; i++) val_release(c->cap[i]);
         break;
     }
+    case O_CLASS: val_release(((Klass *)o)->dict); val_release(((Klass *)o)->base); break;
+    case O_INSTANCE: val_release(((Instance *)o)->cls); val_release(((Instance *)o)->fields); break;
     default: break;
     }
     nom_free(o);
@@ -302,6 +338,8 @@ static void emit(Buf *b, Value v, bool quoted)
         buf_putc(b, '}');
         return;
     }
+    case O_CLASS: buf_printf(b, "<class '%s'>", ((Klass *)v.as.o)->name); return;
+    case O_INSTANCE: buf_printf(b, "<%s object>", ((Klass *)((Instance *)v.as.o)->cls.as.o)->name); return;
     case O_RANGE: {
         Range *r = AS_RANGE(v);
         buf_printf(b, "range(%lld, %lld", (long long)r->start, (long long)r->stop);

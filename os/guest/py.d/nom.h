@@ -198,7 +198,7 @@ typedef struct Sim    Sim;
 typedef struct Ship   Ship;
 
 typedef enum { V_NIL, V_BOOL, V_INT, V_NUM, V_OBJ } VKind;
-typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE, O_RANGE, O_CLOSURE } OKind;
+typedef enum { O_STR, O_LIST, O_DICT, O_FUNC, O_NATIVE, O_HANDLE, O_RANGE, O_CLOSURE, O_CLASS, O_INSTANCE } OKind;
 
 typedef struct {
     uint8_t k;
@@ -231,6 +231,16 @@ Value   range_new(int64_t start, int64_t stop, int64_t step);
  * as they were when it was made; index first, as a function value's */
 typedef struct { Obj o; int index; int n; Value cap[]; } Closure;
 Value   closure_new(int index, Value *caps, int n);
+/* class PID: its methods and class attributes (a dict), and what it came
+ * from; an instance: its class and its own attributes (self.x) */
+typedef struct { Obj o; char name[40]; Value dict; Value base; } Klass;
+typedef struct { Obj o; Value cls; Value fields; } Instance;
+#define IS_CLASS(v)    ((v).k == V_OBJ && (v).as.o->kind == O_CLASS)
+#define IS_INSTANCE(v) ((v).k == V_OBJ && (v).as.o->kind == O_INSTANCE)
+Value   class_new(const char *name, Value base);
+Value   instance_new(Value cls);
+/* a name on the class or its bases (borrowed), or false */
+bool    class_find(Value cls, const char *name, size_t len, Value *out);
 int64_t range_len(Range *r);
 #define AS_HANDLE(v) ((Handle *)(v).as.o)
 Value  handle_new(const char *path, size_t plen, const char *label, size_t llen);

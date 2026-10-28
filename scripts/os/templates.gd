@@ -115,6 +115,43 @@ while True:
     sleep(0.5)
 """
 
+const SUICIDE := """# suicide_burn.py -- up 3 km, fall, and light the engine at the last moment
+#
+# The way boosters land: no fuel spent hovering, just one hard burn that
+# ends at the ground. stopping_distance() says how far it takes to stop at
+# full power; the trick is lighting it no sooner than that.
+e = ship.engines[0]
+e.throttle = 100
+aim("up")
+# burn until the coast alone would carry it to 3 km: what you're going up
+# at carries you v * v / (2 * gravity) higher
+while ship.height + ship.vertical_speed ** 2 / (2 * ship.body.gravity) < 3000:
+    chart("height", ship.height)
+    sleep(0.05)
+e.throttle = 0
+print(f"engine off at {ship.height:.0f} m: coasting up to 3 km...")
+while ship.vertical_speed > 0:
+    chart("height", ship.height)
+    sleep(0.2)
+aim("surface_retrograde")
+while ship.height > stopping_distance() * 1.1 + 20:
+    chart("height", ship.height)
+    sleep(0.05)
+print(f"burn! {ship.height:.0f} m up, falling {ship.falling_speed:.0f} m/s")
+# just enough to stop at the ground: the push that turns this speed to
+# nothing in the height left, gravity on top
+while not ship.landed:
+    push = e.max_thrust * 1000 / ship.mass
+    left = max(ship.height - 4, 0.5)
+    need = ship.falling_speed ** 2 / (2 * left) + ship.body.gravity
+    if ship.falling_speed < 2:
+        need = ship.body.gravity * 0.95       # the last metres, gently
+    e.throttle = clamp(100 * need / push, 0, 100)
+    chart("height", ship.height)
+e.throttle = 0
+print(f"down! {ship.fuel:.0f}% fuel left")
+"""
+
 const BLANK := """# my_script.py
 #
 # ship.  (type the dot: it lists what the ship has)   ship.part("...")
@@ -128,5 +165,6 @@ const LIST := [
 	["Your first script (a hop)", "first_script.py", FIRST],
 	["Hover: hold a height", "hover.py", HOVER],
 	["Co-pilot: warnings while you fly", "watch.py", WATCH],
+	["Suicide burn: land like a booster", "suicide_burn.py", SUICIDE],
 	["Blank", "my_script.py", BLANK],
 ]

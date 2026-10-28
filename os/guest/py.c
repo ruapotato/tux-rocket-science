@@ -1027,6 +1027,20 @@ static bool gone(VM *v, Value obj, const char *r)
 
 bool host_getattr(VM *v, Value obj, Str *name, Value *out)
 {
+    if (IS_INSTANCE(obj) || IS_CLASS(obj)) {
+        /* self.kp: the instance's own, then its class's (and the bases') */
+        Value got, key = str_new(name->s, name->len);
+        bool ok = IS_INSTANCE(obj) && dict_get(AS_DICT(((Instance *)obj.as.o)->fields), key, &got);
+        val_release(key);
+        if (!ok) ok = class_find(IS_INSTANCE(obj) ? ((Instance *)obj.as.o)->cls : obj, name->s, name->len, &got);
+        if (!ok) {
+            const char *cn = IS_INSTANCE(obj) ? ((Klass *)((Instance *)obj.as.o)->cls.as.o)->name : ((Klass *)obj.as.o)->name;
+            vm_runtime_error(v, "AttributeError: a %s has no .%s (set it first: self.%s = ...)", cn, name->s, name->s);
+            return false;
+        }
+        *out = val_retain(got);
+        return true;
+    }
     if (IS_DICT(obj)) {
         Value key = str_new(name->s, name->len), got;
         bool ok = dict_get(AS_DICT(obj), key, &got);
@@ -1051,6 +1065,14 @@ bool host_getattr(VM *v, Value obj, Str *name, Value *out)
 
 bool host_setattr(VM *v, Value obj, Str *name, Value val)
 {
+    if (IS_INSTANCE(obj)) {
+        dict_set(AS_DICT(((Instance *)obj.as.o)->fields), str_new(name->s, name->len), val_retain(val));
+        return true;
+    }
+    if (IS_CLASS(obj)) {
+        dict_set(AS_DICT(((Klass *)obj.as.o)->dict), str_new(name->s, name->len), val_retain(val));
+        return true;
+    }
     if (IS_DICT(obj)) {
         dict_set(AS_DICT(obj), str_new(name->s, name->len), val_retain(val));
         return true;
@@ -1861,6 +1883,7 @@ static const char *type_fn(Value x)
 static VmStatus n_type(VM *v, Value *a, int n, Value *out)
 {
     (void)v; (void)n;
+    if (IS_INSTANCE(a[0])) { *out = val_retain(((Instance *)a[0].as.o)->cls); return VM_OK; }
     const char *t = type_fn(a[0]);
     int k = t ? native_find(t, (int)nom_strlen(t)) : -1;
     *out = k >= 0 ? func_obj_new(k, true) : str_newz(a[0].k == V_NIL ? "NoneType" : "thing");
@@ -1877,6 +1900,12 @@ static VmStatus n_isinstance(VM *v, Value *a, int n, Value *out)
     Value *ks = IS_LIST(kinds) ? AS_LIST(kinds)->v : one;
     u32 nk = IS_LIST(kinds) ? AS_LIST(kinds)->len : 1;
     for (u32 i = 0; i < nk; i++) {
+        if (IS_CLASS(ks[i])) {
+            /* an instance of it, or of a class built on it */
+            for (Value c = IS_INSTANCE(a[0]) ? ((Instance *)a[0].as.o)->cls : VAL_NIL; IS_CLASS(c); c = ((Klass *)c.as.o)->base)
+                any |= c.as.o == ks[i].as.o;
+            continue;
+        }
         if (ks[i].k != V_OBJ || ks[i].as.o->kind != O_NATIVE) { vm_runtime_error(v, "isinstance() wants a kind: int, float, str, list, dict, bool"); return VM_ERROR; }
         int cnt = 0;
         const char *nm = native_table(&cnt)[func_obj_index(ks[i])].name;

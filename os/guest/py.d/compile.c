@@ -988,7 +988,59 @@ static void for_stmt(P *p)
     emit(p, OP_POP);                     /* seq */
 }
 
-static void def_stmt(P *p)
+static void def_body(P *p, bool member);
+static void def_stmt(P *p) { def_body(p, false); }
+
+/* class PID(Base):  defs and name = value, a class's own names */
+static void class_stmt(P *p)
+{
+    if (!p->comp->toplevel) { perr(p, "a class goes at the top of the script, not inside a def"); return; }
+    if (!check(p, T_IDENT)) { perr(p, "expected a class name"); return; }
+    Token nameTok = *advance(p);
+    int hasbase = 0;
+    if (match(p, T_LPAREN)) {
+        if (check(p, T_IDENT)) {
+            Token b = *advance(p);
+            if (!(b.len == 6 && !memcmp(b.start, "object", 6))) { emit_name_load(p, b.start, b.len); hasbase = 1; }
+        }
+        expect(p, T_RPAREN, "')'");
+    }
+    emit(p, OP_CLASS);
+    emit_u16(p, add_const(p, str_new(nameTok.start, (size_t)nameTok.len)));
+    emit(p, (uint8_t)hasbase);
+    expect(p, T_COLON, "':' after the class name");
+    if (!match(p, T_NEWLINE) || !match(p, T_INDENT)) { perr(p, "expected the class's defs, indented below it"); return; }
+    while (!check(p, T_DEDENT) && !check(p, T_EOF) && !p->failed) {
+        while (check(p, T_NEWLINE)) advance(p);
+        if (check(p, T_DEDENT) || check(p, T_EOF)) break;
+        if (match(p, T_PASS)) continue;
+        if (check(p, T_STR)) { advance(p); continue; }          /* a docstring */
+        if (match(p, T_DEF)) {
+            if (!check(p, T_IDENT)) { perr(p, "expected a method name"); return; }
+            Token mt = *peek(p);
+            emit(p, OP_DUP);
+            emit_const(p, str_new(mt.start, (size_t)mt.len));
+            def_body(p, true);
+            emit(p, OP_SETINDEX);
+            continue;
+        }
+        if (check(p, T_IDENT) && p->tl.tok[p->cur + 1].type == T_ASSIGN) {
+            Token at = *advance(p);
+            advance(p);
+            emit(p, OP_DUP);
+            emit_const(p, str_new(at.start, (size_t)at.len));
+            expression(p);
+            emit(p, OP_SETINDEX);
+            continue;
+        }
+        perr(p, "in a class: methods (def) and names (x = 1) only");
+        return;
+    }
+    expect(p, T_DEDENT, "the end of the class");
+    emit_name_store(p, nameTok.start, nameTok.len);
+}
+
+static void def_body(P *p, bool member)
 {
     if (!check(p, T_IDENT)) { perr(p, "expected a function name"); return; }
     Token nameTok = *advance(p);
@@ -1010,7 +1062,7 @@ static void def_stmt(P *p)
      * inside a def is that one's local, and sees only its own names and the
      * globals) */
     bool top = p->comp->toplevel;
-    int g = top ? global_slot(p, nameTok.start, nameTok.len, true) : -1;
+    int g = top && !member ? global_slot(p, nameTok.start, nameTok.len, true) : -1;
 
     p->comp = &c;
     expect(p, T_LPAREN, "'(' after function name");
@@ -1059,6 +1111,7 @@ static void def_stmt(P *p)
         p->cur = after;
     }
     emit_function(p, fi, &c);
+    if (member) return;                 /* (a method: the class keeps it) */
     if (top) {
         emit(p, OP_SETGLOBAL);
         emit_u16(p, g);
@@ -1340,6 +1393,7 @@ static void statement(P *p)
     if (match(p, T_WHILE)) { while_stmt(p); return; }
     if (match(p, T_FOR))   { for_stmt(p);   return; }
     if (match(p, T_DEF))   { def_stmt(p);   return; }
+    if (match(p, T_CLASS)) { class_stmt(p); return; }
     if (match(p, T_PASS))  { return; }
 
     if (match(p, T_BREAK)) {

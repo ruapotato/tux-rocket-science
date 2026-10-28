@@ -118,6 +118,8 @@ static const char *type_name(Value v)
         case O_DICT: return "dict";
         case O_HANDLE: return "ship's part";
         case O_RANGE: return "range";
+        case O_CLASS: return "class";
+        case O_INSTANCE: return ((Klass *)((Instance *)v.as.o)->cls.as.o)->name;
         case O_CLOSURE: return "function";
         default:     return "function";
         }
@@ -337,6 +339,88 @@ static bool index_get(VM *v, Value box, Value key, Value *out)
 #define READ_U16()   (f->ip += 2, (int)((chunk->code[f->ip - 2] << 8) | chunk->code[f->ip - 1]))
 #define READ_S16()   ((int16_t)READ_U16())
 
+/* TUX ROCKET SCIENCE: into a def (or a lambda, a closure, a method,
+ * __init__): the stack is [callee, args...]; keywords and defaults bound,
+ * locals reserved, the frame pushed. init_self: the instance __init__ is
+ * making (what the call gives back), or nil. */
+static bool enter_func(VM *v, Value callee, int nargs, Value init_self)
+{
+    int idx = func_obj_index(callee);
+    Func *fn = &v->prog->func[idx];
+    /* TUX ROCKET SCIENCE: f(1, b=5): keywords to their parameters,
+     * then the defaults for the ones left */
+    if (v->kw.k != V_NIL || (nargs < fn->arity && fn->ndefaults > 0)) {
+        Value slot[NOM_ARGS_MAX];
+        bool have[NOM_ARGS_MAX];
+        for (int i = 0; i < fn->arity; i++) { have[i] = i < nargs; slot[i] = i < nargs ? v->stack[v->sp - nargs + i] : VAL_NIL; }
+        if (nargs > fn->arity) {
+            vm_runtime_error(v, "%s() takes %d arguments, got %d", fn->name, fn->arity, nargs);
+            return false;
+        }
+        if (v->kw.k != V_NIL) {
+            Dict *kd = AS_DICT(v->kw);
+            for (uint32_t k = 0; k < kd->len; k++) {
+                Str *kn = AS_STR(kd->k[k]);
+                int at = -1, i = 0;
+                for (const char *q = fn->locals ? fn->locals : ""; *q && i < fn->arity; i++) {
+                    const char *e = q;
+                    while (*e && *e != ',') e++;
+                    if ((uint32_t)(e - q) == kn->len && !memcmp(q, kn->s, kn->len)) at = i;
+                    q = *e ? e + 1 : e;
+                }
+                if (at < 0 || have[at]) {
+                    vm_runtime_error(v, at < 0 ? "%s() has no parameter called %s" : "%s() got %s twice", fn->name, kn->s);
+                    return false;
+                }
+                slot[at] = val_retain(kd->v[k]);
+                have[at] = true;
+            }
+            val_release(v->kw);
+            v->kw = VAL_NIL;
+        }
+        for (int i = 0; i < fn->arity; i++) {
+            if (have[i]) continue;
+            int d = i - (fn->arity - fn->ndefaults);
+            if (d < 0) {
+                vm_runtime_error(v, "%s() is missing an argument (it takes %d)", fn->name, fn->arity);
+                return false;
+            }
+            slot[i] = val_retain(fn->defaults[d]);
+            have[i] = true;
+        }
+        v->sp -= nargs;            /* (their values are in slot now) */
+        for (int i = 0; i < fn->arity; i++)
+            if (!push(v, slot[i])) return false;
+        nargs = fn->arity;
+    }
+    if (nargs != fn->arity) {
+        vm_runtime_error(v, "%s() takes %d arguments, got %d", fn->name, fn->arity, nargs);
+        return false;
+    }
+    if (v->nframes >= NOM_FRAMES_MAX) {
+        vm_runtime_error(v, "RecursionError: a function called itself (or others) %d deep, and that's the limit", NOM_FRAMES_MAX);
+        return false;
+    }
+    /* args are already in place; reserve the rest of the locals */
+    int base = v->sp - nargs;
+    for (int i = nargs; i < fn->nlocals; i++)
+        if (!push(v, VAL_NIL)) return false;
+    if (callee.as.o->kind == O_CLOSURE) {
+        /* the outer function's names it uses, into their locals */
+        Closure *cl = (Closure *)callee.as.o;
+        for (int i = 0; i < cl->n && i < fn->ncap; i++) {
+            val_release(v->stack[base + fn->cap_slot[i]]);
+            v->stack[base + fn->cap_slot[i]] = val_retain(cl->cap[i]);
+        }
+    }
+    struct Frame *nf = &v->frame[v->nframes++];
+    nf->fn = fn;
+    nf->ip = 0;
+    nf->base = base;
+    nf->init_self = init_self;
+    return true;
+}
+
 VmStatus vm_run(VM *v, int budget)
 {
     if (v->done) return VM_OK;
@@ -514,6 +598,9 @@ VmStatus vm_run(VM *v, int budget)
             } else if (IS_DICT(box)) {
                 dict_set(AS_DICT(box), key, val);   /* takes both */
                 val_release(box);
+            } else if (IS_CLASS(box)) {
+                dict_set(AS_DICT(((Klass *)box.as.o)->dict), key, val);   /* (a class body's names) */
+                val_release(box);
             } else {
                 vm_runtime_error(v, "cannot assign into a %s", type_name(box));
                 goto setindex_fail;
@@ -566,9 +653,33 @@ VmStatus vm_run(VM *v, int budget)
                 if (!push(v, r)) goto fail;
                 break;
             }
+            if (IS_CLASS(callee)) {
+                /* PID(1, 2): a new instance, and its __init__ run on it */
+                Value inst = instance_new(callee), init;
+                if (!class_find(callee, "__init__", 8, &init)) {
+                    if (nargs || v->kw.k != V_NIL) {
+                        vm_runtime_error(v, "TypeError: %s() takes no arguments (it has no __init__)", ((Klass *)callee.as.o)->name);
+                        val_release(inst);
+                        goto fail;
+                    }
+                    val_release(pop(v));
+                    if (!push(v, inst)) goto fail;
+                    break;
+                }
+                /* [class, args...] -> [__init__, instance, args...] */
+                if (!push(v, VAL_NIL)) { val_release(inst); goto fail; }
+                for (int i = 0; i < nargs; i++) v->stack[v->sp - 1 - i] = v->stack[v->sp - 2 - i];
+                v->stack[v->sp - nargs - 1] = val_retain(inst);
+                val_release(v->stack[v->sp - nargs - 2]);
+                v->stack[v->sp - nargs - 2] = val_retain(init);
+                if (!enter_func(v, init, nargs + 1, inst)) goto fail;
+                f = &v->frame[v->nframes - 1];
+                chunk = &f->fn->chunk;
+                break;
+            }
             if (callee.k != V_OBJ ||
                 (callee.as.o->kind != O_NATIVE && callee.as.o->kind != O_FUNC && callee.as.o->kind != O_CLOSURE)) {
-                vm_runtime_error(v, "cannot call a %s", type_name(callee));
+                vm_runtime_error(v, "TypeError: a %s can't be called", type_name(callee));
                 goto fail;
             }
             int idx = func_obj_index(callee);
@@ -605,84 +716,15 @@ VmStatus vm_run(VM *v, int budget)
                 break;
             }
 
-            Func *fn = &v->prog->func[idx];
-            /* TUX ROCKET SCIENCE: f(1, b=5): keywords to their parameters,
-             * then the defaults for the ones left */
-            if (v->kw.k != V_NIL || (nargs < fn->arity && fn->ndefaults > 0)) {
-                Value slot[NOM_ARGS_MAX];
-                bool have[NOM_ARGS_MAX];
-                for (int i = 0; i < fn->arity; i++) { have[i] = i < nargs; slot[i] = i < nargs ? v->stack[v->sp - nargs + i] : VAL_NIL; }
-                if (nargs > fn->arity) {
-                    vm_runtime_error(v, "%s() takes %d arguments, got %d", fn->name, fn->arity, nargs);
-                    goto fail;
-                }
-                if (v->kw.k != V_NIL) {
-                    Dict *kd = AS_DICT(v->kw);
-                    for (uint32_t k = 0; k < kd->len; k++) {
-                        Str *kn = AS_STR(kd->k[k]);
-                        int at = -1, i = 0;
-                        for (const char *q = fn->locals ? fn->locals : ""; *q && i < fn->arity; i++) {
-                            const char *e = q;
-                            while (*e && *e != ',') e++;
-                            if ((uint32_t)(e - q) == kn->len && !memcmp(q, kn->s, kn->len)) at = i;
-                            q = *e ? e + 1 : e;
-                        }
-                        if (at < 0 || have[at]) {
-                            vm_runtime_error(v, at < 0 ? "%s() has no parameter called %s" : "%s() got %s twice", fn->name, kn->s);
-                            goto fail;
-                        }
-                        slot[at] = val_retain(kd->v[k]);
-                        have[at] = true;
-                    }
-                    val_release(v->kw);
-                    v->kw = VAL_NIL;
-                }
-                for (int i = 0; i < fn->arity; i++) {
-                    if (have[i]) continue;
-                    int d = i - (fn->arity - fn->ndefaults);
-                    if (d < 0) {
-                        vm_runtime_error(v, "%s() is missing an argument (it takes %d)", fn->name, fn->arity);
-                        goto fail;
-                    }
-                    slot[i] = val_retain(fn->defaults[d]);
-                    have[i] = true;
-                }
-                v->sp -= nargs;            /* (their values are in slot now) */
-                for (int i = 0; i < fn->arity; i++)
-                    if (!push(v, slot[i])) goto fail;
-                nargs = fn->arity;
-            }
-            if (nargs != fn->arity) {
-                vm_runtime_error(v, "%s() takes %d arguments, got %d", fn->name, fn->arity, nargs);
-                goto fail;
-            }
-            if (v->nframes >= NOM_FRAMES_MAX) {
-                vm_runtime_error(v, "RecursionError: a function called itself (or others) %d deep, and that's the limit", NOM_FRAMES_MAX);
-                goto fail;
-            }
-            /* args are already in place; reserve the rest of the locals */
-            int base = v->sp - nargs;
-            for (int i = nargs; i < fn->nlocals; i++)
-                if (!push(v, VAL_NIL)) goto fail;
-            if (callee.as.o->kind == O_CLOSURE) {
-                /* the outer function's names it uses, into their locals */
-                Closure *cl = (Closure *)callee.as.o;
-                for (int i = 0; i < cl->n && i < fn->ncap; i++) {
-                    val_release(v->stack[base + fn->cap_slot[i]]);
-                    v->stack[base + fn->cap_slot[i]] = val_retain(cl->cap[i]);
-                }
-            }
-            struct Frame *nf = &v->frame[v->nframes++];
-            nf->fn = fn;
-            nf->ip = 0;
-            nf->base = base;
-            f = nf;
-            chunk = &fn->chunk;
+            if (!enter_func(v, callee, nargs, VAL_NIL)) goto fail;
+            f = &v->frame[v->nframes - 1];
+            chunk = &f->fn->chunk;
             break;
         }
         case OP_RET: {
             while (v->nhandler > 0 && v->handler[v->nhandler - 1].frame >= v->nframes - 1) v->nhandler--;
             Value r = pop(v);
+            if (f->init_self.k != V_NIL) { val_release(r); r = f->init_self; f->init_self = VAL_NIL; }
             int base = f->base;
             while (v->sp > base) val_release(pop(v));
             val_release(pop(v));                /* the callee object */
@@ -719,6 +761,45 @@ VmStatus vm_run(VM *v, int budget)
             int k = READ_U16();
             int nargs = READ_BYTE();
             Value obj = v->stack[v->sp - nargs - 1], r = VAL_NIL;
+            if (IS_INSTANCE(obj) || IS_CLASS(obj)) {
+                /* pid.update(err): the class's def, with the instance first
+                 * (a function kept in self.x is called as it is) */
+                Str *nm = AS_STR(v->prog->consts[k]);
+                Value fnv, got;
+                bool own = IS_INSTANCE(obj) && dict_get(AS_DICT(((Instance *)obj.as.o)->fields), v->prog->consts[k], &got);
+                bool found = own ? (fnv = got, true)
+                           : class_find(IS_INSTANCE(obj) ? ((Instance *)obj.as.o)->cls : obj, nm->s, nm->len, &fnv);
+                if (!found || fnv.k != V_OBJ || (fnv.as.o->kind != O_FUNC && fnv.as.o->kind != O_CLOSURE && fnv.as.o->kind != O_NATIVE)) {
+                    vm_runtime_error(v, found ? "TypeError: %s isn't something it can do (no ())" : "AttributeError: it has no .%s()", nm->s);
+                    goto fail;
+                }
+                bool with_self = IS_INSTANCE(obj) && !own;
+                if (fnv.as.o->kind == O_NATIVE || !with_self) {
+                    /* [obj, args...] -> [fn, args...] */
+                    val_release(v->stack[v->sp - nargs - 1]);
+                    v->stack[v->sp - nargs - 1] = val_retain(fnv);
+                    if (fnv.as.o->kind == O_NATIVE) {
+                        Value out;
+                        if (!vm_call(v, fnv, &v->stack[v->sp - nargs], nargs, &out)) goto fail;
+                        for (int i = 0; i < nargs; i++) val_release(v->stack[v->sp - 1 - i]);
+                        v->sp -= nargs;
+                        val_release(pop(v));
+                        if (!push(v, out)) goto fail;
+                        break;
+                    }
+                    if (!enter_func(v, fnv, nargs, VAL_NIL)) goto fail;
+                } else {
+                    /* [obj, args...] -> [fn, obj, args...] */
+                    if (!push(v, VAL_NIL)) goto fail;
+                    for (int i = 0; i < nargs; i++) v->stack[v->sp - 1 - i] = v->stack[v->sp - 2 - i];
+                    v->stack[v->sp - nargs - 1] = obj;          /* (its reference moves up) */
+                    v->stack[v->sp - nargs - 2] = val_retain(fnv);
+                    if (!enter_func(v, fnv, nargs + 1, VAL_NIL)) goto fail;
+                }
+                f = &v->frame[v->nframes - 1];
+                chunk = &f->fn->chunk;
+                break;
+            }
             v->kw_used = false;
             VmStatus st = host_callmethod(v, obj, AS_STR(v->prog->consts[k]), &v->stack[v->sp - nargs], nargs, &r);
             if (st == VM_OK && v->kw.k != V_NIL && !v->kw_used) {
@@ -894,6 +975,21 @@ VmStatus vm_run(VM *v, int budget)
             if (IS_DICT(dd)) dict_set(AS_DICT(dd), key, val); else { val_release(key); val_release(val); }
             break;
         }
+        case OP_CLASS: {
+            /* class Name(Base): a new class, the base's names first */
+            int k = READ_U16();
+            int hasbase = READ_BYTE();
+            Value base = hasbase ? pop(v) : VAL_NIL;
+            if (hasbase && !IS_CLASS(base)) {
+                vm_runtime_error(v, "TypeError: a class can only build on a class");
+                val_release(base);
+                goto fail;
+            }
+            Value c = class_new(AS_STR(v->prog->consts[k])->s, base);
+            val_release(base);
+            if (!push(v, c)) goto fail;
+            break;
+        }
         case OP_DUP2: {
             Value a = peek(v, 1), b = peek(v, 0);
             if (!push(v, val_retain(a))) goto fail;
@@ -921,6 +1017,8 @@ fail:
         struct Handler h = v->handler[--v->nhandler];
         while (v->nframes - 1 > h.frame) {
             struct Frame *fr = &v->frame[v->nframes - 1];
+            val_release(fr->init_self);
+            fr->init_self = VAL_NIL;
             while (v->sp > fr->base) val_release(pop(v));
             val_release(pop(v));                /* the callee */
             v->nframes--;
@@ -983,6 +1081,7 @@ bool vm_call(VM *v, Value fn, Value *args, int n, Value *out)
     nf->fn = f;
     nf->ip = 0;
     nf->base = base;
+    nf->init_self = VAL_NIL;
     int saved_stop = v->stop_frames, saved_h = v->nhandler;
     v->stop_frames = v->nframes - 1;
     v->nhandler = 0;

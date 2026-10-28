@@ -85,7 +85,7 @@ static struct { const char *word; TokType t; } KEYWORDS[] = {
     { "pass", T_PASS },
     { "global", T_GLOBAL }, { "import", T_IMPORT }, { "from", T_FROM },
     { "try", T_TRY }, { "except", T_EXCEPT }, { "finally", T_FINALLY },
-    { "raise", T_RAISE }, { "lambda", T_LAMBDA }, { "is", T_IS }, { "as", T_AS }, { "assert", T_ASSERT },
+    { "raise", T_RAISE }, { "lambda", T_LAMBDA }, { "is", T_IS }, { "as", T_AS }, { "assert", T_ASSERT }, { "class", T_CLASS },
     { NULL, T_EOF }
 };
 

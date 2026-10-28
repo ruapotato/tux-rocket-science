@@ -48,6 +48,7 @@ var _launched := false
 ## Did the pilot fly it (a flying key, a SAS button, a stage by hand) since
 ## the launch? A hands-off contract wants the computer to have flown it.
 var hands_used := false
+var _pending_toast := ""
 var _flicker := 0.0
 var _map: MapView
 var _sas_follow := ""  # SAS chasing a moving direction: maneuver, target, antirel, dock
@@ -61,6 +62,11 @@ var tutorial: FirstFlight
 
 
 func _ready() -> void:
+	# a new flight: the last one's scripts stop (they'd fly this ship
+	# otherwise); the console keeps its variables
+	var stopped := ShipComputer.get_shared().stop_scripts()
+	if stopped > 0:
+		_pending_toast = "The ship's computer stopped %d script%s from the last flight" % [stopped, "" if stopped == 1 else "s"]
 	var text := Sim.pending_craft_text
 	if text == "":
 		text = FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "orbiter.craft.json")
@@ -905,6 +911,9 @@ func _on_sim_event(e: Dictionary) -> void:
 # ---- frame -------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	if _pending_toast != "" and hud != null:
+		hud.toast(_pending_toast, 3.0)
+		_pending_toast = ""
 	if hud.menu_visible():
 		Sfx.silence_beds()  # paused: the engines and wind go quiet too
 		return
