@@ -74,8 +74,14 @@ trs_gate_status trs_gate_biomes(trs_log *out, const char *data_dir) {
 			const trs_biome *e = &b->biomes[k];
 			double share = 100.0 * count[k] / SAMPLES;
 			trs_log_printf(out, " %s %.1f%%", e->name, share);
+			/* a place's biome holds its own centre, unless an earlier one
+			 * nests inside it there (a ring round a smaller one: Gloam's
+			 * dusk round its glare) and it still holds a share */
+			int nested = 0;
+			for (int q = 0; q < k; q++)
+				nested |= b->biomes[q].has_near && v3_dot(b->biomes[q].near_dir, e->near_dir) > 0.999999;
 			if (e->has_near) {
-				if (!is(b, e->near_dir, e->id))
+				if (!is(b, e->near_dir, e->id) && !(nested && share >= 1.0))
 					trs_log_printf(out, " (NOT at its own centre)"), ok = 0;
 			} else if (share < 1.0)
 				trs_log_printf(out, " (too small)"), ok = 0;
@@ -89,7 +95,8 @@ trs_gate_status trs_gate_biomes(trs_log *out, const char *data_dir) {
 		}
 		for (int s = -1; s <= 1; s += 2) {
 			int k = trs_body_biome(b, latlon(89.5 * s, 10));
-			if (b->biomes[k].abs_lat_min <= 0) {
+			/* (or a place's own biome: a locked world's twilight runs over its poles) */
+			if (b->biomes[k].abs_lat_min <= 0 && !b->biomes[k].has_near) {
 				trs_log_printf(out, "  %s pole is %s, not polar\n", s > 0 ? "north" : "south", b->biomes[k].name);
 				ok = 0;
 			}

@@ -142,6 +142,12 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 	}
 	trs_json_set(j, "star", trs_json_new_num(b->star));
 	trs_json_set(j, "luminosity", trs_json_new_num(sys->bodies[b->star].luminosity));
+	trs_json_set(j, "temperature", trs_json_new_num(sys->bodies[b->star].temperature));
+	if (b->gas_giant) {
+		trs_json_set(j, "gas_giant", trs_json_new_bool(1));
+		trs_json_set(j, "crush_depth", trs_json_new_num(b->crush_depth));
+	}
+	trs_json_set(j, "has_terrain", trs_json_new_bool(b->terrain.enabled));
 	if (b->parent < 0) {
 		trs_json *g = trs_json_new(TRS_JSON_ARRAY);
 		trs_json_push(g, trs_json_new_num(b->galactic.x));

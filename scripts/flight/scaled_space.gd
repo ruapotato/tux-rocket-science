@@ -36,7 +36,8 @@ const STAR_DIST := 1.0e4
 
 var core: TrsSim
 var cam: Camera3D
-var _bodies := []  # [{node, atmo, info}]
+var _bodies := []  # [{node, atmo, clouds, rings, info, baked}]
+var _baked_star := -1  # the star whose worlds have their baked maps on
 var _env: Environment
 var _sun_light: DirectionalLight3D
 var _sky_mat: ShaderMaterial
@@ -48,6 +49,7 @@ uniform vec3 sun_dir = vec3(0.0, 1.0, 0.0);
 uniform float density = 0.0;   // 1 at sea level, 0 in space
 uniform vec4 zenith : source_color = vec4(0.10, 0.30, 0.74, 1.0);
 uniform vec4 horizon : source_color = vec4(0.60, 0.76, 0.95, 1.0);
+uniform vec3 sun_color = vec3(1.0, 0.95, 0.85);
 void sky() {
 	float h = dot(EYEDIR, up_dir);
 	float sun_h = dot(sun_dir, up_dir);
@@ -60,8 +62,8 @@ void sky() {
 	col = mix(col, vec3(1.0, 0.55, 0.28), low * toward * (1.0 - smoothstep(0.0, 0.3, abs(h))) * 0.75);
 	col *= mix(0.03, 1.0, day);
 	float sd = dot(EYEDIR, sun_dir);
-	vec3 glow = vec3(1.0, 0.9, 0.75) * (pow(max(sd, 0.0), 300.0) * 1.5 + pow(max(sd, 0.0), 12.0) * 0.25 * density);
-	vec3 disk = vec3(1.0, 0.95, 0.85) * smoothstep(0.99985, 0.99995, sd) * 8.0;
+	vec3 glow = sun_color * vec3(1.0, 0.95, 0.88) * (pow(max(sd, 0.0), 300.0) * 1.5 + pow(max(sd, 0.0), 12.0) * 0.25 * density);
+	vec3 disk = sun_color * smoothstep(0.99985, 0.99995, sd) * 8.0;
 	COLOR = col * density + glow + disk;
 }
 """
@@ -106,24 +108,36 @@ func setup(c: TrsSim) -> void:
 		var sm := SphereMesh.new()
 		sm.radius = 1.0
 		sm.height = 2.0
-		sm.radial_segments = 96
-		sm.rings = 48
+		# (a gas giant is seen from right down in its clouds, where the
+		# usual sphere's facets would show: there is no terrain to take over)
+		var giant: bool = info.get("gas_giant", false)
+		sm.radial_segments = 512 if giant else 96
+		sm.rings = 256 if giant else 48
 		node.mesh = sm
-		var m := StandardMaterial3D.new()
 		var atmo: MeshInstance3D = null
-		match info.id:
-			"austra":
-				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				m.albedo_color = Color(1.0, 0.9, 0.7)
-				m.emission_enabled = true
-				m.emission = Color(1.0, 0.85, 0.6)
-				m.emission_energy_multiplier = 6.0
-			_:
-				m.albedo_color = Color(0.6, 0.6, 0.6)
-				if float(info.get("atmosphere_height", 0.0)) > 0.0:
-					atmo = Atmosphere.make(info.radius, info.atmosphere_height, info.get("scale_height", 5800.0), Sim.look(info.id).get("tau", []))
-		node.material_override = m if info.id == "austra" else PlanetBake.planet_material(core, i)
+		var lk: Dictionary = Sim.look(info.id)
+		var star := int(info.parent) < 0
+		if star:
+			# a star: its own light, the colour of its surface
+			var m := StandardMaterial3D.new()
+			var sc := Sim.col(lk.get("star_color"), _bb_color(float(info.get("temperature", 5800.0))))
+			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			m.albedo_color = sc.lerp(Color.WHITE, 0.3)
+			m.emission_enabled = true
+			m.emission = sc
+			m.emission_energy_multiplier = 6.0
+			node.material_override = m
+		else:
+			# (a gas giant's air is its clouds: the shell would wash them out)
+			if float(info.get("atmosphere_height", 0.0)) > 0.0 and not info.get("gas_giant", false):
+				atmo = Atmosphere.make(info.radius, info.atmosphere_height, info.get("scale_height", 5800.0), lk.get("tau", []))
+			# (baked when its star is the one we are at: see _bake_star)
+			node.material_override = PlanetBake.giant_material(lk, float(info.radius)) if info.get("gas_giant", false) else PlanetBake.placeholder_material(lk)
 		add_child(node)
+		var rings: MeshInstance3D = null
+		if lk.has("rings"):
+			rings = PlanetBake.ring_node(lk.rings, float(info.radius))
+			add_child(rings)
 		if atmo:
 			add_child(atmo)
 		var clouds: MeshInstance3D = null
@@ -135,10 +149,10 @@ func setup(c: TrsSim) -> void:
 			cm.radial_segments = 96
 			cm.rings = 48
 			clouds.mesh = cm
-			clouds.material_override = PlanetBake.cloud_material()
+			clouds.material_override = PlanetBake.cloud_material(float(lk.get("cloud_cover", 0.5)))
 			clouds.set_meta("radius", info.radius + 7000.0)
 			add_child(clouds)
-		_bodies.append({"node": node, "atmo": atmo, "clouds": clouds, "info": info})
+		_bodies.append({"node": node, "atmo": atmo, "clouds": clouds, "info": info, "rings": rings, "baked": star or info.get("gas_giant", false)})
 
 
 static func _atmosphere(col: Color, radius: float) -> MeshInstance3D:
@@ -225,8 +239,8 @@ uniform float beta = 0.0;
 uniform float gamma = 1.0;
 uniform float radius = 40000.0;
 uniform float fade = 1.0;
-uniform vec4 real_dir[8];   // xyz: direction to a real star, w: its temperature
-uniform vec4 real_col[8];   // rgb: its rest colour x brightness, a: dot size
+uniform vec4 real_dir[16];   // xyz: direction to a real star, w: its temperature
+uniform vec4 real_col[16];   // rgb: its rest colour x brightness, a: dot size
 varying vec3 col;
 void vertex() {
 	vec4 cu = CUSTOM0;
@@ -277,7 +291,7 @@ void fragment() {
 }
 """
 const BACKDROP := 2600
-const STAR_TEMP_BY_ID := {"austra": 5800.0, "lantern": 4600.0}
+const REAL_STARS := 16   # (the shader's real_dir/real_col sizes)
 
 var _star_mat: ShaderMaterial
 var _real_stars: Array = []  # [{index, temp}] bodies that are stars
@@ -330,8 +344,8 @@ func _starfield() -> Node3D:
 	_star_mat.set_shader_parameter("radius", STAR_DIST)
 	for i in core.body_count():
 		var info: Dictionary = JSON.parse_string(core.body_info(i))
-		if int(info.parent) < 0 and _real_stars.size() < 8:
-			_real_stars.append({"index": i, "temp": float(STAR_TEMP_BY_ID.get(info.id, 5500.0))})
+		if int(info.parent) < 0 and _real_stars.size() < REAL_STARS:
+			_real_stars.append({"index": i, "temp": float(info.get("temperature", 5800.0))})
 	# one quad per star: corners in UV2, the star in CUSTOM0 (direction,
 	# temperature; w < 0 picks a real star from the uniforms) and COLOR
 	var verts := PackedVector3Array()
@@ -385,6 +399,32 @@ func _starfield() -> Node3D:
 	return mi
 
 
+## The sky's colours over a body (its look "sky", the horizon's, and
+## "zenith"; without one, a deeper shade of the sky).
+func set_sky(lk: Dictionary) -> void:
+	var hz := Sim.col(lk.get("sky"), Color(0.60, 0.76, 0.95))
+	var zn := Sim.col(lk.get("zenith"), Color(pow(hz.r, 3.5), pow(hz.g, 3.5), pow(hz.b, 3.5)) if lk.has("sky") else Color(0.10, 0.30, 0.74))
+	_sky_mat.set_shader_parameter("horizon", hz)
+	_sky_mat.set_shader_parameter("zenith", zn)
+
+
+## The colour of the light from the star we're at (the sky's sun disc and glow).
+func set_sun_color(c: Color) -> void:
+	_sky_mat.set_shader_parameter("sun_color", Vector3(c.r, c.g, c.b) * Vector3(1.0, 0.95, 0.85) / maxf(maxf(c.r, c.g), maxf(c.b, 0.01)))
+
+
+## The worlds of the star we're at get their maps baked from the real
+## terrain (cached on disk after the first time); the others, light-years
+## off and a point of light at most, keep a plain colour until we arrive.
+func _bake_star(star: int) -> void:
+	_baked_star = star
+	for b in _bodies:
+		if b.baked or int(b.info.get("star", -1)) != star:
+			continue
+		b.node.material_override = PlanetBake.planet_material(core, int(b.info.index))
+		b.baked = true
+
+
 ## The ship's motion through the stars' frame (unit direction in Godot
 ## axes, speed as a fraction of light, gamma) and where the real stars are
 ## from it (the body_render feed): far ones show as points of light.
@@ -394,7 +434,7 @@ func set_motion(dir: Vector3, b: float, g: float, feed: PackedFloat64Array) -> v
 	_star_mat.set_shader_parameter("gamma", g)
 	var dirs: Array[Vector4] = []
 	var cols: Array[Vector4] = []
-	for k in 8:
+	for k in REAL_STARS:
 		if k >= _real_stars.size():
 			dirs.append(Vector4(0, 0, -1, 5000))
 			cols.append(Vector4.ZERO)
@@ -421,6 +461,8 @@ func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vect
 	cam.fov = main_cam.fov
 	cam.global_transform = Transform3D(main_cam.global_transform.basis, Vector3.ZERO)
 	var feed: PackedFloat64Array = core.body_render(origin_id)
+	var near_star := -1
+	var near_star_d := INF
 	for i in _bodies.size():
 		var o := i * 5
 		# body centre relative to the camera, in scaled units (distance in
@@ -436,6 +478,16 @@ func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vect
 		var size: float = r * SCALE * k
 		b.node.visible = size > 1e-6  # far past seeing: a body light-years off
 		b.node.transform = Transform3D(Frame.spin(feed[o + 3]).scaled(Vector3.ONE * maxf(size, 1e-6)), pos)
+		if dist < near_star_d and int(b.info.parent) < 0:
+			near_star_d = dist
+			near_star = int(b.info.index)
+		var sun_obj: Vector3 = Frame.spin(feed[o + 3]).inverse() * sun_dir
+		if b.rings:
+			b.rings.visible = b.node.visible
+			b.rings.transform = b.node.transform
+			(b.rings.material_override as ShaderMaterial).set_shader_parameter("sun_obj", sun_obj)
+		if b.info.get("gas_giant", false):
+			(b.node.material_override as ShaderMaterial).set_shader_parameter("sun_obj", sun_obj)
 		if b.atmo:
 			b.atmo.visible = b.node.visible
 			b.atmo.position = pos
@@ -450,6 +502,8 @@ func sync(main_cam: Camera3D, origin_id: int, cam_offset: Vector3, sun_dir: Vect
 			(b.clouds.material_override as ShaderMaterial).set_shader_parameter("opacity", op)
 			b.clouds.visible = b.clouds.visible and b.node.visible
 			b.clouds.transform = Transform3D(Frame.spin(feed[o + 3]).scaled(Vector3.ONE * maxf(float(b.clouds.get_meta("radius")) * SCALE * k, 1e-6)), pos)
+	if near_star != _baked_star:
+		_bake_star(near_star)
 	_sun_light.global_transform = Transform3D(Basis.looking_at(-sun_dir, Vector3.UP if absf(sun_dir.y) < 0.99 else Vector3.RIGHT), Vector3.ZERO)
 	_sky_mat.set_shader_parameter("up_dir", up)
 	_sky_mat.set_shader_parameter("sun_dir", sun_dir)

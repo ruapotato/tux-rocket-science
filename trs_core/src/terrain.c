@@ -176,6 +176,15 @@ static double feature_height(const struct trs_feature *f, double R, trs_v3 d, un
 		double lip = 0.08 * exp(-pow((y - 1.15) / 0.2, 2.0));
 		return f->depth * ends * (-(wall - bench) + lip);
 	}
+	case TRS_FEAT_GEYSER: {
+		/* a low mound of fallen frost round a vent, the vent a pit */
+		double x = dist / (f->radius * wob);
+		if (x >= 1.5)
+			return 0;
+		double mound = f->height * smooth01((1.5 - x) / 1.1); /* (flat round the vent) */
+		double vent = x < 0.2 ? -f->depth * (1.0 - pow(x / 0.2, 2.0)) : 0;
+		return mound + vent;
+	}
 	case TRS_FEAT_MESA: {
 		double x = dist / (f->radius * wob);
 		if (x >= 1.4)
@@ -251,6 +260,30 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 		double mask = noise3(d.x * fm, d.y * fm, d.z * fm, s + 4) * 0.5 + 0.5 + 0.2 * noise3(d.x * fm * 3.1, d.y * fm * 3.1, d.z * fm * 3.1, s + 5);
 		double m = smooth01((mask - (1.0 - t->hills_coverage)) / 0.22);
 		h += t->hills_amplitude * m * (sum / ws - 0.5);
+	}
+	if (t->dunes_amplitude > 0) {
+		/* dunes: long crests, each with a gentle windward back and a steep
+		 * lee face, bent and broken by warping; they gather in the low
+		 * ground and fade out up the slopes */
+		double f = body_radius / t->dunes_size;
+		unsigned s = t->seed + 8300u;
+		double fw = f * 0.08;
+		double w1 = noise3(d.x * fw, d.y * fw, d.z * fw, s + 1), w2 = noise3(d.x * fw * 2.3, d.y * fw * 2.3, d.z * fw * 2.3, s + 2);
+		/* (two families of crests, across the x and across the y axes,
+		 * each weighted where it runs straight: no seams, no poles, and
+		 * where they meet they cross like star dunes) */
+		double warp = (w1 * 3.0 + w2 * 1.2);
+		double pa = d.x * f + warp, pb = d.y * f + warp * 0.8 + 0.37;
+		double xa = pa - floor(pa), xb = pb - floor(pb);
+		double ha = xa < 0.78 ? smooth01(xa / 0.78) : smooth01((1.0 - xa) / 0.22);
+		double hb = xb < 0.78 ? smooth01(xb / 0.78) : smooth01((1.0 - xb) / 0.22);
+		double wa = (1.0 - d.x * d.x) * (1.0 - d.x * d.x), wb = (1.0 - d.y * d.y) * (1.0 - d.y * d.y);
+		wa *= wa;
+		wb *= wb;
+		double prof = (wa * ha + wb * hb) / fmax(wa + wb, 1e-9);
+		double breaks = smooth01(noise3(d.x * f * 0.35, d.y * f * 0.35, d.z * f * 0.35, s + 3) * 2.0 + 0.6);
+		double sea = smooth01((t->dunes_below - h) / 150.0);
+		h += t->dunes_amplitude * prof * breaks * sea;
 	}
 	for (int r = 0; r < t->nranges; r++) {
 		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->range_dir[r]))));

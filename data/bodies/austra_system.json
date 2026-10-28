@@ -1,6 +1,6 @@
 {
   "name": "Austra system",
-  "neighbours": ["lantern_system.json"],
+  "neighbours": ["lantern_system.json", "ember_system.json", "brine_system.json", "marrow_system.json", "tarn_system.json", "hollow_system.json"],
   "bodies": [
     {
       "id": "austra",
@@ -61,7 +61,7 @@
         {"id": "seas", "name": "Frozen Seas", "height_max": 150},
         {"id": "snowfields", "name": "Snowfields"}
       ],
-      "look": { "style": "ice", "sky": [0.62, 0.76, 0.93], "tau": [0.035, 0.10, 0.34], "clouds": true,
+      "look": { "style": "ice", "sky": [0.62, 0.76, 0.93], "zenith": [0.10, 0.30, 0.74], "tau": [0.035, 0.10, 0.34], "clouds": true,
                 "low": [0.70, 0.76, 0.85], "high": [0.86, 0.88, 0.92], "slope": [0.55, 0.72, 0.88], "rock": [0.24, 0.24, 0.27], "range": 1600 }
     },
     {

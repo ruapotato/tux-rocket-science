@@ -76,6 +76,14 @@ static int check_body(trs_log *out, const trs_body *b) {
 				foot += trs_terrain_height(tr, R, along(f->dir, t, f->radius * 1.5, R)) / 16;
 			}
 			have = top - foot, want = f->height * 0.5, what = "mesa's top over its foot";
+		} else if (f->kind == TRS_FEAT_GEYSER) {
+			/* the mound round the vent over the vent's own floor */
+			double ring = 0;
+			for (int i = 0; i < 16; i++) {
+				trs_v3 t = v3_norm(v3_add(v3_scale(f->t, cos(i * TRS_PI / 8)), v3_scale(f->g, sin(i * TRS_PI / 8))));
+				ring += trs_terrain_height(tr, R, along(f->dir, t, f->radius * 0.3, R)) / 16;
+			}
+			have = ring - trs_terrain_height(tr, R, f->dir), want = f->depth * 0.5, what = "geyser's mound over its vent";
 		}
 		int good = have >= want;
 		trs_log_printf(out, "  %s %d: %s %.0f m (at least %.0f)%s\n", b->id, k, what, have, want, good ? "" : "  FAIL");
@@ -85,7 +93,7 @@ static int check_body(trs_log *out, const trs_body *b) {
 }
 
 trs_gate_status trs_gate_landmarks(trs_log *out, const char *data_dir) {
-	const char *files[] = { "austra_system.json" };   /* (it loads its neighbours: Lantern too) */
+	const char *files[] = { "austra_system.json" };   /* (it loads its neighbours: every other star too) */
 	int ok = 1, n = 0;
 	for (int fi = 0; fi < 1; fi++) {
 		trs_system sys;
@@ -103,5 +111,5 @@ trs_gate_status trs_gate_landmarks(trs_log *out, const char *data_dir) {
 		}
 	}
 	trs_log_printf(out, "%d landmarks\n", n);
-	return ok && n >= 18 ? TRS_GATE_PASS : TRS_GATE_FAIL;
+	return ok && n >= 40 ? TRS_GATE_PASS : TRS_GATE_FAIL;
 }

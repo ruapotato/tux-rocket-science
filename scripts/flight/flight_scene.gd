@@ -38,6 +38,8 @@ var _was_low := false
 var _slowing_t := 0.0
 var _orbiting := false
 var _terrain: TerrainView
+var _sky_body := -1   # the body whose sky colours are set
+var _sun_star := -2   # the star lighting the scene (its colour is set when it changes)
 var _clouds: MeshInstance3D  # real-scale cloud deck, drawn over the near terrain
 var _scaled: ScaledSpace
 var _views := {}  # vessel id -> VesselView
@@ -1020,10 +1022,17 @@ func _update_course_panel() -> void:
 	info.text = "pick a star: the drive does the rest" if not t.has("course") else ""
 	info.add_theme_font_size_override("font_size", 12)
 	box.add_child(info)
+	# the stars nearest first, with how far each is
+	var feed: PackedFloat64Array = session.core.body_render(session.active)
+	var by_dist := []
 	for si in _stars_idx():
+		by_dist.append([float(Frame.dist_dir(feed, si * 5)[0]), si])
+	by_dist.sort_custom(func(x, y): return x[0] < y[0])
+	for e in by_dist:
+		var si: int = e[1]
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
-		b.text = "Set course to %s" % JSON.parse_string(session.core.body_info(si)).name
+		b.text = "Set course to %s · %.1f ly" % [JSON.parse_string(session.core.body_info(si)).name, float(e[0]) / 9.4607304725808e15]
 		b.pressed.connect(func():
 			var r: PackedFloat64Array = session.core.set_course(session.active, si)
 			session._telemetry_tick = -1
@@ -1917,15 +1926,27 @@ func _render(delta: float) -> void:
 	# the stars they are light-years)
 	var sun_dir := Vector3.UP
 	var best := INF
+	var sun_star := -1
 	for si in _stars_idx():
 		var sd: Array = Frame.dist_dir(bodies, si * 5)
 		if sd[0] < best:
 			best = sd[0]
 			sun_dir = sd[1]
+			sun_star = si
+	if sun_star != _sun_star:
+		# its light is the colour of its surface (a red dwarf's is ruddy, a
+		# hot star's blue-white), eased toward white: eyes adapt
+		_sun_star = sun_star
+		var T := float(JSON.parse_string(core.body_info(sun_star)).get("temperature", 5800.0))
+		_sun.light_color = ScaledSpace._bb_color(T).lerp(Color.WHITE, 0.45) if T != 5800.0 else Color.WHITE
+		_scaled.set_sun_color(ScaledSpace._bb_color(T).lerp(Color.WHITE, 0.3) if T != 5800.0 else Color.WHITE)
 	_sun.look_at(-sun_dir * 1000.0, up if absf(sun_dir.dot(up)) < 0.99 else north)
 	_sun.position = Vector3.ZERO
 	var bi := int(t.body_index)
 	_terrain.set_body(bi)
+	if bi != _sky_body:
+		_sky_body = bi
+		_scaled.set_sky(Sim.look(str(t.body)))
 	var body_rel := Frame.vec(bodies, bi * 5)
 	var eye: PackedFloat64Array = core.to_body_fixed(bi, origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
 	# the body centre stays in doubles: the ground near us must not jitter
@@ -1936,7 +1957,9 @@ func _render(delta: float) -> void:
 	var has_clouds: bool = Sim.look(t.body).get("clouds", false)
 	var above: float = t.altitude - deck
 	_clouds.visible = has_clouds and above > 2000.0
-	_terrain.set_cloud_shadows(has_clouds, Frame.spin(bodies[bi * 5 + 3]).inverse() * sun_dir, deck / bodies[bi * 5 + 4])
+	var cover := float(Sim.look(t.body).get("cloud_cover", 0.5))
+	_terrain.set_cloud_shadows(has_clouds, Frame.spin(bodies[bi * 5 + 3]).inverse() * sun_dir, deck / bodies[bi * 5 + 4], cover)
+	(_clouds.material_override as ShaderMaterial).set_shader_parameter("coverage", cover)
 	if _clouds.visible:
 		var R: float = bodies[bi * 5 + 4]
 		var spin := Frame.spin(bodies[bi * 5 + 3])

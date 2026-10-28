@@ -239,6 +239,7 @@ typedef struct {
 /* pending_speed / event speed codes for causes other than impact */
 #define TRS_DESTROY_BLAST (-1.0)
 #define TRS_DESTROY_OVERHEAT (-2.0)
+#define TRS_DESTROY_CRUSH (-3.0) /* deep in a gas giant */
 
 typedef struct {
 	trs_system sys;

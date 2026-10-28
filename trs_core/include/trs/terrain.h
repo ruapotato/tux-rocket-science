@@ -44,6 +44,9 @@ typedef struct {
 	 * relief in m, the hills' size in m, the fraction of the ground they
 	 * cover (the rest stays plain) */
 	double hills_amplitude, hills_size, hills_coverage;
+	/* dune seas over the low ground: crest height in m, the crests'
+	 * spacing in m, and the height (m) above which the sand thins out */
+	double dunes_amplitude, dunes_size, dunes_below;
 	/* named mountain massifs placed by data (dir, radius m, height m) */
 	int nranges;
 	trs_v3 range_dir[8];
@@ -51,7 +54,8 @@ typedef struct {
 	/* landmarks shaped into the ground by data (a body's "landmarks"):
 	 * a volcano (a cone with a caldera), a great crater (bowl, rim and a
 	 * central peak), a canyon (a long rift along a bearing), a mesa (a
-	 * flat-topped plateau with cliffs). dir is the centre (body-fixed unit);
+	 * flat-topped plateau with cliffs), a geyser (a low mound of frost
+ * round a vent; what comes out is the game's to draw). dir is the centre (body-fixed unit);
 	 * radius, height, depth in m; a canyon's length and width in m along its
 	 * great circle (t: its way at the centre, g: the circle's pole). */
 	int nfeatures;
@@ -66,7 +70,7 @@ typedef struct {
 	double site_radius, site_height;
 } trs_terrain;
 
-enum { TRS_FEAT_VOLCANO = 1, TRS_FEAT_CRATER, TRS_FEAT_CANYON, TRS_FEAT_MESA };
+enum { TRS_FEAT_VOLCANO = 1, TRS_FEAT_CRATER, TRS_FEAT_CANYON, TRS_FEAT_MESA, TRS_FEAT_GEYSER };
 
 /* Height above the body's datum radius at body-fixed unit direction dir. */
 double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 dir);

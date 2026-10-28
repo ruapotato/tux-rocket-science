@@ -483,6 +483,8 @@ static void ground(const trs_world *w, const trs_vessel *vs, double t, trs_v3 r,
 		rep->friction_torque = v3(0, 0, 0);
 	}
 	const trs_body *b = &w->sys.bodies[vs->body];
+	if (b->gas_giant) /* nothing to stand on */
+		return;
 	double rl = v3_len(r);
 	double h_here = trs_body_terrain_at(b, t, r);
 	if (rl - b->radius - h_here > vs->bound_radius + 5.0)
@@ -1457,6 +1459,17 @@ void trs_vessel_physics_tick(trs_world *w, trs_vessel *vs, double t, double h) {
 		vs->landed = 0;
 	}
 	heat(w, vs, h);
+	/* too deep in a gas giant: every part gives at once */
+	if (b->gas_giant && vs->altitude < -b->crush_depth)
+		for (int i = 0; i < vs->craft->count && vs->npending < TRS_MAX_PENDING; i++) {
+			int seen = 0;
+			for (int k = 0; k < vs->npending; k++)
+				seen |= vs->pending_uid[k] == vs->craft->parts[i].uid;
+			if (!seen) {
+				vs->pending_uid[vs->npending] = vs->craft->parts[i].uid;
+				vs->pending_speed[vs->npending++] = TRS_DESTROY_CRUSH;
+			}
+		}
 	/* queue every over-tolerance part, by uid (indices shift as parts go) */
 	for (int q = 0; q < rep.ncrash && vs->npending < TRS_MAX_PENDING; q++) {
 		vs->pending_uid[vs->npending] = vs->craft->parts[rep.crash_part[q]].uid;
@@ -1913,6 +1926,8 @@ void trs_vessel_destroy_part(trs_world *w, int id, int part, double speed) {
 
 int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, double lon) {
 	const trs_body *b = &w->sys.bodies[body];
+	if (b->gas_giant || b->parent < 0) /* (no ground to set it on) */
+		return -1;
 	trs_v3 up = v3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
 	trs_v3 east = v3_norm(v3_cross(v3(0, 0, 1), up));
 	trs_v3 south = v3_cross(east, up);

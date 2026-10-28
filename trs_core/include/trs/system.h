@@ -27,7 +27,7 @@
 
 #include <stddef.h>
 
-#define TRS_MAX_BODIES 32
+#define TRS_MAX_BODIES 64
 
 typedef struct {
 	double height;      /* top of atmosphere above the surface, m; 0 = airless */
@@ -119,6 +119,12 @@ typedef struct {
 	int star;
 	trs_v3 galactic;
 	double luminosity;
+	double temperature; /* a star's surface, K (its colour) */
+	/* a gas giant has no ground: its radius is the cloud tops, its air
+	 * thickens without end below them, and a craft deeper than crush_depth
+	 * (m under the cloud tops) is crushed */
+	int gas_giant;
+	double crush_depth;
 	int children[TRS_MAX_BODIES];
 	int nchildren;
 } trs_body;

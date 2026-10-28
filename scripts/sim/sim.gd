@@ -63,6 +63,7 @@ func _init() -> void:
 		_life[b.id] = b.get("life", [])
 		_landmarks[b.id] = b.get("landmarks", [])
 		_radius[b.id] = float(b.get("radius", 0.0))
+		_data[b.id] = b
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(CATALOG_PATH))
 	for p in data.parts:
 		catalog[p.id] = p
@@ -73,6 +74,7 @@ var _looks := {}
 var _life := {}
 var _landmarks := {}
 var _radius := {}
+var _data := {}
 
 
 ## How a body looks (data/bodies "look"): style, sky, tau, clouds, colours.
@@ -100,6 +102,17 @@ func life(body_id: String) -> Array:
 ## them into the ground.
 func landmarks(body_id: String) -> Array:
 	return _landmarks.get(body_id, [])
+
+
+## A body's whole entry in the data files ({} for one it doesn't know).
+func body_data(body_id: String) -> Dictionary:
+	return _data.get(body_id, {})
+
+
+## The longitude (deg) a tidally locked world keeps turned to its parent
+## (data "day_lon_deg"; 0 when it has none).
+func day_lon(body_id: String) -> float:
+	return float(body_data(body_id).get("day_lon_deg", 0.0))
 
 
 ## A body's radius (m), from the data.

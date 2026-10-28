@@ -105,6 +105,16 @@ static func build(id: String) -> Node3D:
 			_keel(root)
 		"haven_archive":
 			_archive(root)
+		"gloam_lamp":
+			_lamp(root)
+		"selkie_anchor":
+			_anchor(root)
+		"saffron_hourglass":
+			_hourglass(root)
+		"mere_garden":
+			_garden(root)
+		"cairn_beacon":
+			_beacon(root)
 		_:
 			_box(root, Vector3(3, 14, 3), _stone(), Transform3D(Basis.IDENTITY, Vector3(0, 5, 0)))
 	var light := OmniLight3D.new()
@@ -216,3 +226,149 @@ static func _archive(root: Node3D) -> void:
 			_box(root, Vector3(1.6, 7.0, 0.7), stone, Transform3D(Basis(Vector3.UP, 0.05 * (k - row)), Vector3(x, 3.0, z)))
 	_box(root, Vector3(3.0, 16.0, 1.2), stone, Transform3D(Basis.IDENTITY, Vector3(0, 7.5, -20.0)))
 	_box(root, Vector3(2.0, 0.5, 0.2), _glow(Color(0.75, 0.85, 1.0), 0.2), Transform3D(Basis.IDENTITY, Vector3(0, 12.0, -19.35)))
+
+
+## The Lamp: a tall lantern of glass on a stone foot, lit with the
+## Hearth's warm white, four carved stones round it.
+static func _lamp(root: Node3D) -> void:
+	var warm := Color(1.0, 0.82, 0.55)
+	var stone := _stone(Color(0.5, 0.36, 0.3), warm, 2.5)
+	var foot := CylinderMesh.new()
+	foot.top_radius = 4.0
+	foot.bottom_radius = 6.0
+	foot.height = 6.0
+	_add(root, foot, stone, Transform3D(Basis.IDENTITY, Vector3(0, 1.0, 0)))
+	var post := CylinderMesh.new()
+	post.top_radius = 1.0
+	post.bottom_radius = 1.4
+	post.height = 18.0
+	_add(root, post, stone, Transform3D(Basis.IDENTITY, Vector3(0, 13.0, 0)))
+	var glass := CylinderMesh.new()
+	glass.top_radius = 3.4
+	glass.bottom_radius = 2.6
+	glass.height = 8.0
+	glass.radial_segments = 6
+	_add(root, glass, _glow(warm, 0.18), Transform3D(Basis.IDENTITY, Vector3(0, 26.0, 0)))
+	var cap := CylinderMesh.new()
+	cap.top_radius = 0.4
+	cap.bottom_radius = 4.2
+	cap.height = 3.0
+	cap.radial_segments = 6
+	_add(root, cap, stone, Transform3D(Basis.IDENTITY, Vector3(0, 31.5, 0)))
+	for k in 4:
+		var a := k * TAU / 4.0 + 0.4
+		_box(root, Vector3(1.4, 4.5, 0.8), stone, Transform3D(Basis(Vector3.UP, -a), Vector3(cos(a) * 14.0, 1.5, sin(a) * 14.0)))
+	var light := OmniLight3D.new()
+	light.light_color = warm
+	light.light_energy = 5.0
+	light.omni_range = 140.0
+	light.position = Vector3(0, 26, 0)
+	root.add_child(light)
+
+
+## The Anchor: a ring of dark metal sunk in the rock, a chain of light
+## running from it straight up into the sky.
+static func _anchor(root: Node3D) -> void:
+	var metal := _stone(Color(0.16, 0.17, 0.2), Color(0.55, 0.9, 1.0), 5.0)
+	var ring := TorusMesh.new()
+	ring.inner_radius = 9.0
+	ring.outer_radius = 13.0
+	ring.rings = 48
+	_add(root, ring, metal, Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 6.0, 0)))
+	var base := CylinderMesh.new()
+	base.top_radius = 16.0
+	base.bottom_radius = 18.0
+	base.height = 3.0
+	_add(root, base, metal, Transform3D(Basis.IDENTITY, Vector3(0, -1.0, 0)))
+	var chain := CylinderMesh.new()
+	chain.top_radius = 0.6
+	chain.bottom_radius = 0.6
+	chain.height = 2000.0
+	chain.radial_segments = 8
+	_add(root, chain, _glow(Color(0.55, 0.9, 1.0), 0.15), Transform3D(Basis.IDENTITY, Vector3(0, 1000.0, 0)))
+
+
+## The Hourglass: a glass the height of a tower, half buried in the sand,
+## its two bulbs bright and a stream of light running up between them.
+static func _hourglass(root: Node3D) -> void:
+	var gold := Color(1.0, 0.8, 0.45)
+	var frame := _stone(Color(0.55, 0.42, 0.3), gold, 4.0)
+	for half in [-1.0, 1.0]:
+		var bulb := CylinderMesh.new()
+		bulb.top_radius = 2.0 if half < 0 else 11.0
+		bulb.bottom_radius = 11.0 if half < 0 else 2.0
+		bulb.height = 22.0
+		bulb.radial_segments = 24
+		_add(root, bulb, _glow(gold.lerp(Color(0.6, 0.85, 1.0), 0.5), 0.12), Transform3D(Basis.IDENTITY, Vector3(0, 14.0 + half * 11.0 + 11.0, 0)))
+	var neck := CylinderMesh.new()
+	neck.top_radius = 0.5
+	neck.bottom_radius = 0.5
+	neck.height = 44.0
+	_add(root, neck, _glow(gold, 0.5), Transform3D(Basis.IDENTITY, Vector3(0, 25.0, 0)))
+	for k in 3:
+		var a := k * TAU / 3.0
+		_box(root, Vector3(1.6, 50.0, 1.6), frame, Transform3D(Basis.IDENTITY, Vector3(cos(a) * 12.5, 22.0, sin(a) * 12.5)))
+	for y in [2.0, 47.0]:
+		var plate := CylinderMesh.new()
+		plate.top_radius = 14.0
+		plate.bottom_radius = 14.0
+		plate.height = 2.0
+		plate.radial_segments = 3
+		_add(root, plate, frame, Transform3D(Basis.IDENTITY, Vector3(0, y, 0)))
+
+
+## The Garden: a ring of stones round a bed of light, gone wild: trees
+## of the builders' kind grown up through it.
+static func _garden(root: Node3D) -> void:
+	var green := Color(0.6, 1.0, 0.65)
+	var stone := _stone(Color(0.8, 0.8, 0.74), green, 2.0)
+	for k in 12:
+		var a := k * TAU / 12.0
+		_box(root, Vector3(2.2, 6.0 + 2.0 * float(k % 3), 1.0), stone, Transform3D(Basis(Vector3.UP, -a), Vector3(cos(a) * 28.0, 2.5, sin(a) * 28.0)))
+	var bed := CylinderMesh.new()
+	bed.top_radius = 10.0
+	bed.bottom_radius = 10.0
+	bed.height = 1.2
+	bed.radial_segments = 48
+	_add(root, bed, _glow(green, 0.1), Transform3D(Basis.IDENTITY, Vector3(0, 0.2, 0)))
+	var bark := _stone(Color(0.35, 0.28, 0.22), green, 50.0)
+	for k in 7:
+		var a := k * 2.4
+		var r := 15.0 + 6.0 * sin(k * 1.7)
+		var trunk := CylinderMesh.new()
+		trunk.top_radius = 0.5
+		trunk.bottom_radius = 0.9
+		trunk.height = 12.0 + k
+		_add(root, trunk, bark, Transform3D(Basis.IDENTITY, Vector3(cos(a) * r, trunk.height * 0.5, sin(a) * r)))
+		var crown := SphereMesh.new()
+		crown.radius = 4.0 + 0.4 * k
+		crown.height = crown.radius * 1.6
+		_add(root, crown, _stone(Color(0.22, 0.48, 0.24), green, 100.0), Transform3D(Basis.IDENTITY, Vector3(cos(a) * r, trunk.height + 2.0, sin(a) * r)))
+
+
+## The Beacon: a needle of the Chime's pale stone a kilometre and a half
+## tall, at the heart of the Great Ring, every groove of it alight.
+static func _beacon(root: Node3D) -> void:
+	var stone := _stone(Color(0.86, 0.85, 0.82), Color(0.6, 1.0, 0.9), 12.0)
+	var needle := CylinderMesh.new()
+	needle.top_radius = 1.0
+	needle.bottom_radius = 30.0
+	needle.height = 1500.0
+	needle.radial_segments = 8
+	_add(root, needle, stone, Transform3D(Basis.IDENTITY, Vector3(0, 745.0, 0)))
+	var foot := CylinderMesh.new()
+	foot.top_radius = 45.0
+	foot.bottom_radius = 60.0
+	foot.height = 12.0
+	foot.radial_segments = 8
+	_add(root, foot, stone, Transform3D(Basis.IDENTITY, Vector3(0, 2.0, 0)))
+	var tip := SphereMesh.new()
+	tip.radius = 8.0
+	tip.height = 16.0
+	_add(root, tip, _glow(Color(0.7, 1.0, 0.95), 0.1), Transform3D(Basis.IDENTITY, Vector3(0, 1500.0, 0)))
+	var light := OmniLight3D.new()
+	light.light_color = Color(0.6, 1.0, 0.9)
+	light.light_energy = 8.0
+	light.omni_range = 1200.0
+	light.position = Vector3(0, 1500, 0)
+	root.add_child(light)

@@ -1,0 +1,278 @@
+{
+  "name": "Marrow system",
+  "_doc": "An orange star 8.8 light-years from Austra, 5.4 from Lantern. Its world Saffron is all sand and stone, under a sky the colour of rust.",
+  "galactic_position_ly": [3.6, 7.9, -1.6],
+  "bodies": [
+    {
+      "id": "marrow",
+      "name": "Marrow",
+      "kind": "star",
+      "mu": 9e+17,
+      "radius": 170000000,
+      "rotation_period": 500000,
+      "heliopause": 30000000000,
+      "luminosity": 0.35,
+      "temperature": 4500,
+      "look": {
+        "star_color": [1.0, 0.7, 0.45]
+      }
+    },
+    {
+      "id": "saffron",
+      "name": "Saffron",
+      "kind": "planet",
+      "parent": "marrow",
+      "mu": 2600000000000.0,
+      "radius": 560000,
+      "rotation_period": 30000,
+      "rotation_at_epoch_deg": 0,
+      "orbit": { "a": 7000000000, "e": 0.03, "inc_deg": 0.8, "lan_deg": 200, "argp_deg": 15, "mean_anomaly_deg": 30 },
+      "atmosphere": { "height": 50000, "sea_level_pressure": 40000, "sea_level_density": 0.5, "scale_height": 7000 },
+      "terrain": {
+        "seed": 277,
+        "hills": 150,
+        "hills_km": 4,
+        "amplitude": 3600,
+        "base_freq": 2.4,
+        "octaves": 15,
+        "persistence": 0.5,
+        "offset": 0,
+        "ridge": 0.45,
+        "mountain_amplitude": 4200,
+        "mountain_freq": 30,
+        "mountain_coverage": 0.25,
+        "dunes": 120,
+        "dunes_km": 1.6,
+        "dunes_below": 450
+      },
+      "ore": 0.7,
+      "look": {
+        "style": "sand",
+        "sky": [0.86, 0.68, 0.48],
+        "tau": [0.14, 0.11, 0.08],
+        "clouds": false,
+        "low": [0.8, 0.56, 0.3],
+        "high": [0.66, 0.42, 0.26],
+        "slope": [0.55, 0.34, 0.2],
+        "rock": [0.36, 0.21, 0.14],
+        "range": 2400
+      },
+      "biomes": [
+        { "id": "poles", "name": "Polar Frost", "abs_lat_min_deg": 78 },
+        { "id": "mountains", "name": "Mountains", "height_min": 1000 },
+        { "id": "highlands", "name": "Highlands", "height_min": 600 },
+        { "id": "ergs", "name": "The Ergs", "height_max": 300 },
+        { "id": "badlands", "name": "Badlands" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_gash",
+          "name": "The Gash",
+          "kind": "canyon",
+          "lat_deg": -5,
+          "lon_deg": 40,
+          "length_km": 600,
+          "width_km": 14,
+          "depth": 3500,
+          "bearing_deg": 80,
+          "text": "A canyon you could lose a mountain range in: six hundred kilometres long and three and a half deep. Its floor is in shadow for all but an hour of the day."
+        },
+        {
+          "id": "the_anvils",
+          "name": "The Anvils",
+          "kind": "mesa",
+          "lat_deg": 22,
+          "lon_deg": -70,
+          "radius_km": 35,
+          "height": 1400,
+          "text": "A flat-topped tower of red stone, the last of a plateau the wind has eaten away. The wind is still at it."
+        },
+        {
+          "id": "glass_crater",
+          "name": "Glass Crater",
+          "kind": "crater",
+          "lat_deg": -30,
+          "lon_deg": 160,
+          "radius_km": 25,
+          "height": 500,
+          "depth": 1400,
+          "text": "Its floor is glass, melted when whatever made it struck, and the dunes have never managed to bury it."
+        },
+        {
+          "id": "mount_ochre",
+          "name": "Mount Ochre",
+          "kind": "volcano",
+          "active": false,
+          "lat_deg": 35,
+          "lon_deg": 110,
+          "radius_km": 90,
+          "height": 11000,
+          "depth": 900,
+          "text": "The tallest mountain anyone has found: eleven kilometres of dead volcano, its top above most of Saffron's air."
+        }
+      ],
+      "relics": [
+        { "id": "saffron_hourglass", "name": "the Hourglass", "lat_deg": -20, "lon_deg": -166 }
+      ],
+      "life": [
+        {
+          "id": "thornbush",
+          "shape": "shrub",
+          "biomes": [
+            "badlands",
+            "highlands"
+          ],
+          "per_km2": 600,
+          "max_slope_deg": 30,
+          "size": [0.5, 1.6],
+          "color": [0.35, 0.25, 0.16],
+          "color2": [0.55, 0.5, 0.25],
+          "range": 500
+        },
+        {
+          "id": "spire_cactus",
+          "shape": "crystal",
+          "biomes": [
+            "badlands"
+          ],
+          "per_km2": 20,
+          "herd": 4,
+          "spread": 25,
+          "size": [1.5, 5],
+          "color": [0.42, 0.5, 0.26],
+          "range": 1500
+        },
+        {
+          "id": "dry_grass",
+          "shape": "grass",
+          "biomes": [
+            "badlands"
+          ],
+          "per_km2": 8000,
+          "max_slope_deg": 30,
+          "size": [0.3, 0.7],
+          "color": [0.66, 0.55, 0.3],
+          "range": 150
+        },
+        {
+          "id": "rock",
+          "shape": "rock",
+          "per_km2": 120,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.0],
+          "color": [0.36, 0.21, 0.14],
+          "color2": [0.6, 0.4, 0.25],
+          "range": 1800
+        },
+        {
+          "id": "dune_skimmers",
+          "animal": true,
+          "shape": "grazer",
+          "legs": 6,
+          "horns": true,
+          "biomes": [
+            "ergs",
+            "badlands"
+          ],
+          "per_km2": 0.6,
+          "herd": 6,
+          "spread": 30,
+          "loop": 8,
+          "max_slope_deg": 25,
+          "size": [1.0, 1.6],
+          "color": [0.78, 0.6, 0.38],
+          "color2": [0.5, 0.3, 0.2],
+          "speed": 0.8,
+          "range": 900
+        },
+        {
+          "id": "sandkites",
+          "animal": true,
+          "shape": "bird",
+          "biomes": [
+            "badlands",
+            "highlands"
+          ],
+          "per_km2": 0.8,
+          "herd": 4,
+          "spread": 60,
+          "loop": 45,
+          "fly": 60,
+          "size": [0.5, 0.8],
+          "color": [0.45, 0.25, 0.15],
+          "color2": [0.9, 0.7, 0.4],
+          "speed": 11,
+          "range": 1100
+        }
+      ]
+    },
+    {
+      "id": "grit",
+      "name": "Grit",
+      "kind": "moon",
+      "parent": "saffron",
+      "mu": 3000000000.0,
+      "radius": 100000,
+      "tidally_locked": true,
+      "day_lon_deg": 0,
+      "orbit": { "a": 9000000, "e": 0.01, "inc_deg": 2, "lan_deg": 40, "argp_deg": 0, "mean_anomaly_deg": 300 },
+      "terrain": {
+        "seed": 281,
+        "hills": 80,
+        "hills_km": 2,
+        "amplitude": 2200,
+        "base_freq": 2.0,
+        "octaves": 14,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.25,
+        "crater_freq": 8,
+        "crater_depth": 1500,
+        "mountain_amplitude": 1400,
+        "mountain_freq": 20,
+        "mountain_coverage": 0.2
+      },
+      "ore": 0.8,
+      "look": {
+        "style": "rock",
+        "tint": [1.2, 0.95, 0.8],
+        "low": [0.4, 0.3, 0.24],
+        "high": [0.6, 0.46, 0.36],
+        "slope": [0.28, 0.21, 0.17],
+        "rock": [0.18, 0.14, 0.12],
+        "range": 1500
+      },
+      "biomes": [
+        { "id": "poles", "name": "Poles", "abs_lat_min_deg": 75 },
+        { "id": "highlands", "name": "Highlands", "height_min": 400 },
+        { "id": "craters", "name": "Crater Floors", "height_max": -320 },
+        { "id": "lowlands", "name": "Lowlands" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_pit",
+          "name": "The Pit",
+          "kind": "crater",
+          "lat_deg": 5,
+          "lon_deg": 0,
+          "radius_km": 20,
+          "height": 400,
+          "depth": 2200,
+          "text": "Right in the middle of the face Grit turns to Saffron: from its floor the planet hangs straight overhead and never moves."
+        }
+      ],
+      "life": [
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.18, 0.14, 0.12],
+          "color2": [0.4, 0.3, 0.24],
+          "range": 1800
+        }
+      ]
+    }
+  ]
+}

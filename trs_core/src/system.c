@@ -78,6 +78,9 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 		b->star = b->parent < 0 ? sys->count : sys->bodies[b->parent].star;
 		b->galactic = gal;
 		b->luminosity = trs_json_num(j, "luminosity", 1.0);
+		b->temperature = trs_json_num(j, "temperature", 5800);
+		b->gas_giant = trs_json_bool(j, "gas_giant", 0);
+		b->crush_depth = trs_json_num(j, "crush_depth", 60000);
 		const trs_json *atm = trs_json_get(j, "atmosphere");
 		if (atm) {
 			b->atm.height = trs_json_num(atm, "height", 0);
@@ -86,6 +89,10 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			b->atm.scale_height = trs_json_num(atm, "scale_height", 1);
 		}
 		const trs_json *tj = trs_json_get(j, "terrain");
+		if (tj && b->gas_giant) {
+			snprintf(err, errlen, "body %s: a gas giant has no ground for terrain", b->id);
+			return 0;
+		}
 		if (tj) {
 			trs_terrain *t = &b->terrain;
 			t->enabled = 1;
@@ -104,6 +111,9 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			t->hills_amplitude = trs_json_num(tj, "hills", 0);
 			t->hills_size = trs_json_num(tj, "hills_km", 4) * 1000.0;
 			t->hills_coverage = trs_json_num(tj, "hills_coverage", 0.6);
+			t->dunes_amplitude = trs_json_num(tj, "dunes", 0);
+			t->dunes_size = trs_json_num(tj, "dunes_km", 1.5) * 1000.0;
+			t->dunes_below = trs_json_num(tj, "dunes_below", 800);
 			const trs_json *rg = trs_json_get(tj, "ranges");
 			for (size_t k = 0; rg && k < rg->count && t->nranges < 8; k++) {
 				const trs_json *r = trs_json_at(rg, k);
@@ -121,7 +131,8 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			const trs_json *e = trs_json_at(lmj, k);
 			const char *kind = trs_json_str(e, "kind", "");
 			int kd = !strcmp(kind, "volcano") ? TRS_FEAT_VOLCANO : !strcmp(kind, "crater") ? TRS_FEAT_CRATER
-			       : !strcmp(kind, "canyon") ? TRS_FEAT_CANYON : !strcmp(kind, "mesa") ? TRS_FEAT_MESA : 0;
+			       : !strcmp(kind, "canyon") ? TRS_FEAT_CANYON : !strcmp(kind, "mesa") ? TRS_FEAT_MESA
+			       : !strcmp(kind, "geyser") ? TRS_FEAT_GEYSER : 0;
 			if (!kd)
 				continue;
 			struct trs_feature *f = &b->terrain.feature[b->terrain.nfeatures++];
@@ -214,8 +225,20 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			trs_orbit_from_elements(&b->orbit, p->mu, a, trs_json_num(o, "e", 0), trs_json_num(o, "inc_deg", 0) * DEG,
 					trs_json_num(o, "lan_deg", 0) * DEG, trs_json_num(o, "argp_deg", 0) * DEG,
 					trs_json_num(o, "mean_anomaly_deg", 0) * DEG, 0.0);
-			if (trs_json_bool(j, "tidally_locked", 0))
+			if (trs_json_bool(j, "tidally_locked", 0)) {
 				b->rotation_period = b->orbit.period;
+				/* "day_lon_deg": the longitude that always faces the parent
+				 * (on a circular orbit it never moves; on an eccentric one it
+				 * rocks by up to twice the eccentricity, in radians): the spin starts
+				 * with that meridian turned toward it */
+				const trs_json *dl = trs_json_get(j, "day_lon_deg");
+				if (dl && dl->type == TRS_JSON_NUMBER) {
+					/* (from the mean place, not the true one: on an eccentric
+					 * orbit the face then rocks evenly about that meridian) */
+					trs_v3 r0 = trs_orbit_position_at_true(&b->orbit, b->orbit.M0);
+					b->rotation_at_epoch = trs_wrap_tau(atan2(-r0.y, -r0.x) - dl->num * DEG);
+				}
+			}
 			b->soi = trs_json_num(j, "soi", a * pow(b->mu / p->mu, 0.4)); /* Laplace sphere */
 			if (p->nchildren < TRS_MAX_BODIES)
 				p->children[p->nchildren++] = sys->count;
@@ -312,7 +335,7 @@ void trs_atmosphere_at(const trs_body *b, double altitude, double *pressure, dou
 		*density = 0;
 		return;
 	}
-	if (altitude < 0)
+	if (altitude < 0 && !b->gas_giant) /* (a gas giant's air goes on thickening below its cloud tops) */
 		altitude = 0;
 	/* Exponential profile, tapered linearly to exactly zero at the top so
 	 * there is a crisp boundary where time warp becomes legal. */

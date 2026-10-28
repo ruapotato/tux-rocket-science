@@ -21,7 +21,9 @@
 ## (the Forge). Built at the landmark's centre in its own local frame (y up);
 ## TerrainView places it as it does a relic. The plume is a MultiMesh of
 ## soft billboards, not GPU particles (those misbehave with the floating
-## origin), each puff rising and spreading on its own clock.
+## origin), each puff rising and spreading on its own clock. A geyser (Floss's
+## Fountains) throws a narrow jet of ice straight up, air or no air, far
+## higher than any plume: in that gravity nothing brings it down soon.
 class_name LandmarkFX
 extends Node3D
 
@@ -31,12 +33,24 @@ var _mm: MultiMesh
 var _rise := 1.0       # m: how high a puff goes before it's gone
 var _width := 1.0      # m: how wide the vent is
 var _seed := []
+var _jet := false      # a geyser: straight up, narrow, no wind
+var _n := PUFFS
 
 
 ## The node for a landmark (the body's data entry) on a world with or
 ## without air, or null when it has nothing to show.
 static func build(lm: Dictionary, has_air: bool) -> LandmarkFX:
-	if lm.get("kind", "") != "volcano":
+	var kind := str(lm.get("kind", ""))
+	if kind == "geyser":
+		var g := LandmarkFX.new()
+		var rv := float(lm.get("radius_km", 3.0)) * 1000.0
+		g._width = rv * 0.12
+		g._rise = rv * 9.0
+		g._n = 220
+		g._jet = true
+		g._plume()
+		return g
+	if kind != "volcano" or not lm.get("active", true):
 		return null
 	var fx := LandmarkFX.new()
 	var r := float(lm.get("radius_km", 20.0)) * 1000.0
@@ -74,7 +88,7 @@ void fragment() {
 	_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_mm.use_colors = true
 	_mm.mesh = quad
-	_mm.instance_count = PUFFS
+	_mm.instance_count = _n
 	var inst := MultiMeshInstance3D.new()
 	inst.multimesh = _mm
 	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -82,7 +96,7 @@ void fragment() {
 	add_child(inst)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	for i in PUFFS:
+	for i in _n:
 		_seed.append([rng.randf(), rng.randf() * TAU, rng.randf_range(0.6, 1.4)])
 	_update_puffs(0.0)
 
@@ -152,13 +166,13 @@ func _process(_dt: float) -> void:
 
 
 func _update_puffs(t: float) -> void:
-	for i in PUFFS:
+	for i in _n:
 		var sd: Array = _seed[i]
-		var age := fmod(float(sd[0]) + t / (60.0 * float(sd[2])), 1.0)
+		var age := fmod(float(sd[0]) + t / ((60.0 if not _jet else 25.0) * float(sd[2])), 1.0)
 		var h := age * _rise
-		var spread := _width * (0.4 + age * 1.6)
-		var drift := Vector3(cos(float(sd[1])), 0, sin(float(sd[1]))) * spread * 0.5 + Vector3(age * _rise * 0.35, 0, 0)
-		var size := _width * (1.0 + age * 2.2)
+		var spread := _width * (0.4 + age * (1.6 if not _jet else 9.0)) * (1.0 if not _jet else float(sd[2]))
+		var drift := Vector3(cos(float(sd[1])), 0, sin(float(sd[1]))) * spread * 0.5 + Vector3(age * _rise * (0.35 if not _jet else 0.0), 0, 0)
+		var size := _width * (1.0 + age * (2.2 if not _jet else 4.0))
 		var xf := Transform3D(Basis().scaled(Vector3(size, size, size)), drift + Vector3(0, h, 0))
 		_mm.set_instance_transform(i, xf)
 		_mm.set_instance_color(i, Color(1, 1, 1, sin(age * PI) * (1.0 - age * 0.5)))

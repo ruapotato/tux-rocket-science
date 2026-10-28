@@ -104,20 +104,27 @@ func setup(s: FlightSession) -> void:
 		sm.radius = 1.0
 		sm.height = 2.0
 		mi.mesh = sm
-		var m := StandardMaterial3D.new()
-		match info.id:
-			"austra":
-				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				m.albedo_color = Color(1.0, 0.85, 0.55)
-			"floe":
-				m.albedo_color = Color(0.78, 0.88, 1.0)
-			"krill":
-				m.albedo_color = Color(0.6, 0.58, 0.56)
-		# real baked surfaces (shared cache with scaled space) for the planets
-		mi.material_override = m if info.id == "austra" else PlanetBake.planet_material(core, i)
+		var lk: Dictionary = Sim.look(info.id)
+		var baked := true
+		if int(info.parent) < 0:
+			var m := StandardMaterial3D.new()
+			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			m.albedo_color = Sim.col(lk.get("star_color"), Color(1.0, 0.85, 0.55))
+			mi.material_override = m
+		elif info.get("gas_giant", false):
+			mi.material_override = PlanetBake.giant_material(lk, float(info.radius))
+		else:
+			# real baked surfaces (shared cache with scaled space), for the
+			# worlds of the star we're at: the rest wait till we get there
+			mi.material_override = PlanetBake.placeholder_material(lk)
+			baked = false
 		sm.radial_segments = 96
 		sm.rings = 48
 		_vp.add_child(mi)
+		var rings: MeshInstance3D = null
+		if lk.has("rings"):
+			rings = PlanetBake.ring_node(lk.rings, float(info.radius))
+			_vp.add_child(rings)
 		var orbit_line := MeshInstance3D.new()
 		var om := ImmediateMesh.new()
 		orbit_line.mesh = om
@@ -127,7 +134,7 @@ func setup(s: FlightSession) -> void:
 		lm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		orbit_line.material_override = lm
 		_vp.add_child(orbit_line)
-		_bodies.append({"node": mi, "info": info, "orbit": orbit_line, "orbit_mesh": om})
+		_bodies.append({"node": mi, "info": info, "orbit": orbit_line, "orbit_mesh": om, "rings": rings, "baked": baked})
 	_imesh = ImmediateMesh.new()
 	_lines = MeshInstance3D.new()
 	_lines.mesh = _imesh
@@ -274,8 +281,14 @@ func refresh() -> void:
 			_cam.position = c + (_cam.position - c).normalized() * rr
 	if _cam.position.distance_to(_target) > 1e-6:
 		_cam.look_at(_target, Vector3.UP if absf((_target - _cam.position).normalized().y) < 0.99 else Vector3.RIGHT)
+	var star := _here_star()
+	for i in _bodies.size():
+		var b: Dictionary = _bodies[i]
+		if not b.baked and int(b.info.star) == star:
+			b.node.material_override = PlanetBake.planet_material(session.core, i)
+			b.baked = true
 	var sun: DirectionalLight3D = _vp.get_node("Sun")
-	var sd := (offs[0] as Vector3).normalized()
+	var sd := (offs[star] as Vector3).normalized()
 	if sd.length() > 0.5:
 		sun.look_at(-sd, Vector3.UP if absf(sd.y) < 0.99 else Vector3.RIGHT)
 	for i in _bodies.size():
@@ -289,17 +302,27 @@ func refresh() -> void:
 		if rel.length() > 5.0e4:
 			k = 5.0e4 / rel.length()
 		# never smaller than a dot on screen; a moon's dot is the smaller one
-		var moon := int(b.info.parent) > 0
+		var moon := not _is_star(int(b.info.parent))
 		b.node.transform = Transform3D(Frame.spin(feed[i * 5 + 3]).scaled(Vector3.ONE * maxf(r * SCALE * k, _dist * (0.006 if moon else 0.012))), _target + rel * k)
-		b.node.visible = true
-		_draw_body_orbit(i, offs)
+		# another star's worlds are light-years off: only the stars show
+		b.node.visible = int(b.info.star) == star or _is_star(i)
+		if b.rings:
+			b.rings.transform = b.node.transform
+			b.rings.visible = b.node.visible
+			(b.rings.material_override as ShaderMaterial).set_shader_parameter("sun_obj", Frame.spin(feed[i * 5 + 3]).inverse() * (offs[star] - offs[i]).normalized())
+		if b.info.get("gas_giant", false):
+			(b.node.material_override as ShaderMaterial).set_shader_parameter("sun_obj", Frame.spin(feed[i * 5 + 3]).inverse() * (offs[star] - offs[i]).normalized())
+		if b.node.visible:
+			_draw_body_orbit(i, offs)
+		else:
+			(b.orbit_mesh as ImmediateMesh).clear_surfaces()
 	# zoomed out so far that a moon would sit on its planet on screen (dots
 	# and names on top of each other): the moon and its orbit are left out
 	# until you zoom back in
 	for i in _bodies.size():
 		var b: Dictionary = _bodies[i]
 		var parent := int(b.info.parent)
-		if parent <= 0 or i == focus_body:
+		if parent < 0 or _is_star(parent) or i == focus_body or not b.node.visible:
 			continue
 		var pn: MeshInstance3D = _bodies[parent].node
 		if _cam.is_position_behind(pn.position) or _cam.is_position_behind(b.node.position):
@@ -430,14 +453,15 @@ func _draw_body_orbit(i: int, offs: Array) -> void:
 ## every sibling planet when the star is in focus).
 func _transfer_text(t: Dictionary) -> String:
 	var home := int(t.get("body_index", -1))
-	if home <= 0 or int(_bodies[home].info.parent) != 0:
+	if home < 0 or _is_star(home) or not _is_star(int(_bodies[home].info.parent)):
 		return ""
+	var sun := int(_bodies[home].info.parent)
 	var dests := []
-	if focus_body > 0 and focus_body != home and int(_bodies[focus_body].info.parent) == 0:
+	if focus_body != home and int(_bodies[focus_body].info.parent) == sun:
 		dests = [focus_body]
-	elif focus_body == 0:
+	elif focus_body == sun:
 		for i in _bodies.size():
-			if i != home and i > 0 and int(_bodies[i].info.parent) == 0:
+			if i != home and int(_bodies[i].info.parent) == sun:
 				dests.append(i)
 	var park: float = float(t.altitude) + float(_bodies[home].info.radius)
 	var out := ""
@@ -454,11 +478,14 @@ func _transfer_text(t: Dictionary) -> String:
 ## What the plan button would do now: "transfer", "correction" or "".
 func _plan_kind(t: Dictionary) -> String:
 	var home := int(t.get("body_index", -1))
-	if focus_body <= 0 or home < 0 or focus_body == home or int(_bodies[focus_body].info.parent) != 0:
+	if home < 0 or _is_star(focus_body) or focus_body == home:
 		return ""
-	if home == 0:
+	var sun := int(_bodies[focus_body].info.parent)
+	if not _is_star(sun):
+		return ""
+	if home == sun:
 		return "correction"
-	if int(_bodies[home].info.parent) == 0 and t.get("orbit", {}).get("ap_alt") != null:
+	if int(_bodies[home].info.parent) == sun and t.get("orbit", {}).get("ap_alt") != null:
 		return "transfer"
 	return ""
 
@@ -691,17 +718,38 @@ func _glide_soi(from: int, to: int) -> void:
 	_glide_t = 0.0
 
 
-## vessel -> Floe -> Krill -> ... -> vessel
+## vessel -> each world of the star we're at -> vessel (Floe, Krill, ...)
 func cycle_focus() -> void:
+	var star := _here_star()
+	var mine: Array[int] = []
+	for i in _bodies.size():
+		if int(_bodies[i].info.star) == star and i != star:
+			mine.append(i)
 	if focus_vessel:
 		focus_vessel = false
-		focus_body = 1
+		focus_body = mine[0] if not mine.is_empty() else star
 	else:
-		focus_body += 1
-		if focus_body >= _bodies.size():
+		var k := mine.find(focus_body)
+		if k < 0 or k + 1 >= mine.size():
 			focus_vessel = true
 			focus_body = int(session.telemetry().get("body_index", 1))
-	_dist = 6.0 if focus_vessel else (30.0 if focus_body == 1 else 8.0)
+		else:
+			focus_body = mine[k + 1]
+	_dist = 6.0 if focus_vessel else (30.0 if not mine.is_empty() and focus_body == mine[0] else 8.0)
+	if not focus_vessel:  # (never inside it: a star or a giant is big)
+		_dist = maxf(_dist, float(_bodies[focus_body].info.radius) * SCALE * 4.0)
+
+
+## Whether body i is a star (it has no parent).
+func _is_star(i: int) -> bool:
+	return i >= 0 and i < _bodies.size() and int(_bodies[i].info.parent) < 0
+
+
+## The star whose system we're looking at: the focus body's.
+func _here_star() -> int:
+	if focus_body < 0 or focus_body >= _bodies.size():
+		return 0
+	return int(_bodies[focus_body].info.star)
 
 
 ## Re-centres on the vessel (when the map opens).

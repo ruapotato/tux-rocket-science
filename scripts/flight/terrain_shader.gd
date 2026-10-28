@@ -33,7 +33,13 @@ const CODE := """
 shader_type spatial;
 render_mode cull_back;
 
-uniform int kind = 0;            // 0 = ice world, 1 = airless regolith, 2 = moss and meadow, 3 = ash and lava
+uniform int kind = 0;            // 0 = ice world, 1 = airless regolith, 2 = moss and meadow, 3 = ash and lava, 4 = sand and stone
+uniform float locked = 0.0;       // a world with one face to its star (Gloam): desert, dusk, night
+uniform vec3 locked_dir = vec3(1.0, 0.0, 0.0);  // body-fixed (sim axes): the point under the star
+uniform float day_cos = 0.47;     // cos of the desert's edge, from that point
+uniform float dusk_cos = -0.31;   // cos of the night's edge
+uniform vec4 c_dusk : source_color = vec4(0.2, 0.24, 0.14, 1.0);
+uniform vec4 c_night : source_color = vec4(0.78, 0.83, 0.92, 1.0);
 uniform vec4 c_basin : source_color = vec4(0.1, 0.2, 0.22, 1.0);   // moss worlds' lakes
 uniform float sea_level = 350.0;  // m: below it, a moss world's basins hold water
 uniform float snow_line = 3200.0; // m: above it (and toward the poles), snow
@@ -209,6 +215,36 @@ void fragment() {
 		bump = n_mid * 0.35 * mid + n_fine * 0.09 * fine + rock * n_mid * 0.45 + crack * pit * 0.04;
 		rough = mix(0.95, 0.7, pit);
 		spec = 0.2;
+	} else if (kind == 4) {
+		// sand and stone: dune sand in the low ground with wind ripples up
+		// close, paler crests and darker flats between, desert pavement and
+		// red rock on the steep; on a locked world the far side is ice and
+		// the twilight between is dark with lichen
+		vec3 sand = mix(c_low.rgb, c_high.rgb, clamp(h01 * 0.8 + (n_big - 0.5) * 0.35, 0.0, 1.0));
+		float ripple = sin(p.x * 2.1 + p.y * 0.9 + n_mid * 6.0 + n_fine * 1.5) * 0.5 + 0.5;
+		sand *= 0.93 + 0.1 * smoothstep(0.35, 0.75, vnoise(p, 1.0 / 128.0)) + 0.04 * ripple * mid;
+		float pavement = smoothstep(0.55, 0.75, vnoise(p, 1.0 / 48.0) * 0.6 + n_mid * 0.4) * (1.0 - smoothstep(0.1, 0.2, slope));
+		sand = mix(sand, c_slope.rgb, pavement * 0.35);
+		float rock = smoothstep(0.48, 0.62, slope + (n_mid - 0.5) * 0.12);
+		col = mix(sand, c_rock.rgb * (0.85 + 0.3 * n_mid), rock);
+		float pebble = smoothstep(0.8, 0.88, n_fine) * fine * pavement;
+		col *= 1.0 - pebble * 0.3;
+		bump = (ripple * 0.05 * fine + n_mid * 0.12 * mid) * (1.0 - rock) + rock * n_mid * 0.45 + pebble * 0.04;
+		rough = 0.95;
+		spec = 0.2;
+		if (locked > 0.5) {
+			float f = dot(normalize(dir_obj), normalize(locked_dir)) + (n_big - 0.5) * 0.06;
+			float night = 1.0 - smoothstep(dusk_cos - 0.04, dusk_cos + 0.04, f);
+			float dusk = (1.0 - smoothstep(day_cos - 0.05, day_cos + 0.05, f)) * (1.0 - night);
+			vec3 lichen = c_dusk.rgb * (0.8 + 0.4 * vnoise(p, 1.0 / 24.0)) * (0.92 + 0.16 * n_fine);
+			col = mix(col, mix(lichen, c_rock.rgb, rock * 0.7), dusk * (1.0 - rock * 0.4));
+			vec3 ice = mix(c_night.rgb, c_night.rgb * vec3(0.8, 0.88, 1.0), smoothstep(0.1, 0.35, slope));
+			col = mix(col, mix(ice, c_rock.rgb * 0.8, rock * 0.6), night);
+			rough = mix(rough, 0.35, night);
+			spec = mix(spec, 0.7, night);
+			float sp = step(0.985, hash3(floor(p * 6.0)).y) * fine * night * (1.0 - rock);
+			EMISSION = vec3(sp) * 0.5;
+		}
 	} else {
 		vec3 base = mix(c_low.rgb, c_high.rgb, clamp(h01 * 0.6 + n_big * 0.5, 0.0, 1.0));
 		base *= mix(0.78, 1.0, smoothstep(0.3, 0.7, big));     // darker plains
@@ -313,6 +349,13 @@ static func make(style: Dictionary, bake: Dictionary = {}) -> ShaderMaterial:
 	m.set_shader_parameter("snow_line", float(style.get("snow_line", 3200.0)))
 	m.set_shader_parameter("polar_snow", 1.0 if style.get("polar_snow", true) else 0.0)
 	m.set_shader_parameter("lava_level", float(style.get("lava_level", -350.0)))
+	if style.get("locked", false):
+		m.set_shader_parameter("locked", 1.0)
+		m.set_shader_parameter("locked_dir", style.locked_dir)
+		m.set_shader_parameter("day_cos", cos(deg_to_rad(float(style.day_deg))))
+		m.set_shader_parameter("dusk_cos", cos(deg_to_rad(float(style.dusk_deg))))
+		m.set_shader_parameter("c_dusk", style.dusk)
+		m.set_shader_parameter("c_night", style.night)
 	if not bake.is_empty():
 		m.set_shader_parameter("baked_albedo", bake.albedo)
 		m.set_shader_parameter("baked_normal", bake.normal)

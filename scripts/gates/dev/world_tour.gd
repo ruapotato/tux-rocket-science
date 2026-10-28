@@ -46,7 +46,7 @@ func run(runner: Node) -> Dictionary:
 	scene.hud.visible = OS.get_environment("HUD") != ""
 	var s: FlightSession = scene.session
 	var core: TrsSim = s.core
-	var all := "floe,krill,kelp,pebble,narwhal,tusk,cinder,haven,wisp"
+	var all := "floe,krill,kelp,pebble,narwhal,tusk,cinder,haven,wisp,gloam,soot,floss,selkie,barnacle,saffron,grit,mere,reed,cairn"
 	var bodies := (OS.get_environment("BODIES") if OS.get_environment("BODIES") != "" else all).split(",")
 	var per := int(OS.get_environment("PER")) if OS.get_environment("PER") != "" else 5
 	var wait := int(OS.get_environment("WAIT")) if OS.get_environment("WAIT") != "" else 160
@@ -64,7 +64,7 @@ func run(runner: Node) -> Dictionary:
 		if OS.get_environment("LANDMARKS") != "":
 			for lm in Sim.landmarks(bid):
 				var R: float = JSON.parse_string(core.body_info(bi)).radius
-				var at := {"volcano": float(OS.get_environment("VOLC_AT")) if OS.get_environment("VOLC_AT") != "" else 0.5, "crater": 1.0, "mesa": 1.05}
+				var at := {"volcano": float(OS.get_environment("VOLC_AT")) if OS.get_environment("VOLC_AT") != "" else 0.5, "crater": 1.0, "mesa": 1.05, "geyser": 2.5}
 				var reach := float(lm.get("radius_km", 6.0)) * 1000.0 * float(at.get(lm.kind, 0.0)) + (float(lm.get("width_km", 3.0)) * 900.0 if lm.kind == "canyon" else 0.0)
 				spots[lm.id] = [float(lm.lat_deg) - rad_to_deg(reach / R), float(lm.lon_deg), lm.name]
 			per = 0

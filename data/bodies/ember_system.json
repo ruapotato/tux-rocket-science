@@ -1,0 +1,300 @@
+{
+  "name": "Ember system",
+  "_doc": "A red dwarf 6.7 light-years from Austra, 3.6 from Lantern: dim, old and patient. Its one warm world, Gloam, keeps a face to it forever.",
+  "galactic_position_ly": [6.3, 2.0, -0.9],
+  "bodies": [
+    {
+      "id": "ember",
+      "name": "Ember",
+      "kind": "star",
+      "mu": 4e+17,
+      "radius": 90000000,
+      "rotation_period": 1200000,
+      "heliopause": 15000000000,
+      "luminosity": 0.05,
+      "temperature": 3100,
+      "look": {
+        "star_color": [1.0, 0.45, 0.25]
+      }
+    },
+    {
+      "id": "gloam",
+      "name": "Gloam",
+      "kind": "planet",
+      "parent": "ember",
+      "mu": 2400000000000.0,
+      "radius": 520000,
+      "tidally_locked": true,
+      "day_lon_deg": 0,
+      "orbit": { "a": 3200000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 40 },
+      "atmosphere": { "height": 60000, "sea_level_pressure": 62000, "sea_level_density": 0.85, "scale_height": 6500 },
+      "terrain": {
+        "seed": 211,
+        "amplitude": 3200,
+        "base_freq": 2.6,
+        "octaves": 15,
+        "persistence": 0.5,
+        "offset": 100,
+        "ridge": 0.3,
+        "mountain_amplitude": 3800,
+        "mountain_freq": 32,
+        "mountain_coverage": 0.28,
+        "hills": 200,
+        "hills_km": 4,
+        "dunes": 70,
+        "dunes_km": 1.4,
+        "dunes_below": 900
+      },
+      "ore": 0.5,
+      "look": {
+        "style": "sand",
+        "locked": true,
+        "day_deg": 62,
+        "dusk_deg": 108,
+        "sky": [0.72, 0.48, 0.42],
+        "tau": [0.05, 0.09, 0.2],
+        "clouds": false,
+        "low": [0.62, 0.34, 0.2],
+        "high": [0.74, 0.52, 0.36],
+        "slope": [0.44, 0.26, 0.17],
+        "rock": [0.28, 0.16, 0.11],
+        "dusk": [0.2, 0.24, 0.14],
+        "night": [0.78, 0.83, 0.92],
+        "range": 2000
+      },
+      "biomes": [
+        { "id": "mountains", "name": "Mountains", "height_min": 1000 },
+        {
+          "id": "glare",
+          "name": "The Glare",
+          "near": { "lat_deg": 0, "lon_deg": 0, "radius_km": 560 }
+        },
+        {
+          "id": "dusk",
+          "name": "The Dusk",
+          "near": { "lat_deg": 0, "lon_deg": 0, "radius_km": 980 }
+        },
+        { "id": "night", "name": "The Long Night" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_eye",
+          "name": "The Eye",
+          "kind": "crater",
+          "lat_deg": 0,
+          "lon_deg": 0,
+          "radius_km": 70,
+          "height": 600,
+          "depth": 2200,
+          "text": "The point where Ember stands straight overhead, forever. The crater's floor is salt baked white; nothing here has ever had a shadow at noon, because it is always noon."
+        },
+        {
+          "id": "dusk_wall",
+          "name": "The Dusk Wall",
+          "kind": "mesa",
+          "lat_deg": 10,
+          "lon_deg": 78,
+          "radius_km": 40,
+          "height": 1800,
+          "text": "A wall of red stone on the edge of the night. Its sunward face is warm; walk round it and the stars come out."
+        },
+        {
+          "id": "black_glacier",
+          "name": "The Black Glacier",
+          "kind": "canyon",
+          "lat_deg": -15,
+          "lon_deg": 145,
+          "length_km": 300,
+          "width_km": 8,
+          "depth": 1500,
+          "bearing_deg": 30,
+          "text": "A rift through the night side's ice, where nobody has ever seen a dawn. The ice in its walls is black with the dust of a billion years."
+        }
+      ],
+      "relics": [
+        { "id": "gloam_lamp", "name": "the Lamp", "lat_deg": 4, "lon_deg": 92 }
+      ],
+      "life": [
+        {
+          "id": "lamp_moss",
+          "shape": "mat",
+          "biomes": [
+            "dusk"
+          ],
+          "per_km2": 2200,
+          "size": [1, 4],
+          "color": [0.3, 0.12, 0.1],
+          "color2": [1.0, 0.55, 0.25],
+          "range": 900
+        },
+        {
+          "id": "ember_reed",
+          "shape": "grass",
+          "biomes": [
+            "dusk"
+          ],
+          "per_km2": 40000,
+          "max_slope_deg": 30,
+          "size": [0.4, 1.2],
+          "color": [0.42, 0.14, 0.12],
+          "range": 170
+        },
+        {
+          "id": "duskbrush",
+          "shape": "shrub",
+          "biomes": [
+            "dusk"
+          ],
+          "per_km2": 1500,
+          "size": [0.6, 1.8],
+          "color": [0.25, 0.14, 0.12],
+          "color2": [0.55, 0.2, 0.15],
+          "range": 500
+        },
+        {
+          "id": "salt_spar",
+          "shape": "crystal",
+          "biomes": [
+            "glare"
+          ],
+          "per_km2": 30,
+          "herd": 6,
+          "spread": 14,
+          "size": [1, 4],
+          "color": [0.98, 0.94, 0.88],
+          "range": 1500
+        },
+        {
+          "id": "night_spike",
+          "shape": "crystal",
+          "biomes": [
+            "night",
+            "mountains"
+          ],
+          "per_km2": 25,
+          "herd": 6,
+          "spread": 15,
+          "size": [2, 8],
+          "color": [0.65, 0.8, 1.0],
+          "range": 2500
+        },
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.28, 0.16, 0.11],
+          "color2": [0.62, 0.34, 0.2],
+          "range": 1800
+        },
+        {
+          "id": "lantern_moths",
+          "animal": true,
+          "shape": "drifter",
+          "biomes": [
+            "dusk"
+          ],
+          "per_km2": 2,
+          "herd": 6,
+          "spread": 40,
+          "loop": 12,
+          "fly": 8,
+          "size": [0.6, 1.4],
+          "color": [1.0, 0.6, 0.3],
+          "color2": [1.0, 0.85, 0.5],
+          "speed": 0.6,
+          "range": 1200
+        },
+        {
+          "id": "crawlers",
+          "animal": true,
+          "shape": "grazer",
+          "legs": 8,
+          "horns": false,
+          "biomes": [
+            "dusk"
+          ],
+          "per_km2": 1.0,
+          "herd": 7,
+          "spread": 30,
+          "loop": 6,
+          "max_slope_deg": 25,
+          "size": [0.8, 1.3],
+          "color": [0.35, 0.2, 0.25],
+          "color2": [0.8, 0.45, 0.3],
+          "speed": 0.4,
+          "range": 900
+        }
+      ]
+    },
+    {
+      "id": "soot",
+      "name": "Soot",
+      "kind": "planet",
+      "parent": "ember",
+      "mu": 10000000000.0,
+      "radius": 140000,
+      "rotation_period": 41000,
+      "rotation_at_epoch_deg": 0,
+      "orbit": { "a": 8500000000, "e": 0.06, "inc_deg": 3, "lan_deg": 70, "argp_deg": 0, "mean_anomaly_deg": 200 },
+      "terrain": {
+        "seed": 223,
+        "hills": 90,
+        "hills_km": 2,
+        "amplitude": 2400,
+        "base_freq": 2.2,
+        "octaves": 14,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.2,
+        "crater_freq": 9,
+        "crater_depth": 1800,
+        "mountain_amplitude": 1500,
+        "mountain_freq": 20,
+        "mountain_coverage": 0.2
+      },
+      "ore": 0.9,
+      "look": {
+        "style": "rock",
+        "tint": [0.8, 0.72, 0.7],
+        "low": [0.16, 0.14, 0.13],
+        "high": [0.34, 0.3, 0.28],
+        "slope": [0.12, 0.1, 0.1],
+        "rock": [0.08, 0.07, 0.07],
+        "range": 1500
+      },
+      "biomes": [
+        { "id": "poles", "name": "Poles", "abs_lat_min_deg": 75 },
+        { "id": "highlands", "name": "Highlands", "height_min": 410 },
+        { "id": "craters", "name": "Crater Floors", "height_max": -360 },
+        { "id": "lowlands", "name": "Lowlands" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_smudge",
+          "name": "The Smudge",
+          "kind": "crater",
+          "lat_deg": -20,
+          "lon_deg": 30,
+          "radius_km": 30,
+          "height": 500,
+          "depth": 3000,
+          "text": "A crater so deep that its floor has never seen Ember. The dark down there is colder than the rest of Soot, and full of ice."
+        }
+      ],
+      "life": [
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.08, 0.07, 0.07],
+          "color2": [0.16, 0.14, 0.13],
+          "range": 1800
+        }
+      ]
+    }
+  ]
+}

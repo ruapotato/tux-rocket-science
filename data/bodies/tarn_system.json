@@ -1,0 +1,334 @@
+{
+  "name": "Tarn system",
+  "_doc": "A yellow star much like Austra, 13 light-years out. Its world Mere is sea from pole to pole, with islands, and everything on them is alive.",
+  "galactic_position_ly": [12.4, 3.2, 2.6],
+  "bodies": [
+    {
+      "id": "tarn",
+      "name": "Tarn",
+      "kind": "star",
+      "mu": 1.3e+18,
+      "radius": 260000000,
+      "rotation_period": 420000,
+      "heliopause": 42000000000,
+      "luminosity": 1.1,
+      "temperature": 5900,
+      "look": {
+        "star_color": [1.0, 0.93, 0.8]
+      }
+    },
+    {
+      "id": "mere",
+      "name": "Mere",
+      "kind": "planet",
+      "parent": "tarn",
+      "mu": 5000000000000.0,
+      "radius": 700000,
+      "rotation_period": 24000,
+      "rotation_at_epoch_deg": 0,
+      "orbit": { "a": 14500000000, "e": 0.01, "inc_deg": 0.3, "lan_deg": 10, "argp_deg": 0, "mean_anomaly_deg": 270 },
+      "atmosphere": { "height": 80000, "sea_level_pressure": 110000, "sea_level_density": 1.3, "scale_height": 6200 },
+      "terrain": {
+        "seed": 293,
+        "hills": 260,
+        "hills_km": 4,
+        "amplitude": 4200,
+        "base_freq": 2.6,
+        "octaves": 15,
+        "persistence": 0.5,
+        "offset": -300,
+        "ridge": 0.3,
+        "mountain_amplitude": 3800,
+        "mountain_freq": 36,
+        "mountain_coverage": 0.25
+      },
+      "ore": 0.4,
+      "look": {
+        "style": "moss",
+        "sky": [0.55, 0.72, 0.96],
+        "tau": [0.035, 0.09, 0.3],
+        "clouds": true,
+        "cloud_cover": 0.58,
+        "low": [0.22, 0.42, 0.18],
+        "high": [0.5, 0.5, 0.32],
+        "slope": [0.28, 0.34, 0.2],
+        "rock": [0.24, 0.22, 0.2],
+        "basin": [0.05, 0.22, 0.4],
+        "range": 2000,
+        "sea_level": 380,
+        "snow_line": 3000,
+        "polar_snow": true
+      },
+      "biomes": [
+        { "id": "poles", "name": "Polar Ice", "abs_lat_min_deg": 74 },
+        { "id": "sea", "name": "The Sea", "height_max": 380 },
+        { "id": "shores", "name": "Shores", "height_max": 480 },
+        { "id": "peaks", "name": "Peaks", "height_min": 900 },
+        { "id": "uplands", "name": "Uplands", "height_min": 620 },
+        { "id": "forests", "name": "Forests" }
+      ],
+      "landmarks": [
+        {
+          "id": "mount_brood",
+          "name": "Mount Brood",
+          "kind": "volcano",
+          "lat_deg": -8,
+          "lon_deg": 55,
+          "radius_km": 60,
+          "height": 6500,
+          "depth": 400,
+          "text": "A volcano that built its own island out of the sea and is still building it. Birds nest in the warm ground all the way up."
+        },
+        {
+          "id": "the_atoll",
+          "name": "The Atoll",
+          "kind": "crater",
+          "lat_deg": 18,
+          "lon_deg": -100,
+          "radius_km": 50,
+          "height": 1100,
+          "depth": 1600,
+          "text": "A ring of white beaches round a lagoon so clear you can see its floor from orbit."
+        },
+        {
+          "id": "the_tableland",
+          "name": "The Tableland",
+          "kind": "mesa",
+          "lat_deg": 40,
+          "lon_deg": 150,
+          "radius_km": 70,
+          "height": 1500,
+          "text": "An island with a flat top the size of a country, forest from edge to edge, and cliffs all round it where the sea breaks."
+        }
+      ],
+      "relics": [
+        { "id": "mere_garden", "name": "the Garden", "lat_deg": 19, "lon_deg": -75 }
+      ],
+      "life": [
+        {
+          "id": "broadleaf",
+          "shape": "broadleaf",
+          "biomes": [
+            "forests",
+            "uplands",
+            "shores"
+          ],
+          "per_km2": 30,
+          "herd": 22,
+          "spread": 80,
+          "max_slope_deg": 28,
+          "size": [7, 16],
+          "color": [0.36, 0.25, 0.16],
+          "color2": [0.22, 0.48, 0.2],
+          "range": 3000
+        },
+        {
+          "id": "upland_pine",
+          "shape": "pine",
+          "biomes": [
+            "uplands",
+            "peaks"
+          ],
+          "per_km2": 20,
+          "herd": 16,
+          "spread": 60,
+          "size": [6, 14],
+          "color": [0.12, 0.3, 0.18],
+          "color2": [0.18, 0.38, 0.22],
+          "range": 3000
+        },
+        {
+          "id": "shore_palm",
+          "shape": "frond",
+          "biomes": [
+            "shores"
+          ],
+          "per_km2": 25,
+          "herd": 12,
+          "spread": 50,
+          "max_slope_deg": 25,
+          "size": [6, 14],
+          "color": [0.4, 0.3, 0.2],
+          "color2": [0.3, 0.6, 0.25],
+          "range": 3000
+        },
+        {
+          "id": "grass",
+          "shape": "grass",
+          "biomes": [
+            "forests",
+            "shores",
+            "uplands"
+          ],
+          "per_km2": 60000,
+          "size": [0.4, 0.9],
+          "color": [0.32, 0.55, 0.22],
+          "range": 170
+        },
+        {
+          "id": "flowers",
+          "shape": "flower",
+          "biomes": [
+            "forests",
+            "uplands"
+          ],
+          "per_km2": 3000,
+          "size": [0.3, 0.6],
+          "color": [0.3, 0.55, 0.2],
+          "color2": [0.9, 0.35, 0.55],
+          "range": 200
+        },
+        {
+          "id": "rock",
+          "shape": "rock",
+          "per_km2": 50,
+          "size": [0.5, 2.5],
+          "color": [0.4, 0.38, 0.35],
+          "color2": [0.4, 0.5, 0.3],
+          "range": 1500
+        },
+        {
+          "id": "stags",
+          "animal": true,
+          "shape": "grazer",
+          "horns": true,
+          "biomes": [
+            "forests",
+            "uplands"
+          ],
+          "per_km2": 1,
+          "herd": 8,
+          "spread": 35,
+          "loop": 7,
+          "size": [1.4, 2.1],
+          "color": [0.5, 0.36, 0.24],
+          "color2": [0.92, 0.88, 0.78],
+          "speed": 0.6,
+          "range": 900
+        },
+        {
+          "id": "seals",
+          "animal": true,
+          "shape": "seal",
+          "biomes": [
+            "shores"
+          ],
+          "per_km2": 1.2,
+          "herd": 7,
+          "spread": 20,
+          "loop": 3,
+          "max_slope_deg": 15,
+          "size": [1.5, 2.4],
+          "color": [0.35, 0.33, 0.3],
+          "color2": [0.6, 0.58, 0.55],
+          "speed": 0.2,
+          "range": 700
+        },
+        {
+          "id": "gulls",
+          "animal": true,
+          "shape": "bird",
+          "biomes": [
+            "shores",
+            "forests"
+          ],
+          "per_km2": 2,
+          "herd": 8,
+          "spread": 60,
+          "loop": 35,
+          "fly": 45,
+          "size": [0.35, 0.5],
+          "color": [0.95, 0.95, 0.98],
+          "color2": [0.4, 0.42, 0.48],
+          "speed": 10,
+          "range": 1000
+        },
+        {
+          "id": "glimmers",
+          "animal": true,
+          "shape": "drifter",
+          "biomes": [
+            "forests"
+          ],
+          "per_km2": 1.5,
+          "herd": 5,
+          "spread": 40,
+          "loop": 12,
+          "fly": 12,
+          "size": [0.8, 1.6],
+          "color": [0.6, 1.0, 0.7],
+          "color2": [0.95, 0.95, 0.5],
+          "speed": 0.6,
+          "range": 1200
+        }
+      ]
+    },
+    {
+      "id": "reed",
+      "name": "Reed",
+      "kind": "moon",
+      "parent": "mere",
+      "mu": 4000000000.0,
+      "radius": 130000,
+      "tidally_locked": true,
+      "orbit": { "a": 10000000, "e": 0.02, "inc_deg": 4, "lan_deg": 300, "argp_deg": 0, "mean_anomaly_deg": 90 },
+      "terrain": {
+        "seed": 307,
+        "hills": 90,
+        "hills_km": 2,
+        "amplitude": 2400,
+        "base_freq": 2.2,
+        "octaves": 14,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.2,
+        "crater_freq": 8,
+        "crater_depth": 1600,
+        "mountain_amplitude": 1600,
+        "mountain_freq": 22,
+        "mountain_coverage": 0.2
+      },
+      "ore": 0.7,
+      "look": {
+        "style": "rock",
+        "tint": [1.0, 1.0, 1.0],
+        "low": [0.34, 0.34, 0.35],
+        "high": [0.6, 0.59, 0.57],
+        "slope": [0.24, 0.24, 0.25],
+        "rock": [0.16, 0.16, 0.17],
+        "range": 1500
+      },
+      "biomes": [
+        { "id": "poles", "name": "Poles", "abs_lat_min_deg": 75 },
+        { "id": "highlands", "name": "Highlands", "height_min": 410 },
+        { "id": "craters", "name": "Crater Floors", "height_max": -360 },
+        { "id": "lowlands", "name": "Lowlands" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_blink",
+          "name": "The Blink",
+          "kind": "crater",
+          "lat_deg": -10,
+          "lon_deg": 20,
+          "radius_km": 28,
+          "height": 600,
+          "depth": 1800,
+          "text": "A young crater, its rays still bright across half of Reed. From Mere you can see it wink when the sun catches it."
+        }
+      ],
+      "life": [
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.16, 0.16, 0.17],
+          "color2": [0.34, 0.34, 0.35],
+          "range": 1800
+        }
+      ]
+    }
+  ]
+}

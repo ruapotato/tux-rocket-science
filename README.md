@@ -139,6 +139,30 @@ moving that fast would really see: stars crowd toward the way ahead (aberration)
 brighten there, and redden and fade behind (Doppler shift of each star's light). Things aboard
 look normal: they move with you.
 
+**The Thread**: past Lantern the galaxy goes on. The Archive's map leads to five more stars, each
+with its own data file in `data/bodies/` and its own kind of place:
+- **Ember**, a red dwarf 3.6 light-years from Lantern. Its world **Gloam** keeps one face to it
+  forever: a desert of dunes under a sun that never moves, ice under stars that never set, and a
+  ring of twilight between, dark with lichen, where the Lamp stands. Little **Soot** circles further out.
+- **Brine**, a blue-white star nine times as bright as Austra. Its giant **Maelstrom** has no
+  ground at all: banded clouds, a storm wider than Floe, rings 5500 km wide, and below the cloud
+  tops air that thickens until it crushes a ship. Its moons are **Floss**, whose geysers throw ice
+  into space; **Selkie**, islands in a sea, with Maelstrom hanging still in its sky; and **Barnacle**.
+- **Marrow**, an orange star. Its world **Saffron** is all dunes, canyons and red stone, under a
+  rust-coloured sky, with Mount Ochre, 11 km high. Its moon is **Grit**.
+- **Tarn**, Austra's twin. **Mere** is sea from pole to pole, with green islands full of life,
+  and has a moon, **Reed**.
+- **Hollow**, a white dwarf: what is left of a star like Austra. Its one world **Cairn** is
+  frozen, and covered in the builders' work.
+
+The story runs from Lantern through them all (21 missions), and the COURSE panel lists every star
+nearest first, with its distance. Each star's light tints its worlds' sunlight and sky.
+`test-galaxy` checks the parts that are numbers:
+- the distances the story quotes, and every orbit fitting inside its parent's sphere of influence;
+- the locked worlds keeping their faces turned, and Maelstrom crushing a probe below its crush depth;
+- the islands and lagoons standing in or out of their seas as the text says;
+- a course along each hop of the thread arriving.
+
 **Biomes**: every world with ground is split into named regions (Floe's Glacier Shelf, the Puffin
 Spires, Frozen Seas, Highlands, Tundra and Polar Caps; Krill's Crater Floors and Rims; Kelp's
 Basins and Meadows...). The status line names the one below you when you're low. Landed and

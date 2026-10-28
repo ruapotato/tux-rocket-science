@@ -11,3 +11,4 @@
 
 # Gate artifacts
 /screens/
+.claude/scheduled_tasks.lock

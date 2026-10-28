@@ -1,0 +1,132 @@
+{
+  "name": "Hollow system",
+  "_doc": "A white dwarf 17.5 light-years from Austra: the cinder of a star that was once like it. One frozen world, Cairn, still goes round it.",
+  "galactic_position_ly": [15.6, 7.8, 0.8],
+  "bodies": [
+    {
+      "id": "hollow",
+      "name": "Hollow",
+      "kind": "star",
+      "mu": 8e+17,
+      "radius": 9000000,
+      "rotation_period": 3000,
+      "heliopause": 12000000000,
+      "luminosity": 0.004,
+      "temperature": 14000,
+      "look": {
+        "star_color": [0.82, 0.88, 1.0]
+      }
+    },
+    {
+      "id": "cairn",
+      "name": "Cairn",
+      "kind": "planet",
+      "parent": "hollow",
+      "mu": 1200000000000.0,
+      "radius": 400000,
+      "rotation_period": 52000,
+      "rotation_at_epoch_deg": 0,
+      "orbit": { "a": 900000000, "e": 0.01, "inc_deg": 0.2, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 0 },
+      "terrain": {
+        "seed": 311,
+        "hills": 150,
+        "hills_km": 3,
+        "amplitude": 3000,
+        "base_freq": 2.4,
+        "octaves": 15,
+        "persistence": 0.52,
+        "offset": 0,
+        "ridge": 0.5,
+        "crater_freq": 5,
+        "crater_depth": 1500,
+        "mountain_amplitude": 3000,
+        "mountain_freq": 28,
+        "mountain_coverage": 0.25
+      },
+      "ore": 0.6,
+      "look": {
+        "style": "ice",
+        "tint": [0.74, 0.78, 0.88],
+        "low": [0.6, 0.64, 0.72],
+        "high": [0.82, 0.84, 0.9],
+        "slope": [0.45, 0.52, 0.62],
+        "rock": [0.2, 0.21, 0.25],
+        "range": 1800
+      },
+      "biomes": [
+        {
+          "id": "ring",
+          "name": "The Great Ring",
+          "near": { "lat_deg": 30, "lon_deg": 0, "radius_km": 130 }
+        },
+        { "id": "poles", "name": "Poles", "abs_lat_min_deg": 75 },
+        { "id": "mountains", "name": "Mountains", "height_min": 900 },
+        { "id": "ice_plains", "name": "Ice Plains" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_great_ring",
+          "name": "The Great Ring",
+          "kind": "crater",
+          "lat_deg": 30,
+          "lon_deg": 0,
+          "radius_km": 80,
+          "height": 1400,
+          "depth": 1200,
+          "text": "Too round to be a crater, and its rim is cut into steps all the way round. Somebody made this, or finished it."
+        },
+        {
+          "id": "the_stair",
+          "name": "The Stair",
+          "kind": "mesa",
+          "lat_deg": -10,
+          "lon_deg": 60,
+          "radius_km": 25,
+          "height": 2400,
+          "text": "A tower of ice-bound rock with a flat top, and up its south face a line of ledges far too even to be by chance."
+        },
+        {
+          "id": "the_cut",
+          "name": "The Cut",
+          "kind": "canyon",
+          "lat_deg": -40,
+          "lon_deg": -50,
+          "length_km": 200,
+          "width_km": 4,
+          "depth": 2000,
+          "bearing_deg": 45,
+          "text": "Two hundred kilometres long, four wide and as straight as a ruler. Nothing natural is this straight."
+        }
+      ],
+      "relics": [
+        { "id": "cairn_beacon", "name": "the Beacon", "lat_deg": 28, "lon_deg": 3 }
+      ],
+      "life": [
+        {
+          "id": "rime_spire",
+          "shape": "crystal",
+          "biomes": [
+            "mountains",
+            "ring"
+          ],
+          "per_km2": 20,
+          "herd": 5,
+          "spread": 14,
+          "size": [2, 8],
+          "color": [0.7, 0.8, 0.98],
+          "range": 2500
+        },
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.2, 0.21, 0.25],
+          "color2": [0.7, 0.74, 0.82],
+          "range": 1800
+        }
+      ]
+    }
+  ]
+}

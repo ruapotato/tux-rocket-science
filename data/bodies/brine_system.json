@@ -1,0 +1,413 @@
+{
+  "name": "Brine system",
+  "_doc": "A hot blue-white star 10.5 light-years from Austra, and its ringed giant Maelstrom with three moons: Floss's geysers, Selkie's islands, battered Barnacle.",
+  "galactic_position_ly": [8.8, 5.6, 1.4],
+  "bodies": [
+    {
+      "id": "brine",
+      "name": "Brine",
+      "kind": "star",
+      "mu": 2.4e+18,
+      "radius": 380000000,
+      "rotation_period": 300000,
+      "heliopause": 80000000000,
+      "luminosity": 9.0,
+      "temperature": 8800,
+      "look": {
+        "star_color": [0.75, 0.85, 1.0]
+      }
+    },
+    {
+      "id": "maelstrom",
+      "name": "Maelstrom",
+      "kind": "planet",
+      "parent": "brine",
+      "gas_giant": true,
+      "crush_depth": 50000,
+      "mu": 320000000000000.0,
+      "radius": 4000000,
+      "rotation_period": 36000,
+      "rotation_at_epoch_deg": 0,
+      "orbit": { "a": 50000000000, "e": 0.03, "inc_deg": 1.2, "lan_deg": 150, "argp_deg": 30, "mean_anomaly_deg": 80 },
+      "atmosphere": { "height": 400000, "sea_level_pressure": 200000, "sea_level_density": 0.6, "scale_height": 30000 },
+      "look": {
+        "style": "giant",
+        "sky": [0.8, 0.72, 0.6],
+        "tau": [0.05, 0.08, 0.14],
+        "bands": [
+          [0.78, 0.62, 0.42],
+          [0.55, 0.36, 0.22],
+          [0.9, 0.82, 0.66],
+          [0.46, 0.3, 0.2],
+          [0.72, 0.52, 0.34]
+        ],
+        "storm": {
+          "lat_deg": -22,
+          "lon_deg": 40,
+          "size_deg": 10,
+          "color": [0.72, 0.26, 0.14]
+        },
+        "rings": {
+          "inner": 6000000,
+          "outer": 11500000,
+          "color": [0.85, 0.8, 0.72],
+          "opacity": 0.8
+        }
+      },
+      "landmarks": [
+        {
+          "id": "the_eye_of_maelstrom",
+          "name": "The Eye of Maelstrom",
+          "kind": "storm",
+          "lat_deg": -22,
+          "lon_deg": 40,
+          "radius_km": 700,
+          "text": "A storm wider than Floe, turning in the same place for as long as anyone could have watched. Its red comes up from far below the clouds."
+        }
+      ]
+    },
+    {
+      "id": "floss",
+      "name": "Floss",
+      "kind": "moon",
+      "parent": "maelstrom",
+      "mu": 16000000000.0,
+      "radius": 180000,
+      "tidally_locked": true,
+      "orbit": { "a": 40000000, "e": 0.005, "inc_deg": 0.3, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 120 },
+      "terrain": {
+        "seed": 251,
+        "hills": 100,
+        "hills_km": 2.5,
+        "amplitude": 2200,
+        "base_freq": 2.4,
+        "octaves": 14,
+        "persistence": 0.52,
+        "offset": 0,
+        "ridge": 0.5,
+        "crater_freq": 6,
+        "crater_depth": 1200,
+        "mountain_amplitude": 1500,
+        "mountain_freq": 24,
+        "mountain_coverage": 0.2
+      },
+      "ore": 0.3,
+      "look": {
+        "style": "ice",
+        "tint": [0.98, 1.0, 1.04],
+        "low": [0.8, 0.85, 0.9],
+        "high": [0.95, 0.96, 0.98],
+        "slope": [0.6, 0.74, 0.86],
+        "rock": [0.4, 0.45, 0.52],
+        "range": 1400
+      },
+      "biomes": [
+        {
+          "id": "vents",
+          "name": "The Vents",
+          "near": { "lat_deg": -90, "lon_deg": 0, "radius_km": 90 }
+        },
+        { "id": "north_cap", "name": "North Cap", "abs_lat_min_deg": 72 },
+        { "id": "ridges", "name": "Ridged Plains", "height_min": 380 },
+        { "id": "plains", "name": "Snow Plains" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_fountains",
+          "name": "The Fountains",
+          "kind": "geyser",
+          "lat_deg": -80,
+          "lon_deg": 20,
+          "radius_km": 4,
+          "height": 140,
+          "depth": 90,
+          "text": "Vents in the south ice throwing water into space faster than it can ever fall back. Most of it doesn't: Maelstrom's faint outer haze is made of it."
+        },
+        {
+          "id": "the_spout",
+          "name": "The Spout",
+          "kind": "geyser",
+          "lat_deg": -74,
+          "lon_deg": -55,
+          "radius_km": 3,
+          "height": 100,
+          "depth": 70,
+          "text": "A single jet, a little apart from the rest, that rises straight and white for tens of kilometres."
+        },
+        {
+          "id": "the_claw_marks",
+          "name": "The Claw Marks",
+          "kind": "canyon",
+          "lat_deg": -72,
+          "lon_deg": 60,
+          "length_km": 240,
+          "width_km": 6,
+          "depth": 900,
+          "bearing_deg": 100,
+          "text": "Long rifts across Floss's south, warm at the bottom. The ice of their walls is blue all the way down."
+        }
+      ],
+      "life": [
+        {
+          "id": "frost_spike",
+          "shape": "crystal",
+          "biomes": [
+            "vents",
+            "ridges"
+          ],
+          "per_km2": 30,
+          "herd": 6,
+          "spread": 14,
+          "size": [2, 9],
+          "color": [0.75, 0.9, 1.0],
+          "range": 2500
+        },
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.4, 0.45, 0.52],
+          "color2": [0.9, 0.93, 0.97],
+          "range": 1800
+        }
+      ]
+    },
+    {
+      "id": "selkie",
+      "name": "Selkie",
+      "kind": "moon",
+      "parent": "maelstrom",
+      "mu": 1600000000000.0,
+      "radius": 480000,
+      "tidally_locked": true,
+      "day_lon_deg": -82,
+      "orbit": { "a": 120000000, "e": 0.004, "inc_deg": 0.5, "lan_deg": 30, "argp_deg": 0, "mean_anomaly_deg": 250 },
+      "atmosphere": { "height": 60000, "sea_level_pressure": 85000, "sea_level_density": 1.05, "scale_height": 6000 },
+      "terrain": {
+        "seed": 263,
+        "hills": 220,
+        "hills_km": 4,
+        "amplitude": 3400,
+        "base_freq": 2.6,
+        "octaves": 15,
+        "persistence": 0.5,
+        "offset": -200,
+        "ridge": 0.3,
+        "mountain_amplitude": 2600,
+        "mountain_freq": 30,
+        "mountain_coverage": 0.22
+      },
+      "ore": 0.4,
+      "look": {
+        "style": "moss",
+        "sky": [0.58, 0.72, 0.95],
+        "tau": [0.04, 0.1, 0.3],
+        "clouds": true,
+        "cloud_cover": 0.6,
+        "low": [0.18, 0.4, 0.3],
+        "high": [0.5, 0.5, 0.36],
+        "slope": [0.26, 0.32, 0.24],
+        "rock": [0.22, 0.21, 0.2],
+        "basin": [0.06, 0.24, 0.42],
+        "range": 2000,
+        "sea_level": 200,
+        "snow_line": 2600,
+        "polar_snow": true
+      },
+      "biomes": [
+        { "id": "poles", "name": "Polar Ice", "abs_lat_min_deg": 72 },
+        { "id": "sea", "name": "The Sea", "height_max": 200 },
+        { "id": "shores", "name": "Shores", "height_max": 320 },
+        { "id": "peaks", "name": "Peaks", "height_min": 470 },
+        { "id": "islands", "name": "Islands" }
+      ],
+      "landmarks": [
+        {
+          "id": "mount_skerry",
+          "name": "Mount Skerry",
+          "kind": "volcano",
+          "lat_deg": 12,
+          "lon_deg": -30,
+          "radius_km": 45,
+          "height": 4200,
+          "depth": 500,
+          "text": "A volcano that has built itself an island and isn't finished. Maelstrom's tides keep the fire stirred."
+        },
+        {
+          "id": "the_ring_sea",
+          "name": "The Ring Sea",
+          "kind": "crater",
+          "lat_deg": -20,
+          "lon_deg": 100,
+          "radius_km": 60,
+          "height": 1300,
+          "depth": 1800,
+          "text": "An old crater's rim standing out of the sea as a ring of islands round a lagoon of deep, still water."
+        }
+      ],
+      "relics": [
+        { "id": "selkie_anchor", "name": "the Anchor", "lat_deg": 1, "lon_deg": -82 }
+      ],
+      "life": [
+        {
+          "id": "tidepalm",
+          "shape": "frond",
+          "biomes": [
+            "islands",
+            "shores"
+          ],
+          "per_km2": 30,
+          "herd": 16,
+          "spread": 70,
+          "max_slope_deg": 28,
+          "size": [6, 16],
+          "color": [0.36, 0.26, 0.18],
+          "color2": [0.2, 0.55, 0.42],
+          "range": 3000
+        },
+        {
+          "id": "sea_grass",
+          "shape": "grass",
+          "biomes": [
+            "islands",
+            "shores"
+          ],
+          "per_km2": 60000,
+          "max_slope_deg": 35,
+          "size": [0.4, 1.0],
+          "color": [0.26, 0.5, 0.36],
+          "range": 170
+        },
+        {
+          "id": "coral_shrub",
+          "shape": "shrub",
+          "biomes": [
+            "shores",
+            "islands"
+          ],
+          "per_km2": 1200,
+          "size": [0.5, 1.5],
+          "color": [0.7, 0.35, 0.4],
+          "color2": [0.95, 0.6, 0.5],
+          "range": 500
+        },
+        {
+          "id": "rock",
+          "shape": "rock",
+          "per_km2": 70,
+          "max_slope_deg": 45,
+          "size": [0.5, 2.5],
+          "color": [0.22, 0.21, 0.2],
+          "color2": [0.3, 0.42, 0.34],
+          "range": 1500
+        },
+        {
+          "id": "selkies",
+          "animal": true,
+          "shape": "seal",
+          "biomes": [
+            "shores"
+          ],
+          "per_km2": 1.5,
+          "herd": 8,
+          "spread": 20,
+          "loop": 3,
+          "max_slope_deg": 15,
+          "size": [1.6, 2.6],
+          "color": [0.4, 0.42, 0.5],
+          "color2": [0.75, 0.78, 0.85],
+          "speed": 0.2,
+          "range": 700
+        },
+        {
+          "id": "terns",
+          "animal": true,
+          "shape": "bird",
+          "biomes": [
+            "shores",
+            "islands"
+          ],
+          "per_km2": 1.5,
+          "herd": 8,
+          "spread": 55,
+          "loop": 30,
+          "fly": 40,
+          "size": [0.3, 0.45],
+          "color": [0.95, 0.95, 0.98],
+          "color2": [0.15, 0.15, 0.2],
+          "speed": 10,
+          "range": 1000
+        }
+      ]
+    },
+    {
+      "id": "barnacle",
+      "name": "Barnacle",
+      "kind": "moon",
+      "parent": "maelstrom",
+      "mu": 8000000000.0,
+      "radius": 120000,
+      "tidally_locked": true,
+      "orbit": { "a": 360000000, "e": 0.02, "inc_deg": 5, "lan_deg": 80, "argp_deg": 0, "mean_anomaly_deg": 10 },
+      "terrain": {
+        "seed": 271,
+        "hills": 90,
+        "hills_km": 2,
+        "amplitude": 2400,
+        "base_freq": 2.0,
+        "octaves": 14,
+        "persistence": 0.55,
+        "offset": 0,
+        "ridge": 0.25,
+        "crater_freq": 10,
+        "crater_depth": 2000,
+        "mountain_amplitude": 1600,
+        "mountain_freq": 20,
+        "mountain_coverage": 0.2
+      },
+      "ore": 1.0,
+      "look": {
+        "style": "rock",
+        "tint": [1.1, 1.0, 0.88],
+        "low": [0.42, 0.38, 0.33],
+        "high": [0.66, 0.6, 0.52],
+        "slope": [0.3, 0.27, 0.24],
+        "rock": [0.2, 0.18, 0.16],
+        "range": 1500
+      },
+      "biomes": [
+        { "id": "poles", "name": "Poles", "abs_lat_min_deg": 75 },
+        { "id": "highlands", "name": "Highlands", "height_min": 400 },
+        { "id": "craters", "name": "Crater Floors", "height_max": -320 },
+        { "id": "lowlands", "name": "Lowlands" }
+      ],
+      "landmarks": [
+        {
+          "id": "the_scar",
+          "name": "The Scar",
+          "kind": "crater",
+          "lat_deg": 30,
+          "lon_deg": -40,
+          "radius_km": 35,
+          "height": 700,
+          "depth": 2500,
+          "text": "A crater that Maelstrom's tides have nearly shaken apart: its walls have slumped into terraces, like the seats round an arena."
+        }
+      ],
+      "life": [
+        {
+          "id": "boulder",
+          "shape": "rock",
+          "per_km2": 140,
+          "max_slope_deg": 45,
+          "size": [0.5, 3.5],
+          "color": [0.2, 0.18, 0.16],
+          "color2": [0.42, 0.38, 0.33],
+          "range": 1800
+        }
+      ]
+    }
+  ]
+}

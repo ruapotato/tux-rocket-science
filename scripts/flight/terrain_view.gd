@@ -40,6 +40,7 @@ var _site_pos := Vector3.ZERO
 var _site_d: Array = [0.0, 0.0, 0.0]  # the same, Godot axes, doubles
 var _relics: Array = []  # [{id, node, pos (Godot, body-fixed), d (doubles)}]
 var _fx: Array = []      # the landmarks' effects, placed as relics are
+var _ground := true   # (false on a star or a gas giant)
 var life: TerrainLife
 var _life_t := -1
 
@@ -63,15 +64,29 @@ func set_body(b: int) -> void:
 	_pending.clear()
 	body = b
 	var info: Dictionary = JSON.parse_string(core.body_info(b))
+	_ground = bool(info.get("has_terrain", true))
+	if not _ground:
+		# a star or a gas giant: nothing to stand on, nothing to draw here
+		for r in _relics + _fx:
+			r.node.queue_free()
+		_relics.clear()
+		_fx.clear()
+		if _site_node:
+			_site_node.queue_free()
+			_site_node = null
+		life.set_body(b, info.id)
+		return
 	_style = _styles().get(info.id, _styles()["default"])
 	var lk: Dictionary = Sim.look(info.id)
 	if lk.has("low"):
-		var kinds := {"ice": 0, "rock": 1, "moss": 2, "ash": 3}
+		var kinds := {"ice": 0, "rock": 1, "moss": 2, "ash": 3, "sand": 4}
 		_style = {"kind": int(kinds.get(lk.get("style", "rock"), 1)), "low": Sim.col(lk.low), "high": Sim.col(lk.high),
 			"slope": Sim.col(lk.slope), "rock": Sim.col(lk.rock), "range": float(lk.get("range", 1500.0)),
 			"basin": Sim.col(lk.get("basin"), Sim.col(lk.low)), "sea_level": float(lk.get("sea_level", 350.0)),
 			"snow_line": float(lk.get("snow_line", 3200.0)), "polar_snow": bool(lk.get("polar_snow", true)),
 			"lava_level": float(lk.get("lava_level", -350.0))}
+		if lk.get("locked", false):
+			_style.merge(PlanetBake.locked_style(lk, Sim.day_lon(str(info.id))))
 	_style["radius"] = info.radius
 	life.set_body(b, info.id)
 	_material = TerrainShader.make(_style, PlanetBake.textures(core, b))
@@ -87,7 +102,7 @@ func set_body(b: int) -> void:
 	_fx.clear()
 	var lms := Sim.landmarks(str(info.id))
 	var fixed: Array = info.get("landmark_fixed", [])
-	var kept := lms.filter(func(l): return l.get("kind", "") in ["volcano", "crater", "canyon", "mesa"])
+	var kept := lms.filter(func(l): return l.get("kind", "") in ["volcano", "crater", "canyon", "mesa", "geyser"])
 	for k in mini(kept.size(), fixed.size()):
 		var node := LandmarkFX.build(kept[k], float(info.get("atmosphere_height", 0.0)) > 0.0)
 		if node == null:
@@ -167,7 +182,7 @@ func _key(f: int, l: int, i: int, j: int) -> String:
 ## doubles: it is ~R away, and float32 there jitters by centimetres).
 ## rot: body rotation angle about sim +Z.
 func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void:
-	if body < 0:
+	if body < 0 or not _ground:
 		return
 	var leaves: PackedFloat64Array = core.terrain_lod(body, eye_fixed, MAX_LEVEL, SPLIT)
 	var want := {}
@@ -229,9 +244,10 @@ static func _place(body_rel: Array, cr: float, sr: float, x: float, y: float, z:
 	return Vector3(body_rel[0] + cr * x + sr * z, body_rel[1] + y, body_rel[2] - sr * x + cr * z)
 
 
-func set_cloud_shadows(on: bool, sun_cloud_obj: Vector3, offset: float) -> void:
+func set_cloud_shadows(on: bool, sun_cloud_obj: Vector3, offset: float, cover := 0.5) -> void:
 	if _material == null:
 		return
+	_material.set_shader_parameter("cloud_coverage", cover)
 	_material.set_shader_parameter("has_clouds", 1.0 if on else 0.0)
 	_material.set_shader_parameter("sun_cloud", sun_cloud_obj)
 	_material.set_shader_parameter("cloud_offset", offset)
