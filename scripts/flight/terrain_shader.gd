@@ -17,7 +17,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 ## Surface shading for terrain patches. Geometry and large-scale shape come
 ## from trs_core; this adds what you see up close: snow, ice and rock on
-## Floe, regolith on Krill, with per-pixel bump detail.
+## Floe, regolith on Krill, moss and meadow and still lakes on Kelp and
+## Haven, ash and glowing slag on Cinder -- with per-pixel bump detail.
 ##
 ## Precision: patch vertices carry coordinates relative to a snapped local
 ## origin (UV, UV2.x) and an instance uniform holds that origin modulo the
@@ -32,7 +33,12 @@ const CODE := """
 shader_type spatial;
 render_mode cull_back;
 
-uniform int kind = 0;            // 0 = ice world, 1 = airless regolith
+uniform int kind = 0;            // 0 = ice world, 1 = airless regolith, 2 = moss and meadow, 3 = ash and lava
+uniform vec4 c_basin : source_color = vec4(0.1, 0.2, 0.22, 1.0);   // moss worlds' lakes
+uniform float sea_level = 350.0;  // m: below it, a moss world's basins hold water
+uniform float snow_line = 3200.0; // m: above it (and toward the poles), snow
+uniform float polar_snow = 1.0;   // the poles white (Haven), or not (Kelp's polar moss)
+uniform float lava_level = -350.0; // m: below it, an ash world's slag glows
 uniform vec4 c_low : source_color;
 uniform vec4 c_high : source_color;
 uniform vec4 c_slope : source_color;
@@ -147,6 +153,62 @@ void fragment() {
 		// sparkle on fresh snow up close
 		float sp = step(0.985, hash3(floor(p * 6.0)).y) * fine * (1.0 - ice) * (1.0 - rock);
 		EMISSION = vec3(sp) * 0.6;
+	} else if (kind == 2) {
+		// moss and meadow: the bake's colours (forest low, olive high) with
+		// grass in it up close -- lighter and yellower patches, darker
+		// thickets, soil showing on banks, rock on cliffs, snow up high and at
+		// the poles, and still dark water in the basins
+		float hk = clamp((hgt - 200.0) / 3800.0, 0.0, 1.0);
+		vec3 grass = mix(c_low.rgb, c_high.rgb, clamp(pow(hk, 0.8) + (n_big - 0.5) * 0.24, 0.0, 1.0));
+		float patchy = vnoise(p, 1.0 / 32.0);
+		grass *= mix(0.92, 1.06, patchy);
+		grass = mix(grass, grass * vec3(1.18, 1.1, 0.72), smoothstep(0.62, 0.8, n_mid) * 0.5);   // dry, yellower turf
+		float thicket = smoothstep(0.58, 0.72, vnoise(p, 1.0 / 96.0) + (big - 0.5) * 0.3);
+		grass = mix(grass, c_low.rgb * 0.7, thicket * 0.3);
+		// blades: fine streaks that catch the light up close
+		float blade = vnoise(p * vec3(1.0, 1.0, 6.0), 2.0) * fine;
+		grass *= 0.9 + 0.2 * blade;
+		// a fleck of colour here and there: flowers
+		float flower = step(0.992, hash3(floor(p * 3.0)).z) * fine;
+		vec3 fcol = mix(vec3(0.95, 0.85, 0.3), vec3(0.85, 0.35, 0.6), hash3(floor(p * 3.0) + 11.0).x);
+		col = mix(grass, fcol, flower);
+		float soil = smoothstep(0.22, 0.34, slope + (n_mid - 0.5) * 0.12) * (1.0 - smoothstep(0.42, 0.55, slope));
+		col = mix(col, c_rock.rgb * vec3(1.35, 1.15, 0.9), soil * 0.7);
+		float rock = smoothstep(0.42, 0.56, slope + (n_mid - 0.5) * 0.1);
+		col = mix(col, c_rock.rgb * (0.8 + 0.4 * n_mid), rock);
+		float lat = abs(normalize(dir_obj).z);
+		float snow = smoothstep(snow_line - 400.0, snow_line + 400.0, hgt + (n_big - 0.5) * 600.0 + smoothstep(0.88, 0.97, lat) * 4000.0 * polar_snow);
+		snow *= 1.0 - rock * 0.6;
+		col = mix(col, vec3(0.92, 0.94, 0.97), snow);
+		// the lakes: below sea level the ground is water, dark and glassy,
+		// with a shallow green rim
+		float wet = clamp((sea_level - hgt) / 60.0, 0.0, 1.0);
+		float shore = clamp((sea_level - hgt) / 8.0, 0.0, 1.0) * (1.0 - wet);
+		vec3 water = mix(c_basin.rgb * 1.3, c_basin.rgb * 0.7, clamp((sea_level - hgt) / 300.0, 0.0, 1.0));
+		col = mix(col, water, wet);
+		col = mix(col, col * 0.7, shore);
+		float ripple = sin(p.x * 0.7 + p.y * 0.4 + TIME * 0.8 + n_mid * 4.0) * 0.5 + 0.5;
+		bump = (n_fine * 0.05 * fine + blade * 0.03 + n_mid * 0.12 * mid) * (1.0 - rock) * (1.0 - wet) + rock * n_mid * 0.35 + wet * ripple * 0.01 * mid;
+		rough = mix(mix(0.85, 0.6, snow), 0.06, wet) + rock * 0.1;
+		spec = mix(0.3, 0.9, wet);
+	} else if (kind == 3) {
+		// ash and lava: black basalt, pale ash drifts on the flats, and in the
+		// low pits slag that still glows through its cracks
+		vec3 base = mix(c_low.rgb, c_high.rgb, clamp(h01 * 0.7 + (n_big - 0.5) * 0.5, 0.0, 1.0));
+		float ash = smoothstep(0.35, 0.8, vnoise(p, 1.0 / 128.0) * 0.7 + n_mid * 0.3) * (1.0 - smoothstep(0.15, 0.3, slope));
+		base = mix(base, vec3(0.3, 0.28, 0.27), ash * 0.3);
+		float rock = smoothstep(0.3, 0.45, slope + (n_mid - 0.5) * 0.15);
+		col = mix(base, c_rock.rgb, rock * 0.85);
+		float pit = clamp((lava_level - hgt) / 300.0, 0.0, 1.0);
+		// cracks: the edges of a cell pattern, hot where the pits are deepest
+		vec3 cell = floor(p / 6.0);
+		float crack = 1.0 - smoothstep(0.02, 0.09, abs(vnoise(p, 1.0 / 6.0) - 0.5));
+		float glow = crack * pit * (0.6 + 0.4 * sin(TIME * 0.7 + hash3(cell).x * 6.28));
+		col = mix(col, col * 0.6, pit * 0.6);
+		EMISSION = vec3(1.0, 0.36, 0.08) * glow * 2.2;
+		bump = n_mid * 0.35 * mid + n_fine * 0.09 * fine + rock * n_mid * 0.45 + crack * pit * 0.04;
+		rough = mix(0.95, 0.7, pit);
+		spec = 0.2;
 	} else {
 		vec3 base = mix(c_low.rgb, c_high.rgb, clamp(h01 * 0.6 + n_big * 0.5, 0.0, 1.0));
 		base *= mix(0.78, 1.0, smoothstep(0.3, 0.7, big));     // darker plains
@@ -245,6 +307,12 @@ static func make(style: Dictionary, bake: Dictionary = {}) -> ShaderMaterial:
 	m.set_shader_parameter("c_slope", style.slope)
 	m.set_shader_parameter("c_rock", style.rock)
 	m.set_shader_parameter("height_range", style.range)
+	if style.has("basin"):
+		m.set_shader_parameter("c_basin", style.basin)
+	m.set_shader_parameter("sea_level", float(style.get("sea_level", 350.0)))
+	m.set_shader_parameter("snow_line", float(style.get("snow_line", 3200.0)))
+	m.set_shader_parameter("polar_snow", 1.0 if style.get("polar_snow", true) else 0.0)
+	m.set_shader_parameter("lava_level", float(style.get("lava_level", -350.0)))
 	if not bake.is_empty():
 		m.set_shader_parameter("baked_albedo", bake.albedo)
 		m.set_shader_parameter("baked_normal", bake.normal)

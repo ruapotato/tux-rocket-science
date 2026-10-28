@@ -26,6 +26,10 @@
     },
     {
       "id": "cinder",
+      "landmarks": [
+        {"id": "the_forge", "name": "The Forge", "kind": "volcano", "lat_deg": 20, "lon_deg": -40, "radius_km": 105, "height": 7200, "depth": 1100, "text": "Cinder's great volcano, still alive. Its caldera glows at night, and the ground around it is warm through a boot."},
+        {"id": "slag_sea", "name": "The Slag Sea", "kind": "crater", "lat_deg": -30, "lon_deg": 100, "radius_km": 60, "height": 600, "depth": 1700, "text": "A basin of slag that never quite cooled: a crust you could walk on, with fire showing through every crack."}
+      ],
       "life": [
         {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.2, 0.12, 0.09], "color2": [0.42, 0.24, 0.16], "range": 1800}
       ],
@@ -81,37 +85,20 @@
         }
       ],
       "look": {
-        "style": "rock",
-        "tint": [
-          1.35,
-          0.82,
-          0.6
-        ],
-        "low": [
-          0.42,
-          0.24,
-          0.16
-        ],
-        "high": [
-          0.7,
-          0.46,
-          0.3
-        ],
-        "slope": [
-          0.3,
-          0.18,
-          0.12
-        ],
-        "rock": [
-          0.2,
-          0.12,
-          0.09
-        ],
-        "range": 1800
-      }
+        "style": "ash",
+        "low": [0.13, 0.115, 0.11],
+        "high": [0.34, 0.3, 0.27],
+        "slope": [0.1, 0.09, 0.085],
+        "rock": [0.075, 0.068, 0.066],
+        "range": 1800, "lava_level": -200}
     },
     {
       "id": "haven",
+      "landmarks": [
+        {"id": "silverfall", "name": "Silverfall Canyon", "kind": "canyon", "lat_deg": 10, "lon_deg": -70, "bearing_deg": 160, "length_km": 300, "width_km": 20, "depth": 1700, "text": "Rivers pour off the uplands into this canyon, and its floor is one long blue lake. The best view on Haven, its first visitors said."},
+        {"id": "the_sentinel", "name": "The Sentinel", "kind": "mesa", "lat_deg": -24, "lon_deg": 60, "radius_km": 10, "height": 1300, "text": "A lone tower of rock above the grasslands. Something has been nesting on top of it."},
+        {"id": "cradle", "name": "Cradle Crater", "kind": "crater", "lat_deg": 48, "lon_deg": 150, "radius_km": 30, "height": 500, "depth": 900, "text": "An old crater with a lake in it and forest on its rim. Sheltered, still, and warm for its latitude."}
+      ],
       "life": [
         {"id": "broadleaf", "shape": "broadleaf", "biomes": ["grasslands", "uplands", "lakes"], "per_km2": 25, "herd": 20, "spread": 80, "max_slope_deg": 28, "size": [7, 15], "color": [0.38, 0.26, 0.16], "color2": [0.26, 0.5, 0.2], "range": 3000},
         {"id": "upland_pine", "shape": "pine", "biomes": ["uplands", "mountains"], "per_km2": 20, "herd": 16, "spread": 60, "size": [6, 14], "color": [0.12, 0.3, 0.18], "color2": [0.18, 0.38, 0.22], "range": 3000},
@@ -220,11 +207,13 @@
           0.24,
           0.4
         ],
-        "range": 2000
-      }
+        "range": 2000, "sea_level": 20, "snow_line": 2400, "polar_snow": true}
     },
     {
       "id": "wisp",
+      "landmarks": [
+        {"id": "lanterns_eye", "name": "The Lantern's Eye", "kind": "crater", "lat_deg": 5, "lon_deg": 0, "radius_km": 22, "height": 500, "depth": 2000, "text": "A crater that always faces Haven, so from its floor Haven hangs overhead and never sets."}
+      ],
       "life": [
         {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.2, 0.2, 0.24], "color2": [0.5, 0.52, 0.58], "range": 1800}
       ],

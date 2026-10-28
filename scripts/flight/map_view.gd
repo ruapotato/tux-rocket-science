@@ -771,6 +771,28 @@ func _draw_overlay() -> void:
 			ov.draw_string(font, p + Vector2(8, -6), nm.left(1).to_upper() + nm.substr(1), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c)
 
 
+	# landmarks seen, the same way: a ring and the name
+	for b in _bodies:
+		if not b.node.visible:
+			continue
+		for lm in Sim.landmarks(str(b.info.id)):
+			if not ("%s/%s" % [b.info.id, lm.id]) in Career.sighted:
+				continue
+			var la := deg_to_rad(float(lm.lat_deg))
+			var lo := deg_to_rad(float(lm.lon_deg))
+			var n := Vector3(cos(la) * cos(lo), sin(la), -cos(la) * sin(lo))  # sim (x, y, z) -> Godot (x, z, -y)
+			var w: Vector3 = b.node.transform * (n * 1.01)
+			var out: Vector3 = (w - b.node.position).normalized()
+			if _cam.is_position_behind(w) or out.dot((_cam.position - w).normalized()) < 0.05:
+				continue
+			var p := _cam.unproject_position(w)
+			if p.distance_to(_cam.unproject_position(b.node.position)) < 6.0:
+				continue
+			var c := Color(1.0, 0.85, 0.5)
+			ov.draw_arc(p, 5, 0, TAU, 16, c, 1.5, true)
+			ov.draw_string(font, p + Vector2(8, 4), str(lm.name), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, c)
+
+
 ## A plan still running when the map goes away finishes first: it reads
 ## only its own copy of the bodies, but the Thread must be joined.
 func _exit_tree() -> void:

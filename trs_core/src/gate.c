@@ -94,6 +94,7 @@ trs_gate_status trs_gate_approach(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_planes(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_power(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_biomes(trs_log *log, const char *data_dir);
+trs_gate_status trs_gate_landmarks(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_relics(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_interior(trs_log *log, const char *data_dir);
 trs_gate_status trs_gate_life(trs_log *log, const char *data_dir);
@@ -125,6 +126,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-power", "M18", trs_gate_power },
 	{ "test-actions", "M19", trs_gate_actions },
 	{ "test-biomes", "M21", trs_gate_biomes },
+	{ "test-landmarks", "M29", trs_gate_landmarks },
 	{ "test-relics", "M24", trs_gate_relics },
 	{ "test-interior", "M25", trs_gate_interior },
 	{ "test-inside", "M25", NULL },
@@ -137,6 +139,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-by-hand", "M28", NULL },
 	{ "test-script-editor", "M28", NULL },
 	{ "test-templates", "M28", NULL },
+	{ "test-discovery", "M29", NULL },
 	{ "test-mining", "M22", trs_gate_mining },
 	{ "test-relativity", "M23", trs_gate_relativity },
 	{ "test-interstellar", "M23", trs_gate_interstellar },

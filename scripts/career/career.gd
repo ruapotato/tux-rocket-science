@@ -31,6 +31,8 @@ signal changed  # funds, research, tech or missions moved
 signal mission_done(m: Dictionary)
 signal survey_done(s: Dictionary)
 signal relic_heard(r: Dictionary)  # a Signal Scanner picked up a relic for the first time
+signal landmark_sighted(lm: Dictionary)  # a landmark seen for the first time (lm has its name, text, research)
+signal landmark_over(lm: Dictionary)  # over (or at) a landmark seen before, again
 
 var science: Dictionary = {}
 var tech: Array = []
@@ -47,6 +49,9 @@ var visited: Dictionary = {}  # vessel serial (string) -> [bodies landed on]
 var surveys: Array = []       # standing contracts: [{subject, exp, body, situation, funds, research}]
 var surveys_done := 0
 var heard: Array = []         # relic ids a Signal Scanner has heard (their place is known)
+var sighted: Array = []       # "body/landmark" ids seen (close enough to see from)
+var _over := ""               # the landmark below the ship now
+const LANDMARK_RESEARCH := 4.0  # what seeing one for the first time teaches
 var path := ""
 
 ## how close (m along the ground) a penguin on foot must come to a relic
@@ -96,6 +101,7 @@ func load_from(file: String, new_mode := "sandbox") -> void:
 	surveys = d.get("surveys", [])
 	surveys_done = int(d.get("surveys_done", 0))
 	heard = d.get("heard", [])
+	sighted = d.get("sighted", [])
 	refresh_surveys()
 	changed.emit()
 
@@ -110,7 +116,8 @@ func save() -> void:
 
 func state() -> Dictionary:
 	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
-		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done, "heard": heard}
+		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done, "heard": heard,
+		"sighted": sighted}
 
 
 ## Puts the program back as `s` (a revert undoes the flight's results).
@@ -126,6 +133,7 @@ func restore(s: Dictionary) -> void:
 	surveys = s.get("surveys", []).duplicate(true)
 	surveys_done = int(s.get("surveys_done", 0))
 	heard = s.get("heard", []).duplicate()
+	sighted = s.get("sighted", []).duplicate()
 	save()
 	changed.emit()
 
@@ -491,6 +499,51 @@ func recover(id: int, serial: int) -> Dictionary:
 	return {"research": got, "funds": refund, "results": n}
 
 
+# ---- landmarks ----------------------------------------------------------------------
+
+## The landmark below t's ship (close enough to see it whole: within its
+## own size, and more the higher up), or {}.
+static func landmark_below(t: Dictionary) -> Dictionary:
+	var R := Sim.radius(str(t.get("body", "")))
+	if R <= 0.0:
+		return {}
+	var la := deg_to_rad(float(t.get("lat_deg", 0.0)))
+	var lo := deg_to_rad(float(t.get("lon_deg", 0.0)))
+	var up := minf(maxf(float(t.get("altitude_terrain", 0.0)), 0.0), 80000.0)
+	var best := {}
+	var best_d := INF
+	for lm in Sim.landmarks(str(t.body)):
+		var la2 := deg_to_rad(float(lm.lat_deg))
+		var lo2 := deg_to_rad(float(lm.lon_deg))
+		var c := sin(la) * sin(la2) + cos(la) * cos(la2) * cos(lo - lo2)
+		var d := acos(clampf(c, -1.0, 1.0)) * R
+		var size := float(lm.get("length_km", 0.0)) * 500.0 if lm.get("kind", "") == "canyon" else float(lm.get("radius_km", 10.0)) * 1000.0
+		if d < size * 1.2 + up and d < best_d:
+			best = lm
+			best_d = d
+	return best
+
+
+func _landmark_check(t: Dictionary) -> void:
+	var lm := landmark_below(t)
+	var key := "" if lm.is_empty() else "%s/%s" % [t.body, lm.id]
+	if key == _over:
+		return
+	_over = key
+	if key == "":
+		return
+	if not key in sighted:
+		sighted.append(key)
+		research += LANDMARK_RESEARCH
+		save()
+		changed.emit()
+		var e := lm.duplicate()
+		e["research"] = LANDMARK_RESEARCH
+		landmark_sighted.emit(e)
+	else:
+		landmark_over.emit(lm)
+
+
 # ---- relics -------------------------------------------------------------------------
 
 ## Relic `id` as telemetry `t` sees it ({} if it isn't on t's body).
@@ -628,6 +681,7 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 			v.append(t.body)
 			visited[str(serial)] = v
 			save()
+	_landmark_check(t)
 	for r in t.get("relics", []):
 		if r.heard and not r.id in heard:
 			heard.append(r.id)

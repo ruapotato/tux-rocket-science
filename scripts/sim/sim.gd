@@ -61,6 +61,8 @@ func _init() -> void:
 	for b in system_bodies():
 		_looks[b.id] = b.get("look", {})
 		_life[b.id] = b.get("life", [])
+		_landmarks[b.id] = b.get("landmarks", [])
+		_radius[b.id] = float(b.get("radius", 0.0))
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(CATALOG_PATH))
 	for p in data.parts:
 		catalog[p.id] = p
@@ -69,6 +71,8 @@ func _init() -> void:
 
 var _looks := {}
 var _life := {}
+var _landmarks := {}
+var _radius := {}
 
 
 ## How a body looks (data/bodies "look"): style, sky, tau, clouds, colours.
@@ -89,6 +93,18 @@ func look(body_id: String) -> Dictionary:
 ## What grows and lives on a body (data/bodies "life"), in the core's order.
 func life(body_id: String) -> Array:
 	return _life.get(body_id, [])
+
+
+## A body's named landmarks (data/bodies "landmarks"): id, name, kind,
+## lat_deg, lon_deg, radius_km (a canyon: length_km), text. The core shapes
+## them into the ground.
+func landmarks(body_id: String) -> Array:
+	return _landmarks.get(body_id, [])
+
+
+## A body's radius (m), from the data.
+func radius(body_id: String) -> float:
+	return _radius.get(body_id, 0.0)
 
 
 static func col(a, fallback := Color(0.5, 0.5, 0.5)) -> Color:

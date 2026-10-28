@@ -65,8 +65,12 @@ func set_body(b: int) -> void:
 	_style = _styles().get(info.id, _styles()["default"])
 	var lk: Dictionary = Sim.look(info.id)
 	if lk.has("low"):
-		_style = {"kind": 0 if lk.get("style", "") == "ice" else 1, "low": Sim.col(lk.low), "high": Sim.col(lk.high),
-			"slope": Sim.col(lk.slope), "rock": Sim.col(lk.rock), "range": float(lk.get("range", 1500.0))}
+		var kinds := {"ice": 0, "rock": 1, "moss": 2, "ash": 3}
+		_style = {"kind": int(kinds.get(lk.get("style", "rock"), 1)), "low": Sim.col(lk.low), "high": Sim.col(lk.high),
+			"slope": Sim.col(lk.slope), "rock": Sim.col(lk.rock), "range": float(lk.get("range", 1500.0)),
+			"basin": Sim.col(lk.get("basin"), Sim.col(lk.low)), "sea_level": float(lk.get("sea_level", 350.0)),
+			"snow_line": float(lk.get("snow_line", 3200.0)), "polar_snow": bool(lk.get("polar_snow", true)),
+			"lava_level": float(lk.get("lava_level", -350.0))}
 	_style["radius"] = info.radius
 	life.set_body(b, info.id)
 	_material = TerrainShader.make(_style, PlanetBake.textures(core, b))

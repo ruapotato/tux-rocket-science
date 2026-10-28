@@ -14,6 +14,11 @@
     },
     {
       "id": "floe",
+      "landmarks": [
+        {"id": "mount_shiver", "name": "Mount Shiver", "kind": "volcano", "lat_deg": 38, "lon_deg": -20, "radius_km": 95, "height": 5600, "depth": 700, "text": "An old volcano under the ice. On a still day the caldera breathes steam, and the snow around its rim never settles."},
+        {"id": "long_crevasse", "name": "The Long Crevasse", "kind": "canyon", "lat_deg": -34, "lon_deg": 40, "bearing_deg": 70, "length_km": 280, "width_km": 18, "depth": 1500, "text": "Floe's ice split here and never closed. 280 km of blue walls, and a floor no sunlight reaches for half the year."},
+        {"id": "kettle", "name": "Kettle Crater", "kind": "crater", "lat_deg": 52, "lon_deg": 110, "radius_km": 20, "height": 380, "depth": 1000, "text": "A crater the ice has half filled. Its floor is a frozen lake, glassy and flat as a rink."}
+      ],
       "life": [
         {"id": "frost_pine", "shape": "pine", "biomes": ["snowfields", "tundra", "highlands", "brinewall"], "per_km2": 5, "herd": 14, "spread": 60, "max_slope_deg": 25, "height_min": 160, "size": [5, 13], "color": [0.13, 0.27, 0.22], "color2": [0.93, 0.95, 0.98], "range": 3000},
         {"id": "crowberry", "shape": "shrub", "biomes": ["tundra", "highlands"], "per_km2": 2500, "max_slope_deg": 30, "size": [0.4, 0.9], "color": [0.22, 0.3, 0.2], "color2": [0.55, 0.12, 0.2], "range": 500},
@@ -61,6 +66,10 @@
     },
     {
       "id": "krill",
+      "landmarks": [
+        {"id": "leviathan", "name": "Leviathan Crater", "kind": "crater", "lat_deg": 46, "lon_deg": 80, "radius_km": 48, "height": 900, "depth": 3000, "text": "The scar of the hardest thing that ever hit Krill. Its central peak stands alone on the floor, taller than a mountain."},
+        {"id": "krill_rille", "name": "The Krill Rille", "kind": "canyon", "lat_deg": -42, "lon_deg": -60, "bearing_deg": 120, "length_km": 160, "width_km": 8, "depth": 700, "text": "A lava channel from when Krill was young and hot inside: a long winding trench, its floor smooth as a road."}
+      ],
       "life": [
         {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.17, 0.165, 0.17], "color2": [0.3, 0.295, 0.3], "range": 1800}
       ],
@@ -85,6 +94,11 @@
     },
     {
       "id": "kelp",
+      "landmarks": [
+        {"id": "green_throat", "name": "The Green Throat", "kind": "canyon", "lat_deg": 30, "lon_deg": 50, "bearing_deg": 100, "length_km": 340, "width_km": 22, "depth": 1900, "text": "A gorge hung with kelp-moss, its floor a chain of still lakes. Puffs of mist rise off them in the morning."},
+        {"id": "old_smoke", "name": "Old Smoke", "kind": "volcano", "lat_deg": -38, "lon_deg": 150, "radius_km": 120, "height": 4600, "depth": 600, "text": "A worn volcano, green to its rim. Kelp's first explorers named it from orbit, for the cloud that always sits on it."},
+        {"id": "the_table", "name": "The Table", "kind": "mesa", "lat_deg": 18, "lon_deg": -60, "radius_km": 14, "height": 950, "text": "A plateau with cliffs on every side and a meadow on top, as if set out for a picnic. Hard to land on; worth it."}
+      ],
       "life": [
         {"id": "frond_tree", "shape": "frond", "biomes": ["meadows", "basins", "highlands"], "per_km2": 30, "herd": 18, "spread": 70, "max_slope_deg": 28, "size": [8, 20], "color": [0.35, 0.18, 0.12], "color2": [0.3, 0.62, 0.25], "range": 3000},
         {"id": "puffball", "shape": "puffball", "biomes": ["meadows", "highlands"], "per_km2": 900, "size": [0.5, 1.4], "color": [0.85, 0.9, 0.5], "color2": [0.55, 1.0, 0.75], "range": 700},
@@ -120,10 +134,13 @@
       ],
       "look": { "style": "moss", "sky": [0.56, 0.78, 0.62], "tau": [0.16, 0.24, 0.30], "clouds": true,
                 "low": [0.20, 0.36, 0.20], "high": [0.56, 0.52, 0.34], "slope": [0.26, 0.30, 0.18], "rock": [0.21, 0.19, 0.15],
-                "basin": [0.08, 0.26, 0.22], "range": 2000 }
+                "basin": [0.08, 0.26, 0.22], "range": 2000, "sea_level": 0, "snow_line": 3000, "polar_snow": false}
     },
     {
       "id": "pebble",
+      "landmarks": [
+        {"id": "the_bite", "name": "The Bite", "kind": "crater", "lat_deg": 25, "lon_deg": 30, "radius_km": 14, "height": 450, "depth": 2200, "text": "Something took a bite out of Pebble. The crater is a third as wide as the moon, and from its floor the walls fill the sky."}
+      ],
       "life": [
         {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.18, 0.16, 0.14], "color2": [0.36, 0.32, 0.28], "range": 1800}
       ],
@@ -146,6 +163,10 @@
     },
     {
       "id": "narwhal",
+      "landmarks": [
+        {"id": "the_horn", "name": "The Horn", "kind": "volcano", "lat_deg": 40, "lon_deg": 60, "radius_km": 55, "height": 9500, "depth": 300, "text": "Narwhal's horn: a spire of ice and old lava, the tallest mountain in the Austra system. From its summit you can see the curve of the world."},
+        {"id": "brine_rift", "name": "The Brine Rift", "kind": "canyon", "lat_deg": -30, "lon_deg": -100, "bearing_deg": 40, "length_km": 220, "width_km": 18, "depth": 1300, "text": "Salt water seeps up through the rift and freezes in white terraces down its walls."}
+      ],
       "life": [
         {"id": "brine_mat", "shape": "mat", "biomes": ["brine"], "per_km2": 1800, "size": [1.5, 5], "color": [0.75, 0.35, 0.5], "color2": [0.95, 0.6, 0.4], "range": 900},
         {"id": "ice_spike", "shape": "crystal", "biomes": ["spikes", "highlands"], "per_km2": 25, "herd": 6, "spread": 15, "size": [2, 9], "color": [0.7, 0.88, 1.0], "range": 2500},
@@ -180,6 +201,9 @@
     },
     {
       "id": "tusk",
+      "landmarks": [
+        {"id": "the_hollow", "name": "The Hollow", "kind": "crater", "lat_deg": -20, "lon_deg": 90, "radius_km": 18, "height": 400, "depth": 1600, "text": "A deep round hollow on Tusk's far side. Its floor is the darkest ground in the system."}
+      ],
       "life": [
         {"id": "boulder", "shape": "rock", "per_km2": 140, "max_slope_deg": 45, "size": [0.5, 3.5], "color": [0.26, 0.26, 0.28], "color2": [0.62, 0.62, 0.64], "range": 1800}
       ],

@@ -193,11 +193,22 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 	var style: String = lk.get("style", "rock")
 	var ice_world: bool = style == "ice"
 	var moss: bool = style == "moss"
+	var ash: bool = style == "ash"
+	var sea := float(lk.get("sea_level", 350.0))
+	var snow_line := float(lk.get("snow_line", 3200.0))
+	var polar_snow := 1.0 if lk.get("polar_snow", true) else 0.0
+	var lava := float(lk.get("lava_level", -350.0))
 	var c_low := Sim.col(lk.get("low"))
 	var c_high := Sim.col(lk.get("high"))
 	var c_basin := Sim.col(lk.get("basin"), c_low)
 	var c_rock := Sim.col(lk.get("rock"), Color(0.2, 0.2, 0.2))
 	var tint := Sim.col(lk.get("tint"), Color(1, 1, 1))  # over the ice and rock styles' own colours
+	var vols := []
+	for lm in Sim.landmarks(info.id):
+		if lm.get("kind", "") == "volcano":
+			var la := deg_to_rad(float(lm.lat_deg))
+			var lo := deg_to_rad(float(lm.lon_deg))
+			vols.append([cos(la) * cos(lo), cos(la) * sin(lo), sin(la), float(lm.radius_km) * 1000.0])
 	var noise := FastNoiseLite.new()
 	noise.seed = hash(info.id)
 	noise.frequency = 0.02
@@ -233,9 +244,21 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 				# lowland forests of kelp-moss, olive uplands, dark still seas
 				var hk := clampf((hc - 200.0) / 3800.0, 0.0, 1.0)
 				col = c_low.lerp(c_high, clampf(pow(hk, 0.8) + nz * 0.12, 0.0, 1.0))
-				if hc < 350.0:
-					col = col.lerp(c_basin.lerp(c_basin * 1.4, nz), clampf((350.0 - hc) / 350.0, 0.0, 1.0) * 0.9)
 				col = col.lerp(c_rock, clampf((slope - 0.1) * 4.0, 0.0, 0.85))
+				# snow up high and at the poles (the same line the near shader uses)
+				var sn := clampf((hc - snow_line + 400.0 + (nz - 0.5) * 600.0) / 800.0 + clampf((absf(sin(lat)) - 0.88) / 0.09, 0.0, 1.0) * 5.0 * polar_snow, 0.0, 1.0)
+				col = col.lerp(Color(0.92, 0.94, 0.97), sn)
+				if hc < sea:
+					col = col.lerp(c_basin.lerp(c_basin * 0.7, clampf((sea - hc) / 300.0, 0.0, 1.0)), clampf((sea - hc) / 60.0, 0.0, 1.0))
+				col.a = 1.0
+			elif ash:
+				# black basalt, paler ash on the flats, slag pits glowing dull red
+				var hk := clampf((hc + 1200.0) / 2600.0, 0.0, 1.0)
+				col = c_low.lerp(c_high, clampf(hk + (nz - 0.5) * 0.3, 0.0, 1.0))
+				col = col.lerp(Color(0.3, 0.28, 0.27), clampf(nz * 0.6 - 0.25, 0.0, 0.15) * (1.0 - clampf(slope * 5.0, 0.0, 1.0)))
+				col = col.lerp(c_rock, clampf((slope - 0.08) * 4.0, 0.0, 0.8))
+				if hc < lava:
+					col = col.lerp(Color(0.45, 0.12, 0.04), clampf((lava - hc) / 400.0, 0.0, 0.8))
 				col.a = 1.0
 			else:
 				var hk := clampf((hc + 1200.0) / 2600.0, 0.0, 1.0)
@@ -243,7 +266,14 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 				col = col * (0.95 + 0.1 * nz)
 				col = col.lerp(Color(0.13, 0.125, 0.13), clampf((slope - 0.08) * 4.0, 0.0, 0.75))
 				col.a = 1.0
-			if style != "moss":
+			# a volcano's flanks: dark old lava, whatever the ground around it
+			for v in vols:
+				var c3: float = cos(lat) * cos(lon) * v[0] + cos(lat) * sin(lon) * v[1] + sin(lat) * v[2]
+				var vx: float = acos(clampf(c3, -1.0, 1.0)) * R / float(v[3])
+				if vx < 1.0:
+					var dark := c_rock.lerp(Color(0.12, 0.11, 0.11), 0.5) if not ice_world else Color(0.28, 0.29, 0.33)
+					col = col.lerp(dark, (1.0 - vx) * 0.7 * clampf(vx / 0.18, 0.3, 1.0))
+			if style != "moss" and style != "ash":
 				col = Color(minf(col.r * tint.r, 1.0), minf(col.g * tint.g, 1.0), minf(col.b * tint.b, 1.0))
 			a_img.set_pixel(x, y, col)
 			# normal in sim body-fixed axes, relief exaggerated for distance

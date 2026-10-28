@@ -146,6 +146,19 @@ low-flying results count separately in each biome, so a crew report from Krill's
 is worth as much as the first one from its Highlands. Biomes are data (`"biomes"` in
 `data/bodies/`), checked by `test-biomes`.
 
+**Landmarks**: every world has a few named places shaped into its ground, worth the trip:
+Floe's Mount Shiver (a volcano under the ice) and the Long Crevasse, 280 km of blue walls;
+Krill's Leviathan Crater, 3 km deep with a central peak; Kelp's Green Throat, a gorge with
+lakes along its floor, and Old Smoke; Narwhal's Horn, 9.5 km high, the tallest mountain in the
+Austra system; Pebble's Bite; Cinder's Forge and the glowing Slag Sea; Haven's Silverfall
+Canyon, its floor one long lake; and more. Fly close enough to see one and the flight screen
+names it, with a line about it ("Discovered: ..."), research is paid, and the map labels it
+from then on; a script reads where it is as `ship.landmark` and `ship.biome`. Up close the
+worlds look like themselves too: grass and moss with flowers, soil and snow on Kelp and Haven
+(and still lakes below their sea level), black basalt and glowing slag on Cinder, snow and
+blue ice on Floe and Narwhal. Landmarks are data (`"landmarks"`), checked by `test-landmarks`
+(the ground has the shape) and `test-discovery` (going there finds it).
+
 **Mining**: a **Pecker Ore Drill** fitted low on a lander digs ore into a **Gizzard Ore Bin** while
 the craft rests on the ground (its part within 2 m of it), at a rate set by the world's ore
 (Floe is poor, Krill and Tusk rich). A **Sifter Refinery** turns ore into liquid propellant

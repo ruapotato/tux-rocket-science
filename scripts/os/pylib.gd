@@ -163,6 +163,7 @@ const SHIP := [
 	["mass", "kg"], ["delta_v", "m/s left, every stage"], ["thrust", "kN now"], ["max_thrust", "kN, flat out"],
 	["throttle", "%, every engine (set it)"], ["stage", "the next stage's number"], ["fuel", "% left in this stage"],
 	["landed", "True on the ground"], ["situation", "flying, orbiting, landed..."],
+	["biome", "the ground below: \"Grasslands\"..."], ["landmark", "the landmark below (\"Mount Shiver\"), or None"],
 	["orbit", "its orbit: .top .bottom .period .time_to_top ..."], ["body", "where it is: .name .radius .mu .gravity ..."],
 	["parts", "every part (ship.parts(\"Swivel\"): the ones called that)"], ["engines", "the engines"],
 	["boosters", "the solid boosters"], ["tanks", "the tanks"], ["decouplers", "the decouplers"],

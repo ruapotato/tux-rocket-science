@@ -111,6 +111,31 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 				t->nranges++;
 			}
 		}
+		/* landmarks: their shapes into the ground (their names and words
+		 * are the game's, from the same data) */
+		const trs_json *lmj = trs_json_get(j, "landmarks");
+		for (size_t k = 0; lmj && b->terrain.enabled && k < lmj->count && b->terrain.nfeatures < 12; k++) {
+			const trs_json *e = trs_json_at(lmj, k);
+			const char *kind = trs_json_str(e, "kind", "");
+			int kd = !strcmp(kind, "volcano") ? TRS_FEAT_VOLCANO : !strcmp(kind, "crater") ? TRS_FEAT_CRATER
+			       : !strcmp(kind, "canyon") ? TRS_FEAT_CANYON : !strcmp(kind, "mesa") ? TRS_FEAT_MESA : 0;
+			if (!kd)
+				continue;
+			struct trs_feature *f = &b->terrain.feature[b->terrain.nfeatures++];
+			double la = trs_json_num(e, "lat_deg", 0) * DEG, lo = trs_json_num(e, "lon_deg", 0) * DEG;
+			f->kind = kd;
+			f->dir = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+			f->radius = trs_json_num(e, "radius_km", 10) * 1000.0;
+			f->height = trs_json_num(e, "height", 0);
+			f->depth = trs_json_num(e, "depth", 0);
+			f->length = trs_json_num(e, "length_km", 50) * 1000.0 / 2.0;
+			f->width = trs_json_num(e, "width_km", 3) * 1000.0 / 2.0;
+			/* its way at the centre: the bearing, clockwise from north */
+			double br = trs_json_num(e, "bearing_deg", 90) * DEG;
+			trs_v3 east = v3(-sin(lo), cos(lo), 0), north = v3(-sin(la) * cos(lo), -sin(la) * sin(lo), cos(la));
+			f->t = v3_add(v3_scale(north, cos(br)), v3_scale(east, sin(br)));
+			f->g = v3_norm(v3_cross(f->dir, f->t));
+		}
 		b->ore = trs_json_num(j, "ore", 0);
 		const trs_json *bj = trs_json_get(j, "biomes");
 		for (size_t k = 0; bj && k < bj->count && b->nbiomes < TRS_MAX_BIOMES; k++) {

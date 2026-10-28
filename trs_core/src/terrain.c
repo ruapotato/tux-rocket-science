@@ -114,6 +114,81 @@ static double craters(const trs_terrain *t, trs_v3 d) {
 	return h;
 }
 
+static double smooth01(double x) { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+
+/* What a landmark adds to the ground's height h at d (0 away from it). */
+static double feature_height(const struct trs_feature *f, double R, trs_v3 d, unsigned seed, double h) {
+	double c = v3_dot(d, f->dir);
+	if (c < 0)
+		return 0;
+	double dist = acos(fmin(1.0, c)) * R;
+	/* a ragged edge: no landmark is a perfect circle */
+	/* (its noise in units of the feature's own size, so a crater on a small
+	 * moon is as smooth as one on a planet) */
+	double sz = R / fmax(f->kind == TRS_FEAT_CANYON ? f->width * 4 : f->radius, 1.0);
+	double wob = 1.0 + 0.12 * noise3(d.x * sz * 1.5, d.y * sz * 1.5, d.z * sz * 1.5, seed) + 0.04 * noise3(d.x * sz * 5, d.y * sz * 5, d.z * sz * 5, seed + 1);
+	switch (f->kind) {
+	case TRS_FEAT_VOLCANO: {
+		double x = dist / (f->radius * wob);
+		if (x >= 1.3)
+			return 0;
+		/* concave flanks, gullied, up to the rim of a flat-floored caldera */
+		double cone = pow(fmax(0.0, 1.0 - x), 1.7) * smooth01((1.3 - x) / 0.3);
+		double gully = 1.0 - 0.08 * fabs(noise3(d.x * sz * 12, d.y * sz * 12, d.z * sz * 12, seed + 2)) * smooth01(x * 4);
+		double up = f->height * cone * gully;
+		double xc = 0.13;
+		if (x < xc) {
+			double rim = f->height * pow(1.0 - xc, 1.7);
+			up = rim - f->depth * (1.0 - pow(x / xc, 6.0));
+		}
+		return up;
+	}
+	case TRS_FEAT_CRATER: {
+		double x = dist / (f->radius * wob);
+		if (x >= 2.2)
+			return 0;
+		/* the bowl, its floor flattened by what fell back in; the rim thrown
+		 * up around it, fading out over the ejecta; a central peak */
+		double bowl = x < 1.0 ? -f->depth * (1.0 - pow(x, 2.4)) : 0;
+		double rim = f->height * exp(-pow((x - 1.0) / (x < 1.0 ? 0.12 : 0.35), 2.0));
+		double peak = x < 0.22 ? f->depth * 0.45 * pow(1.0 - x / 0.22, 1.5) : 0;
+		/* inside, the ground's own roughness is mostly gone */
+		double calm = x < 1.0 ? -h * 0.6 * (1.0 - smooth01((x - 0.8) / 0.2)) : 0;
+		return bowl + rim + peak + calm;
+	}
+	case TRS_FEAT_CANYON: {
+		/* how far along the canyon's great circle, and how far off it */
+		double along = atan2(v3_dot(d, f->t), c) * R;
+		if (fabs(along) > f->length + f->width * 4)
+			return 0;
+		double off = asin(fmax(-1.0, fmin(1.0, v3_dot(d, f->g)))) * R;
+		/* it wanders */
+		off += f->width * 0.9 * sin(along / (f->length * 0.21) + 1.3) + f->width * 0.4 * sin(along / (f->length * 0.067));
+		double w = f->width * (0.8 + 0.4 * (0.5 + 0.5 * noise3(d.x * sz * 0.6, d.y * sz * 0.6, d.z * sz * 0.6, seed + 3)));
+		double y = fabs(off) / w;
+		if (y >= 1.6)
+			return 0;
+		/* steep walls, a narrow floor, benches part way down; shallower toward its ends */
+		double wall = 1.0 - smooth01((y - 0.25) / 0.75);
+		double bench = 0.12 * smooth01((y - 0.45) / 0.1) * (1.0 - smooth01((y - 0.6) / 0.1));
+		double ends = smooth01((f->length - fabs(along)) / (f->width * 3));
+		/* the plateau it cuts lifts a little at its lips */
+		double lip = 0.08 * exp(-pow((y - 1.15) / 0.2, 2.0));
+		return f->depth * ends * (-(wall - bench) + lip);
+	}
+	case TRS_FEAT_MESA: {
+		double x = dist / (f->radius * wob);
+		if (x >= 1.4)
+			return 0;
+		/* a flat top, cliffs, a scree apron */
+		double top = 1.0 - smooth01((x - 0.86) / 0.08);
+		double apron = 0.22 * (1.0 - smooth01((x - 0.94) / 0.4));
+		return f->height * fmax(top, apron * smooth01((1.4 - x) / 0.2)) - (x < 0.9 ? h * 0.7 : 0);
+	}
+	}
+	return 0;
+}
+
 double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 	(void)body_radius;
 	if (!t->enabled)
@@ -178,6 +253,8 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 			tt.seed += 977u;
 		}
 	}
+	for (int k = 0; k < t->nfeatures; k++)
+		h += feature_height(&t->feature[k], body_radius, d, t->seed + 31u * (unsigned)k, h);
 	if (t->has_site) {
 		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->site_dir))));
 		double dist = ang * body_radius;

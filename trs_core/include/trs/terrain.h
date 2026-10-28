@@ -44,11 +44,25 @@ typedef struct {
 	int nranges;
 	trs_v3 range_dir[8];
 	double range_radius[8], range_height[8];
+	/* landmarks shaped into the ground by data (a body's "landmarks"):
+	 * a volcano (a cone with a caldera), a great crater (bowl, rim and a
+	 * central peak), a canyon (a long rift along a bearing), a mesa (a
+	 * flat-topped plateau with cliffs). dir is the centre (body-fixed unit);
+	 * radius, height, depth in m; a canyon's length and width in m along its
+	 * great circle (t: its way at the centre, g: the circle's pole). */
+	int nfeatures;
+	struct trs_feature {
+		int kind;
+		trs_v3 dir, t, g;
+		double radius, height, depth, length, width;
+	} feature[12];
 	/* flattened launch site */
 	int has_site;
 	trs_v3 site_dir;    /* body-fixed unit vector */
 	double site_radius, site_height;
 } trs_terrain;
+
+enum { TRS_FEAT_VOLCANO = 1, TRS_FEAT_CRATER, TRS_FEAT_CANYON, TRS_FEAT_MESA };
 
 /* Height above the body's datum radius at body-fixed unit direction dir. */
 double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 dir);

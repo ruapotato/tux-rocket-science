@@ -410,6 +410,10 @@ func objects(t: Dictionary, r: Dictionary, core: Object) -> String:
 	var sl := float(t.get("stage_liquid_capacity", 0.0)) + float(t.get("stage_solid_capacity", 0.0))
 	rows.append("fuel\t%s\t" % _n(100.0 * (float(t.get("stage_liquid", 0.0)) + float(t.get("stage_solid", 0.0))) / sl if sl > 0.0 else 0.0))
 	rows.append("landed\t%s\t" % ("true" if t.get("landed", false) else "false"))
+	# where it is: the biome below, and a landmark if it's over one
+	var lm := Career.landmark_below(t)
+	rows.append("biome\t%s\t" % str(t.get("biome_name", t.get("biome", ""))).replace("\t", " "))
+	rows.append("landmark\t%s\t" % (str(lm.name) if not lm.is_empty() else "none"))
 	# its orbit: top and bottom are heights above the ground's mean (sea) level
 	rows.append("orbit\t@orbit:orbit\t")
 	var ap: String = r.apoapsis

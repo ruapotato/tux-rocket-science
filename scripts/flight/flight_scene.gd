@@ -457,6 +457,10 @@ func _build() -> void:
 	Career.relic_heard.connect(func(r: Dictionary):
 		Sfx.play("click")
 		hud.toast("Signal! The scanner hears %s, %s away, heading %03d°" % [r.name, FlightHUD.fmt_dist(r.distance), int(roundf(float(r.bearing_deg))) % 360], 4.0))
+	Career.landmark_sighted.connect(func(lm: Dictionary):
+		Sfx.play("click")
+		hud.toast("Discovered: %s. %s  (+%.0f research)" % [lm.name, lm.get("text", ""), float(lm.research)], 9.0))
+	Career.landmark_over.connect(func(lm: Dictionary): hud.toast("Below: %s" % lm.name, 3.0))
 	Career.survey_done.connect(func(sv: Dictionary): hud.toast("Survey done: %s! +%.1f research%s" % [Career.describe_survey(sv), sv.research,
 		" · +%s" % Career.money(float(sv.funds)) if Career.is_career() else ""], 4.0))
 
