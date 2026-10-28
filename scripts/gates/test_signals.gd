@@ -122,7 +122,7 @@ func run(runner: Node) -> Dictionary:
 			n_heard, n_hidden, unpowered, mismatch, str(worst_d), str(worst_b)])
 	# the HUD while the Chime is in sight (the orbit may end with Krill
 	# between them, wherever the world's clock has got to)
-	for k in 60:
+	for k in 300:
 		if Career.relic_in(s.telemetry(), "krill_chime").get("heard", false):
 			break
 		s.warp_to(s.time() + 20.0)

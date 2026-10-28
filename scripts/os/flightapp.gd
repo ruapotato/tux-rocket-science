@@ -137,15 +137,12 @@ func _refresh() -> void:
 			if n.ends_with(".py") or n.ends_with(".sh"):
 				_scripts.append(dir + "/" + n)
 	_running.clear()
-	for row in str(machine.sh_on(0, "ps")).split("\n", false):
-		if row.contains(".py") or row.contains(".sh"):
-			var f := row.strip_edges().split(" ", false)
-			if f.size() > 0 and f[0].is_valid_int():
-				var path := ""
-				for x in f:
-					if x.ends_with(".py") or x.ends_with(".sh"):
-						path = x
-				_running.append([int(f[0]), path])
+	# (the machine's list of scripts: ps shows /bin/py, not the script, so the
+	# RUN marks were never lit)
+	for row in str(machine.scripts()).split("\n", false):
+		var f := row.split("\t")
+		if f.size() >= 4 and f[1] == "1":
+			_running.append([int(f[0]), f[3]])
 
 
 func _say(line: String) -> void:

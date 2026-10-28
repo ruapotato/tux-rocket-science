@@ -1858,6 +1858,73 @@ static VmStatus n_repr(VM *v, Value *a, int n, Value *out)
     return VM_OK;
 }
 
+/* dir(x): the names x has, sorted: a ship's part's readings and what it
+ * does (with ()), a dict's keys, a string's or a list's methods */
+static VmStatus n_dir(VM *v, Value *a, int n, Value *out)
+{
+    Value l = list_new();
+    *out = l;
+    if (!n) {
+        for (int g = 0; g < v->prog->nglobals; g++)
+            if (v->gdef[g]) list_push(AS_LIST(l), str_newz(v->prog->global[g]));
+    } else if (IS_HANDLE(a[0])) {
+        char line[160];
+        nom_snprintf(line, sizeof line, "obj keys %s", AS_HANDLE(a[0])->path[0] ? AS_HANDLE(a[0])->path : "-");
+        const char *r = ask(v, line);
+        for (const char *q = r; *q; ) {
+            const char *e = q;
+            while (*e && *e != '\n') e++;
+            if (e > q) list_push(AS_LIST(l), str_new(q, (size_t)(e - q)));
+            q = *e ? e + 1 : e;
+        }
+        if (!AS_HANDLE(a[0])->path[0]) {
+            list_push(AS_LIST(l), str_newz("part()"));
+            list_push(AS_LIST(l), str_newz("parts()"));
+        }
+    } else if (IS_DICT(a[0])) {
+        for (u32 i = 0; i < AS_DICT(a[0])->len; i++) list_push(AS_LIST(l), val_retain(AS_DICT(a[0])->k[i]));
+    } else if (IS_INSTANCE(a[0])) {
+        Dict *fd = AS_DICT(((Instance *)a[0].as.o)->fields);
+        for (u32 i = 0; i < fd->len; i++) list_push(AS_LIST(l), val_retain(fd->k[i]));
+        for (Value c = ((Instance *)a[0].as.o)->cls; IS_CLASS(c); c = ((Klass *)c.as.o)->base) {
+            Dict *cd = AS_DICT(((Klass *)c.as.o)->dict);
+            for (u32 i = 0; i < cd->len; i++) list_push(AS_LIST(l), val_retain(cd->k[i]));
+        }
+    } else {
+        static const char *LM[] = { "append", "clear", "copy", "count", "extend", "index", "insert", "pop", "remove", "reverse", "sort", NULL };
+        static const char *SM[] = { "capitalize", "center", "count", "endswith", "find", "format", "index", "isdigit", "join", "ljust", "lower",
+                                    "replace", "rjust", "split", "startswith", "strip", "title", "upper", "zfill", NULL };
+        const char **m = IS_LIST(a[0]) ? LM : IS_STR(a[0]) ? SM : NULL;
+        for (int i = 0; m && m[i]; i++) list_push(AS_LIST(l), str_newz(m[i]));
+    }
+    sort_list(v, AS_LIST(l), VAL_NIL, false);
+    return VM_OK;
+}
+
+/* help(): where to look */
+static VmStatus n_help(VM *v, Value *a, int n, Value *out)
+{
+    *out = VAL_NIL;
+    if (n) {
+        Value d;
+        if (n_dir(v, a, n, &d) != VM_OK) return VM_ERROR;
+        Buf b; buf_init(&b);
+        buf_puts(&b, "it has: ");
+        for (u32 i = 0; i < AS_LIST(d)->len; i++) { if (i) buf_puts(&b, ", "); val_tostr(&b, AS_LIST(d)->v[i]); }
+        buf_puts(&b, "\n");
+        g_write(1, b.p, b.len);
+        buf_free(&b);
+        val_release(d);
+        return VM_OK;
+    }
+    g_puts("The ship is `ship`: ship.height, ship.orbit.top, ship.engines, ship.part(\"Walrus\").\n"
+           "dir(x) lists what x has; in the Script Editor, type a dot for a list and hover a name for its help.\n"
+           "Flying: aim(\"prograde\") aim_at(pitch, heading) throttle(100) burn(dv) stage() sleep(s)\n"
+           "Maths: speed_needed(h) speed_at(h) burn_time(dv) stopping_distance() when_to_leave(\"krill\") what_if(...)\n"
+           "Seeing: print(...) say(...) chart(\"name\", value) beep()   Examples: /root/examples (first_script.py first)\n");
+    return VM_OK;
+}
+
 static VmStatus n_bool(VM *v, Value *a, int n, Value *out) { (void)v; *out = VAL_BOOL(n && val_truthy(a[0])); return VM_OK; }
 
 /* type(x) is the conversion that makes one (int, float, str, list, dict,
@@ -2487,6 +2554,8 @@ static const Native NATIVES[] = {
     { "filter",    2, 2, n_filter    },
     { "bool",      0, 1, n_bool      },
     { "repr",      1, 1, n_repr      },
+    { "dir",       0, 1, n_dir       },
+    { "help",      0, 1, n_help      },
     { "type",      1, 1, n_type      },
     { "isinstance", 2, 2, n_isinstance },
     { "Exception", 0, 1, n_exception },

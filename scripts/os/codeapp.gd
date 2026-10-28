@@ -335,6 +335,10 @@ func _run() -> void:
 	_paused = false
 	_err_line = -1
 	_clear_marks()
+	# the last runs' watch files go (finished scripts keep theirs till then)
+	for n in str(machine.list_dir("/run/py")).split("\n", false):
+		if (n.ends_with(".vars") or n.ends_with(".ctl")) and not _alive(int(n.get_basename())):
+			machine.sh_on(0, "rm /run/py/" + n)
 	var said: String = machine.sh_on(0, "ship run " + path)
 	_print(said.strip_edges(), DIM)
 	# found before it ran (a typo, a missing colon): mark that line
@@ -388,17 +392,20 @@ func _write_ctl() -> void:
 	machine.write_file("/run/py/%d.ctl" % _pid, t)
 
 
-## /run/py/<pid>.vars of the script running this file (or the console's).
+## /run/py/<pid>.vars of the latest run of this file (or the console's).
 func _find_vars(script: String) -> Dictionary:
+	var best := {}
 	for n in str(machine.list_dir("/run/py")).split("\n", false):
 		if not n.ends_with(".vars"):
 			continue
+		var pid := int(n.trim_suffix(".vars"))
+		if not best.is_empty() and pid < int(best.pid):
+			continue
 		var t: String = machine.read_file("/run/py/" + n)
 		if t.begins_with("script %s\n" % script):
-			var d := _parse_vars(t)
-			d["pid"] = int(n.trim_suffix(".vars"))
-			return d
-	return {}
+			best = _parse_vars(t)
+			best["pid"] = pid
+	return best
 
 
 static func _parse_vars(t: String) -> Dictionary:
@@ -418,10 +425,12 @@ static func _parse_vars(t: String) -> Dictionary:
 
 
 func _alive(pid: int) -> bool:
-	for row in str(machine.sh_on(0, "ps")).split("\n", false):
-		var f := row.strip_edges().split(" ", false)
-		if f.size() >= 3 and f[0] == str(pid):
-			return f[2] == "running"
+	# (the machine's own list, not a shell: a ps every look gave the
+	# scripts extra slices of the CPU)
+	for row in str(machine.scripts()).split("\n", false):
+		var f := row.split("\t")
+		if f.size() >= 2 and f[0] == str(pid):
+			return f[1] == "1"
 	return false
 
 

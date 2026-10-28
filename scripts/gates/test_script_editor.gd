@@ -137,6 +137,16 @@ func run(runner: Node) -> Dictionary:
 	var w := _watch(app)
 	_check(w.has("n") and w.has("up") and int(w.get("n", "0")) > 1 and app._pid > 0,
 		"Run: the watch shows the script's variables live: %s" % str(w))
+	# the Flight app marks the script running (RUN <pid>)
+	de._launch("flight")
+	await _frames(tree, 2)
+	var fw: Control = de._find("flight")
+	var fl: Control = fw.get_meta("content") if fw else null
+	if fl:
+		fl._refresh()
+	_check(fl != null and fl._pid_of("/root/scripts/watch_me.py") == app._pid,
+		"the Flight app shows the script running (RUN %d)" % (fl._pid_of("/root/scripts/watch_me.py") if fl else -1))
+	de._raise(win)
 	app.edit.set_line_as_breakpoint(5, true)  # print("hundred", n): line 6
 	app._write_ctl()
 	var paused := false

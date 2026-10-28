@@ -340,6 +340,32 @@ static void obj_api(Computer *c, const char *rest, Buf *out) {
 		buf_free(&b);
 		return;
 	}
+	if (!strcmp(verb, "keys")) {
+		/* what a thing has: its readings, and (with ()) what it does; the
+		 * ship's own readings too, for "" */
+		ok_body(out, path[0] && strcmp(path, "-") ? path : "ship");
+		const char *pp = strcmp(path, "-") ? path : "";
+		size_t pl = strlen(pp);
+		for (int i = 0; i < c->nobj; i++) {
+			const char *p = c->objs[i].path;
+			const char *leaf;
+			if (pl) {
+				if (strncmp(p, pp, pl) || p[pl] != '.' || strchr(p + pl + 1, '.'))
+					continue;
+				leaf = p + pl + 1;
+			} else {
+				if (strchr(p, '.') || !strncmp(p, "answer", 6))
+					continue;
+				leaf = p;
+			}
+			buf_printf(out, "%s%s\n", leaf, strcmp(c->objs[i].val, "@call") ? "" : "()");
+		}
+		if (!pl)
+			for (int i = 0; i < c->nstate; i++)
+				buf_printf(out, "%s\n", c->state[i].key);
+		end_body(out);
+		return;
+	}
 	if (!strcmp(verb, "dict")) {
 		/* its readings, one "key\tvalue" a line */
 		ok_body(out, path);

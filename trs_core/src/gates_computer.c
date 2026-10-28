@@ -182,6 +182,14 @@ trs_gate_status trs_gate_computer(trs_log *out, const char *data_dir) {
 	failed += !ok;
 	trs_log_printf(out, "%s the dot: parts by name, readings read and set, a thing done, f-strings and methods: %s     game got: %s",
 			ok ? "ok  " : "FAIL", b.p, a.p[0] ? a.p : "(nothing)\n");
+	{
+		const char *s = "print(dir(ship.part(\"Swivel 1\")))\nprint(dir(ship.orbit))\nprint(dir([1]))\n";
+		computer_write(c, "/root/dir.py", s, strlen(s));
+	}
+	sh(c, "py /root/dir.py", &b);
+	ok = has(&b, "['fuel', 'ignite()', 'name', 'throttle']") && has(&b, "['bottom', 'top']") && has(&b, "'append'");
+	failed += !ok;
+	trs_log_printf(out, "%s dir(x) says what x has: a part's readings and what it does, an orbit's, a list's: %s", ok ? "ok  " : "FAIL", b.p);
 	sh(c, "py -c 'ship.part(\"Swivel\")'", &b);
 	ok = has(&b, "2 parts are called 'Swivel': Swivel 1, Swivel 2");
 	trs_log_printf(out, "     %s", b.p);

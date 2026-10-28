@@ -77,6 +77,8 @@ const CALLS := [
 	["abort", "()", "stops the program running and closes the throttle"],
 	# -- the language
 	["print", "(...)", "to the console"],
+	["dir", "(x)", "what x has: dir(ship), dir(engine) -- its readings, and (with ()) what it does"],
+	["help", "()", "where to look"],
 	["len", "(x)", ""], ["str", "(x)", ""], ["split", "(text, sep)", ""], ["join", "(list, sep)", ""],
 	["append", "(list, x)", ""], ["keys", "(dict)", ""], ["has", "(dict, key)", ""],
 	["find", "(text, part)", ""], ["replace", "(text, from, to)", ""], ["strip", "(text)", ""],

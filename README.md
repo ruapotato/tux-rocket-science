@@ -253,7 +253,9 @@ print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
 - **The language is Python** as you'd write it: `for i in range(10)`, `a, b = b, a`, list and
   dict comprehensions, slices, f-strings (`f"{x:,.1f}"`, `f"{x=}"`), `%` and `.format()`,
   `lambda` and `sorted(key=...)`, default and keyword arguments, `try`/`except ... as e`/`raise`,
-  `import math` (and `time`, `random`), tuples, closures and `global`. Floats print as Python
+  `import math` (and `time`, `random`), tuples, closures, `global` and classes (`class PID:`
+  with `__init__`, methods and inheritance). `dir(ship)` or `dir(engine)` lists what a thing has;
+  `help()` says where to look. Floats print as Python
   prints them, and a typo says what you meant (`name 'throtle' is not defined -- did you mean
   'throttle'?`). `km = 1000` is built in.
 
