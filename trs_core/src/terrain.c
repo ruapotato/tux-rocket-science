@@ -408,7 +408,20 @@ int trs_terrain_patch_mesh(const trs_terrain *t, double R, trs_patch_id p, int r
 	trs_v3 c = v3_scale(cd, R + trs_terrain_height(t, R, cd));
 	*center = c;
 	double size = R * (TRS_PI / 2) / (double)(1 << p.level);
-	double step = size / (res - 1);
+	/* the ground on a grid one vertex wider all round than the patch, each
+	 * height worked once: normals come from the neighbours on the grid (the
+	 * height field is costly, and asking it four more times per vertex for a
+	 * normal made a patch five times slower to build) */
+	enum { MAXG = 67 };
+	int g = res + 2;
+	if (g > MAXG)
+		return 0;
+	static _Thread_local trs_v3 P[MAXG * MAXG];
+	for (int y = 0; y < g; y++)
+		for (int x = 0; x < g; x++) {
+			trs_v3 d = trs_patch_dir(p, (double)(x - 1) / (res - 1), (double)(y - 1) / (res - 1));
+			P[y * g + x] = v3_scale(d, R + trs_terrain_height(t, R, d));
+		}
 	int k = 0;
 	/* main grid, then a skirt ring hanging below the edges to hide cracks */
 	for (int pass = 0; pass < 2; pass++) {
@@ -417,10 +430,14 @@ int trs_terrain_patch_mesh(const trs_terrain *t, double R, trs_patch_id p, int r
 				int edge = x == 0 || y == 0 || x == res - 1 || y == res - 1;
 				if (pass == 1 && !edge)
 					continue;
-				trs_v3 d = trs_patch_dir(p, (double)x / (res - 1), (double)y / (res - 1));
-				double h = trs_terrain_height(t, R, d) - (pass ? size * 0.02 : 0);
-				trs_v3 v = v3_sub(v3_scale(d, R + h), c);
-				trs_v3 n = trs_terrain_normal(t, R, d, step);
+				int i = (y + 1) * g + (x + 1);
+				trs_v3 w = P[i], d = v3_norm(w);
+				if (pass)
+					w = v3_madd(w, d, -size * 0.02);
+				trs_v3 n = v3_norm(v3_cross(v3_sub(P[i + 1], P[i - 1]), v3_sub(P[i + g], P[i - g])));
+				if (v3_dot(n, d) < 0)
+					n = v3_neg(n);
+				trs_v3 v = v3_sub(w, c);
 				pos[k * 3] = v.x, pos[k * 3 + 1] = v.y, pos[k * 3 + 2] = v.z;
 				nrm[k * 3] = n.x, nrm[k * 3 + 1] = n.y, nrm[k * 3 + 2] = n.z;
 				k++;

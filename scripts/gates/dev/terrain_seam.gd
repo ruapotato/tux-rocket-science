@@ -58,14 +58,14 @@ func run(runner: Node) -> Dictionary:
 		var node: MeshInstance3D = p.node
 		var aabb := node.global_transform * node.get_aabb()
 		var d := aabb.get_center().distance_to(cam.global_position)
-		var lvl := int(key.split("/")[1])
+		var lvl := int(TerrainView._parse(key)[1])
 		if d < 2500.0 and node.visible:
-			rows.append([d, key, lvl, aabb.size.length()])
+			rows.append([d, str(TerrainView._parse(key)), lvl, aabb.size.length()])
 	for key in tv._patches:
 		var node: MeshInstance3D = tv._patches[key].node
 		var aabb := (node.global_transform * node.get_aabb()).grow(400.0)
-		if node.visible and aabb.has_point(cam.global_position) and int(key.split("/")[1]) < 13:
-			log.append("REACHES the camera: %s visible, aabb %s" % [key, aabb.size])
+		if node.visible and aabb.has_point(cam.global_position) and int(TerrainView._parse(key)[1]) < 13:
+			log.append("REACHES the camera: %s visible, aabb %s" % [str(TerrainView._parse(key)), aabb.size])
 	rows.sort()
 	for r in rows.slice(0, 40):
 		log.append("%7.0f m  %s  level %d  aabb %.0f" % [r[0], r[1], r[2], r[3]])
@@ -85,7 +85,7 @@ func run(runner: Node) -> Dictionary:
 			if (pb[2] >> sh) == pa[2] and (pb[3] >> sh) == pa[3]:
 				overlaps += 1
 				if overlaps < 6:
-					log.append("overlap: %s over %s" % [a, b])
+					log.append("overlap: %s over %s" % [str(TerrainView._parse(a)), str(TerrainView._parse(b))])
 	log.append("%d patches drawn, %d overlapping pairs; camera %.1f m above the ground" % [vis.size(), overlaps,
 		float(s.core.ground_clearance(int(s.telemetry().body_index), s.active, PackedFloat64Array(Frame.to_sim(cam.position))))])
 	await RenderingServer.frame_post_draw
@@ -99,11 +99,11 @@ func run(runner: Node) -> Dictionary:
 		if not tv._patches.has(key):
 			missing += 1
 			if missing < 5:
-				log.append("wanted, not built: " + key)
+				log.append("wanted, not built: " + str(TerrainView._parse(key)))
 		elif not tv._patches[key].node.visible:
 			hidden += 1
 			if hidden < 5:
-				log.append("wanted, hidden: " + key)
+				log.append("wanted, hidden: " + str(TerrainView._parse(key)))
 	log.append("%d wanted leaves, %d not built, %d hidden, %d built in all" % [leaves.size() / 4, missing, hidden, tv._patches.size()])
 	# where each near patch's middle vertex is drawn vs the ground there
 	var worst := 0.0
@@ -134,7 +134,7 @@ func run(runner: Node) -> Dictionary:
 	# each patch coloured by its level
 	var cols := {14: Color(0.2, 0.9, 0.2), 13: Color(0.95, 0.9, 0.2), 12: Color(0.95, 0.3, 0.2)}
 	for key in tv._patches:
-		var lvl := int(key.split("/")[1])
+		var lvl := int(TerrainView._parse(key)[1])
 		var m := StandardMaterial3D.new()
 		m.albedo_color = cols.get(lvl, Color(0.2, 0.4, 1.0)) * (0.8 + 0.2 * (hash(key) % 5) / 4.0)
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED

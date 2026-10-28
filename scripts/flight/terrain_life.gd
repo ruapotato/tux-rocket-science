@@ -26,6 +26,7 @@ extends Node3D
 
 const BUILD_PER_FRAME := 2
 const QUERY_EVERY := 0.4  # s between asking which cells are near
+const NEAR_ANIM := 250.0  # m: animals nearer than this move every frame
 
 var core: TrsSim
 var body := -1
@@ -37,6 +38,9 @@ var _since := 1e9
 var _meshes := {}  # kind -> Mesh
 var _mats := {}
 var _time := 0.0
+var _frame := 0
+var _todo := []      # [dist, cell key, kind], farthest first
+var _scan_eye: Array = [0.0, 0.0, 0.0]
 
 
 func setup(c: TrsSim) -> void:
@@ -49,6 +53,7 @@ func set_body(b: int, id: String) -> void:
 		_cells[k].node.queue_free()
 	_cells.clear()
 	_want.clear()
+	_todo = []
 	_meshes.clear()
 	body = b
 	# nothing is drawn without a screen: the headless gates skip it all
@@ -62,6 +67,7 @@ func set_body(b: int, id: String) -> void:
 ## Same arguments as TerrainView.refresh.
 func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float, dt: float) -> void:
 	_time += dt
+	_frame += 1
 	if body < 0 or _kinds.is_empty():
 		return
 	_since += dt
@@ -79,34 +85,50 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float, dt: flo
 			if not _want.has(key):
 				_cells[key].node.queue_free()
 				_cells.erase(key)
-	# build what is missing, nearest first, a little per frame
-	var todo := []
-	for key in _want:
-		if not _cells.has(key):
-			_cells[key] = _new_cell(_want[key])
-		var cell: Dictionary = _cells[key]
-		var c: Array = cell.center
-		var d := sqrt((c[0] - ex) * (c[0] - ex) + (c[1] - ey) * (c[1] - ey) + (c[2] - ez) * (c[2] - ez))
-		cell["dist"] = d
-		for k in _kinds.size():
-			var reach := float(_kinds[k].get("range", 1000.0)) + float(cell.half)
-			var bit := 1 << k
-			if d < reach and not (int(cell.kinds) & bit):
-				todo.append([d, key, k])
-			elif d > reach * 1.15 and (int(cell.kinds) & bit):
-				_drop_kind(cell, k)
-	todo.sort_custom(func(a, b): return a[0] < b[0])
-	for t in todo.slice(0, BUILD_PER_FRAME):
-		_build_kind(_cells[t[1]], int(t[2]))
+	# what is missing, nearest first: looked over again only after a query
+	# or once the eye has moved a few metres (with five hundred cells near,
+	# doing it every frame cost two milliseconds); built a little per frame
+	var moved := Vector3(ex - _scan_eye[0], ey - _scan_eye[1], ez - _scan_eye[2]).length()
+	if _since == 0.0 or moved > 4.0:
+		_scan_eye = [ex, ey, ez]
+		_todo = []
+		for key in _want:
+			if not _cells.has(key):
+				_cells[key] = _new_cell(_want[key])
+			var cell: Dictionary = _cells[key]
+			var c: Array = cell.center
+			var d := sqrt((c[0] - ex) * (c[0] - ex) + (c[1] - ey) * (c[1] - ey) + (c[2] - ez) * (c[2] - ez))
+			cell["dist"] = d
+			for k in _kinds.size():
+				var reach := float(_kinds[k].get("range", 1000.0)) + float(cell.half)
+				var bit := 1 << k
+				if d < reach and not (int(cell.kinds) & bit):
+					_todo.append([d, key, k])
+				elif d > reach * 1.15 and (int(cell.kinds) & bit):
+					_drop_kind(cell, k)
+		_todo.sort_custom(func(a, b): return a[0] > b[0])   # (nearest last: popped first)
+	var built := 0
+	while built < BUILD_PER_FRAME and not _todo.is_empty():
+		var t: Array = _todo.pop_back()
+		if _cells.has(t[1]) and not (int(_cells[t[1]].kinds) & (1 << int(t[2]))):
+			_build_kind(_cells[t[1]], int(t[2]))
+			built += 1
 	var basis := Frame.spin(rot)
 	var cr := cos(rot)
 	var sr := sin(rot)
 	for key in _cells:
 		var cell: Dictionary = _cells[key]
+		if cell.node.get_child_count() == 0:
+			continue   # (nothing drawn there: no need to place it)
 		var c: Array = cell.center
 		cell.node.transform = Transform3D(basis * TerrainView._sim_basis(), TerrainView._place(body_rel, cr, sr, c[0], c[2], -c[1]))
 		if not cell.animals.is_empty() and float(cell.dist) < _max_range:
-			_animate(cell, dt)
+			# the far ones a frame in four, each cell on its own frame (a
+			# hundred rigs posed every frame cost three milliseconds)
+			if float(cell.dist) < NEAR_ANIM:
+				_animate(cell, dt)
+			elif (_frame + int(cell.half * 7.0 + float(c[0]))) % 4 == 0:
+				_animate(cell, dt * 4.0)
 
 
 func _new_cell(id: Array) -> Dictionary:
