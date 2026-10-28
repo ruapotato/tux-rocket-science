@@ -43,7 +43,7 @@
         "sea_level_density": 1.225,
         "scale_height": 5800
       },
-      "terrain": { "seed": 7, "amplitude": 1800, "base_freq": 3.0, "octaves": 15, "persistence": 0.5, "offset": 400, "ridge": 0.4, "mountain_amplitude": 5200, "mountain_freq": 45, "mountain_coverage": 0.38,
+      "terrain": { "seed": 7, "hills": 240, "hills_km": 5, "amplitude": 1800, "base_freq": 3.0, "octaves": 15, "persistence": 0.5, "offset": 400, "ridge": 0.4, "mountain_amplitude": 5200, "mountain_freq": 45, "mountain_coverage": 0.38,
                    "ranges": [
                      { "name": "Puffin Spires", "lat_deg": 1.6, "lon_deg": -76.4, "radius_km": 11, "height": 5200 },
                      { "name": "Brinewall Ridge", "lat_deg": -1.4, "lon_deg": -73.0, "radius_km": 8, "height": 3400 }
@@ -80,7 +80,7 @@
       "mu": 62920000000,
       "radius": 220000,
       "tidally_locked": true,
-      "terrain": { "seed": 41, "amplitude": 1800, "base_freq": 2.2, "octaves": 15, "persistence": 0.52, "offset": 0, "ridge": 0.15, "crater_freq": 9, "crater_depth": 2600, "mountain_amplitude": 2400, "mountain_freq": 30, "mountain_coverage": 0.22 },
+      "terrain": { "seed": 41, "hills": 140, "hills_km": 3, "amplitude": 1800, "base_freq": 2.2, "octaves": 15, "persistence": 0.52, "offset": 0, "ridge": 0.15, "crater_freq": 9, "crater_depth": 2600, "mountain_amplitude": 2400, "mountain_freq": 30, "mountain_coverage": 0.22 },
       "orbit": { "a": 11000000, "e": 0, "inc_deg": 0, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 97 },
       "ore": 0.8,
       "biomes": [
@@ -123,7 +123,7 @@
         "sea_level_density": 4.1,
         "scale_height": 9000
       },
-      "terrain": { "seed": 23, "amplitude": 2200, "base_freq": 2.6, "octaves": 15, "persistence": 0.5, "offset": 300, "ridge": 0.3, "mountain_amplitude": 4200, "mountain_freq": 38, "mountain_coverage": 0.3 },
+      "terrain": { "seed": 23, "hills": 280, "hills_km": 4, "amplitude": 2200, "base_freq": 2.6, "octaves": 15, "persistence": 0.5, "offset": 300, "ridge": 0.3, "mountain_amplitude": 4200, "mountain_freq": 38, "mountain_coverage": 0.3 },
       "ore": 0.4,
       "biomes": [
         {"id": "poles", "name": "Polar Moss", "abs_lat_min_deg": 70},
@@ -150,7 +150,7 @@
       "mu": 1800000000,
       "radius": 60000,
       "tidally_locked": true,
-      "terrain": { "seed": 59, "amplitude": 1400, "base_freq": 2.0, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.25, "crater_freq": 7, "crater_depth": 1600, "mountain_amplitude": 1800, "mountain_freq": 22, "mountain_coverage": 0.2 },
+      "terrain": { "seed": 59, "hills": 90, "hills_km": 2, "amplitude": 1400, "base_freq": 2.0, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.25, "crater_freq": 7, "crater_depth": 1600, "mountain_amplitude": 1800, "mountain_freq": 22, "mountain_coverage": 0.2 },
       "orbit": { "a": 5000000, "e": 0.01, "inc_deg": 4, "lan_deg": 30, "argp_deg": 0, "mean_anomaly_deg": 40 },
       "ore": 0.9,
       "biomes": [
@@ -187,7 +187,7 @@
         "sea_level_density": 0.28,
         "scale_height": 6000
       },
-      "terrain": { "seed": 83, "amplitude": 2400, "base_freq": 2.8, "octaves": 15, "persistence": 0.52, "offset": 200, "ridge": 0.55, "mountain_amplitude": 4800, "mountain_freq": 34, "mountain_coverage": 0.34 },
+      "terrain": { "seed": 83, "hills": 320, "hills_km": 5, "amplitude": 2400, "base_freq": 2.8, "octaves": 15, "persistence": 0.52, "offset": 200, "ridge": 0.55, "mountain_amplitude": 4800, "mountain_freq": 34, "mountain_coverage": 0.34 },
       "ore": 0.5,
       "biomes": [
         {"id": "poles", "name": "Polar Glaciers", "abs_lat_min_deg": 65},
@@ -213,7 +213,7 @@
       "mu": 3.2e9,
       "radius": 90000,
       "tidally_locked": true,
-      "terrain": { "seed": 97, "amplitude": 1600, "base_freq": 2.4, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.35, "crater_freq": 8, "crater_depth": 1800, "mountain_amplitude": 2200, "mountain_freq": 20, "mountain_coverage": 0.25 },
+      "terrain": { "seed": 97, "hills": 110, "hills_km": 3, "amplitude": 1600, "base_freq": 2.4, "octaves": 14, "persistence": 0.55, "offset": 0, "ridge": 0.35, "crater_freq": 8, "crater_depth": 1800, "mountain_amplitude": 2200, "mountain_freq": 20, "mountain_coverage": 0.25 },
       "ore": 1.0,
       "biomes": [
         {"id": "poles", "name": "Poles", "abs_lat_min_deg": 72},

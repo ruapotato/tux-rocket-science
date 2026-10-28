@@ -19,7 +19,8 @@
 ## biomes, in daylight, and the view from beside it (ground level) and from
 ## above (aerial). Saves tour_<body>_<biome>_<ground|air>.png. Env BODIES
 ## (comma list, default all with ground), PER (biomes a body, default 5),
-## WAIT (frames before each shot), AIR (camera distance up high, default 900).
+## WAIT (frames before each shot), AIR (camera distance up high, default 900),
+## PITCH (the high view's pitch).
 extends RefCounted
 
 const DIR := "user://dev_shots/"
@@ -91,6 +92,8 @@ func run(runner: Node) -> Dictionary:
 				var lmk := OS.get_environment("LANDMARKS") != ""
 				scene._cam_yaw = 0.6 if not lmk else 0.0     # (a landmark: looking north, at it)
 				scene._cam_pitch = 0.08 if view == "ground" else (0.55 if not lmk else 0.62)
+				if view == "air" and OS.get_environment("PITCH") != "":
+					scene._cam_pitch = float(OS.get_environment("PITCH"))
 				scene._cam_dist = 22.0 if view == "ground" else air
 				for q in wait:
 					await tree.process_frame

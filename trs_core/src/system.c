@@ -101,6 +101,9 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			t->mountain_amplitude = trs_json_num(tj, "mountain_amplitude", 0);
 			t->mountain_freq = trs_json_num(tj, "mountain_freq", 40);
 			t->mountain_coverage = trs_json_num(tj, "mountain_coverage", 0.3);
+			t->hills_amplitude = trs_json_num(tj, "hills", 0);
+			t->hills_size = trs_json_num(tj, "hills_km", 4) * 1000.0;
+			t->hills_coverage = trs_json_num(tj, "hills_coverage", 0.6);
 			const trs_json *rg = trs_json_get(tj, "ranges");
 			for (size_t k = 0; rg && k < rg->count && t->nranges < 8; k++) {
 				const trs_json *r = trs_json_at(rg, k);

@@ -40,6 +40,10 @@ typedef struct {
 	double mountain_amplitude; /* m: ridged ranges, gated by a mask */
 	double mountain_freq;      /* ridge features per radius */
 	double mountain_coverage;  /* 0..1 fraction of the surface in ranges */
+	/* rolling hills over the open ground (the plains between the ranges):
+	 * relief in m, the hills' size in m, the fraction of the ground they
+	 * cover (the rest stays plain) */
+	double hills_amplitude, hills_size, hills_coverage;
 	/* named mountain massifs placed by data (dir, radius m, height m) */
 	int nranges;
 	trs_v3 range_dir[8];

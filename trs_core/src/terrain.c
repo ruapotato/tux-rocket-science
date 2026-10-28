@@ -183,7 +183,9 @@ static double feature_height(const struct trs_feature *f, double R, trs_v3 d, un
 		/* a flat top, cliffs, a scree apron */
 		double top = 1.0 - smooth01((x - 0.86) / 0.08);
 		double apron = 0.22 * (1.0 - smooth01((x - 0.94) / 0.4));
-		return f->height * fmax(top, apron * smooth01((1.4 - x) / 0.2)) - (x < 0.9 ? h * 0.7 : 0);
+		/* (the top is smoothed out of the ground's own roughness, gradually:
+		 * a step there showed as teeth along the cliff) */
+		return f->height * fmax(top, apron * smooth01((1.4 - x) / 0.2)) - h * 0.7 * (1.0 - smooth01((x - 0.8) / 0.12));
 	}
 	}
 	return 0;
@@ -224,6 +226,31 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 			}
 			h += t->mountain_amplitude * m * ridge / wsum;
 		}
+	}
+	if (t->hills_amplitude > 0) {
+		/* hills: rounded crests, warped so they run in no grid, in regions
+		 * (where the mask is low the plain stays plain) */
+		double f = body_radius / t->hills_size;
+		unsigned s = t->seed + 8100u;
+		double wx = noise3(d.x * f * 0.35, d.y * f * 0.35, d.z * f * 0.35, s + 1);
+		double wy = noise3(d.x * f * 0.35 + 5.2, d.y * f * 0.35, d.z * f * 0.35, s + 2);
+		double wz = noise3(d.x * f * 0.35, d.y * f * 0.35 + 9.1, d.z * f * 0.35, s + 3);
+		double qx = d.x * f + wx * 1.4, qy = d.y * f + wy * 1.4, qz = d.z * f + wz * 1.4;
+		double sum = 0, a = 1, ws = 0;
+		for (int o = 0; o < 5; o++) {
+			double n = noise3(qx, qy, qz, s + 10u + (unsigned)o * 17u);
+			double b = 1.0 - fabs(n);
+			sum += a * (0.55 * b * b + 0.45 * (n * 0.5 + 0.5));
+			ws += a;
+			a *= 0.45;
+			qx *= 2.03;
+			qy *= 2.03;
+			qz *= 2.03;
+		}
+		double fm = f / 14.0;
+		double mask = noise3(d.x * fm, d.y * fm, d.z * fm, s + 4) * 0.5 + 0.5 + 0.2 * noise3(d.x * fm * 3.1, d.y * fm * 3.1, d.z * fm * 3.1, s + 5);
+		double m = smooth01((mask - (1.0 - t->hills_coverage)) / 0.22);
+		h += t->hills_amplitude * m * (sum / ws - 0.5);
 	}
 	for (int r = 0; r < t->nranges; r++) {
 		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->range_dir[r]))));
