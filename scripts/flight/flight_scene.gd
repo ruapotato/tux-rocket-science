@@ -1979,6 +1979,12 @@ func _render(delta: float) -> void:
 		_env.fog_density = 0.00003 * density
 		_env.ambient_light_color = sky * Color(0.89, 0.86, 0.91)
 		_env.ambient_light_energy = 0.1 + 0.4 * density * day
+		# a locked world's night never ends: its ice gives back the starlight
+		# (and the twilight's glow on the sky), enough to walk by
+		var lk: Dictionary = Sim.look(t.body)
+		if lk.get("locked", false) and day < 0.5:
+			_env.ambient_light_color = _env.ambient_light_color.lerp(Sim.col(lk.get("night"), Color(0.7, 0.75, 0.9)) * Color(0.55, 0.6, 0.8), 1.0 - day * 2.0)
+			_env.ambient_light_energy = maxf(_env.ambient_light_energy, 0.22 * (1.0 - day * 2.0))
 	else:
 		_env.fog_density = 0.0
 		_env.ambient_light_energy = 0.08  # airless: hard shadows
