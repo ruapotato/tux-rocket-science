@@ -47,6 +47,19 @@ typedef struct {
 	/* dune seas over the low ground: crest height in m, the crests'
 	 * spacing in m, and the height (m) above which the sand thins out */
 	double dunes_amplitude, dunes_size, dunes_below;
+	/* the close-up ground, for walking and landing among: crags (rock
+	 * outcrops in m, their size in m, the fraction of the ground with
+	 * them: flat-topped, stepped, cliff-sided), gullies (ravines cut into
+	 * the ground: depth m, spacing m) and terraces (the ground stepped in
+	 * strata: each step m, the fraction of the ground stepped) */
+	double crags_amplitude, crags_size, crags_coverage;
+	double gullies_depth, gullies_size;
+	double terraces_step, terraces_coverage;
+	/* spots where those stay out (a relic stands on level ground): dir,
+	 * radius m */
+	int ncalm;
+	trs_v3 calm_dir[8];
+	double calm_radius[8];
 	/* named mountain massifs placed by data (dir, radius m, height m) */
 	int nranges;
 	trs_v3 range_dir[8];
@@ -76,6 +89,15 @@ enum { TRS_FEAT_VOLCANO = 1, TRS_FEAT_CRATER, TRS_FEAT_CANYON, TRS_FEAT_MESA, TR
 double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 dir);
 /* Surface normal (body-fixed) by central differences over `step` metres. */
 trs_v3 trs_terrain_normal(const trs_terrain *t, double body_radius, trs_v3 dir, double step);
+
+/* The nearest level ground to dir, out to `reach` m: rings of spots round
+ * it, each spot's slope (1 - cos of the ground's tilt) measured over a few
+ * metres; the first ring with one under max_slope gives the least sloping
+ * spot on it. Writes that spot's direction and slope; returns its distance
+ * (m), or -1 when nothing within reach is that level (then the least
+ * sloping spot seen). */
+double trs_terrain_level_spot(const trs_terrain *t, double body_radius, trs_v3 dir, double reach, double max_slope,
+		trs_v3 *out, double *slope);
 
 /* Cube-sphere quadtree patch addressing. */
 typedef struct {

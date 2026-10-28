@@ -1036,8 +1036,18 @@ func _descend(t: Dictionary) -> float:
 	var up := v3(t.up)
 	var vs := float(t.vertical_speed)
 	var vh := v3(t.surface_velocity) - up * vs
+	# over the level spot picked for the legs (see _pick_spot): drift to it,
+	# slower the nearer it is and the lower, and wait up high till over it
+	var v_want := Vector3.ZERO
+	if _a.has("spot"):
+		var off := _spot_offset(t)
+		var d := off.length()
+		if d > 1.0:
+			v_want = off / d * minf(minf(d * 0.25, 15.0), 1.0 + agl * 0.1)
+		if d > 12.0:
+			vt = maxf(vt, -maxf(agl - 25.0, 0.0) * 0.25)
 	var a_up := g + 1.2 * (vt - vs)
-	var a_h := -vh * 0.6
+	var a_h := (v_want - vh) * 0.6
 	var tilt := maxf(a_up, 0.0) * tan(deg_to_rad(35.0))
 	if a_h.length() > tilt:
 		a_h = a_h.normalized() * tilt
@@ -1049,6 +1059,22 @@ func _descend(t: Dictionary) -> float:
 	if agl < 2.0 and absf(vs) < 1.5:
 		return 0.0
 	return clampf(want.length() / accel, 0.0, 1.0)
+
+
+## Level ground for the legs near where the ship is coming down: the
+## nearest within 250 m tilted less than 14 degrees (or the least tilted).
+func _pick_spot(t: Dictionary) -> void:
+	var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(t.lat_deg), float(t.lon_deg), 250.0, 0.03)
+	_a.spot = [sp[0], sp[1]]
+
+
+## From the ship to its spot, along the ground (m, the telemetry's axes).
+func _spot_offset(t: Dictionary) -> Vector3:
+	var R := float(_body(t).get("radius", 1.0))
+	var la := deg_to_rad(float(t.lat_deg))
+	var dn := deg_to_rad(float(_a.spot[0]) - float(t.lat_deg)) * R
+	var de := deg_to_rad(wrapf(float(_a.spot[1]) - float(t.lon_deg), -180.0, 180.0)) * R * cos(la)
+	return v3(t.north) * dn + v3(t.east) * de
 
 
 func _land(t: Dictionary) -> void:
@@ -1125,6 +1151,8 @@ func _land(t: Dictionary) -> void:
 			if _dry(t):
 				_fail("out of propellant %d m up, falling at %d m/s" % [roundi(agl), roundi(-float(t.vertical_speed))])
 				return
+			if not _a.has("spot") and agl < 900.0 and float(t.horizontal_speed) < 40.0:
+				_pick_spot(t)
 			_autostage(t)
 			_thr(_descend(t))
 		"settle":

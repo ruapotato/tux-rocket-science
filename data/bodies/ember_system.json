@@ -39,7 +39,7 @@
         "mountain_amplitude": 3800,
         "mountain_freq": 32,
         "mountain_coverage": 0.28,
-        "hills": 200,
+        "hills": 200, "crags": 38, "crags_m": 550, "crags_coverage": 0.6, "gullies": 22, "gullies_m": 1000, "terraces": 45, "terraces_coverage": 0.4,
         "hills_km": 4,
         "dunes": 70,
         "dunes_km": 1.4,
@@ -240,7 +240,7 @@
       "orbit": { "a": 8500000000, "e": 0.06, "inc_deg": 3, "lan_deg": 70, "argp_deg": 0, "mean_anomaly_deg": 200 },
       "terrain": {
         "seed": 223,
-        "hills": 90,
+        "hills": 90, "crags": 18, "crags_m": 300, "crags_coverage": 0.55,
         "hills_km": 2,
         "amplitude": 2400,
         "base_freq": 2.2,

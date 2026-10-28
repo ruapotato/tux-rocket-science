@@ -77,7 +77,7 @@
       "orbit": { "a": 40000000, "e": 0.005, "inc_deg": 0.3, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 120 },
       "terrain": {
         "seed": 251,
-        "hills": 100,
+        "hills": 100, "crags": 20, "crags_m": 320, "crags_coverage": 0.55,
         "hills_km": 2.5,
         "amplitude": 2200,
         "base_freq": 2.4,
@@ -187,7 +187,7 @@
       "atmosphere": { "height": 60000, "sea_level_pressure": 85000, "sea_level_density": 1.05, "scale_height": 6000 },
       "terrain": {
         "seed": 263,
-        "hills": 220,
+        "hills": 220, "crags": 22, "crags_m": 380, "crags_coverage": 0.55, "gullies": 18, "gullies_m": 800,
         "hills_km": 4,
         "amplitude": 3400,
         "base_freq": 2.6,
@@ -353,7 +353,7 @@
       "orbit": { "a": 360000000, "e": 0.02, "inc_deg": 5, "lan_deg": 80, "argp_deg": 0, "mean_anomaly_deg": 10 },
       "terrain": {
         "seed": 271,
-        "hills": 90,
+        "hills": 90, "crags": 18, "crags_m": 300, "crags_coverage": 0.55,
         "hills_km": 2,
         "amplitude": 2400,
         "base_freq": 2.0,

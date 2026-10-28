@@ -110,6 +110,15 @@ float c_field(vec3 d) {
 	return n * 0.85 + band * 0.2;
 }
 
+// bare rock in beds: bands by height, thick and thin, a little wavy, each
+// bed a shade lighter or darker, warmer or cooler
+vec3 strata(vec3 rc, float h, float n) {
+	float b = sin(h * 0.42 + n * 3.0);
+	float b2 = sin(h * 0.11 + n * 1.3 + 1.7);
+	vec3 c = rc * (0.84 + 0.1 * b + 0.12 * b2);
+	return mix(c, c * vec3(1.12, 1.02, 0.88), 0.5 + 0.5 * b2);
+}
+
 void vertex() {
 	lp = vec3(UV.x, UV.y, UV2.x);
 	hgt = UV2.y;
@@ -151,8 +160,8 @@ void fragment() {
 		vec3 sea = mix(vec3(0.36, 0.58, 0.84), vec3(0.62, 0.78, 0.94), n_big);
 		col = mix(col, sea, basin * 0.85);
 		// rock on steep faces
-		float rock = smoothstep(0.42, 0.56, slope + (n_mid - 0.5) * 0.1);
-		col = mix(col, c_rock.rgb * (0.8 + 0.4 * n_mid), rock);
+		float rock = smoothstep(0.36, 0.5, slope + (n_mid - 0.5) * 0.1);
+		col = mix(col, strata(c_rock.rgb * (0.8 + 0.4 * n_mid), hgt, n_mid), rock);
 		bump = (ripple * 0.06 * mid + n_fine * 0.03 * fine) * (1.0 - rock) + n_mid * 0.25 * rock;
 		rough = mix(0.55, 0.25, ice) + rock * 0.35;
 		spec = mix(0.5, 0.8, ice);
@@ -180,8 +189,8 @@ void fragment() {
 		col = mix(grass, fcol, flower);
 		float soil = smoothstep(0.22, 0.34, slope + (n_mid - 0.5) * 0.12) * (1.0 - smoothstep(0.42, 0.55, slope));
 		col = mix(col, c_rock.rgb * vec3(1.35, 1.15, 0.9), soil * 0.7);
-		float rock = smoothstep(0.42, 0.56, slope + (n_mid - 0.5) * 0.1);
-		col = mix(col, c_rock.rgb * (0.8 + 0.4 * n_mid), rock);
+		float rock = smoothstep(0.32, 0.46, slope + (n_mid - 0.5) * 0.1);
+		col = mix(col, strata(c_rock.rgb * (0.95 + 0.4 * n_mid), hgt, n_mid), rock);
 		float lat = abs(normalize(dir_obj).z);
 		float snow = smoothstep(snow_line - 400.0, snow_line + 400.0, hgt + (n_big - 0.5) * 600.0 + smoothstep(0.88, 0.97, lat) * 4000.0 * polar_snow);
 		snow *= 1.0 - rock * 0.6;
@@ -204,7 +213,7 @@ void fragment() {
 		float ash = smoothstep(0.35, 0.8, vnoise(p, 1.0 / 128.0) * 0.7 + n_mid * 0.3) * (1.0 - smoothstep(0.15, 0.3, slope));
 		base = mix(base, vec3(0.3, 0.28, 0.27), ash * 0.12);
 		float rock = smoothstep(0.3, 0.45, slope + (n_mid - 0.5) * 0.15);
-		col = mix(base, c_rock.rgb, rock * 0.85);
+		col = mix(base, strata(c_rock.rgb, hgt, n_mid), rock * 0.85);
 		float pit = clamp((lava_level - hgt) / 300.0, 0.0, 1.0);
 		// cracks: the edges of a cell pattern, hot where the pits are deepest
 		vec3 cell = floor(p / 6.0);
@@ -225,8 +234,8 @@ void fragment() {
 		sand *= 0.93 + 0.1 * smoothstep(0.35, 0.75, vnoise(p, 1.0 / 128.0)) + 0.04 * ripple * mid;
 		float pavement = smoothstep(0.55, 0.75, vnoise(p, 1.0 / 48.0) * 0.6 + n_mid * 0.4) * (1.0 - smoothstep(0.1, 0.2, slope));
 		sand = mix(sand, c_slope.rgb, pavement * 0.35);
-		float rock = smoothstep(0.48, 0.62, slope + (n_mid - 0.5) * 0.12);
-		col = mix(sand, c_rock.rgb * (0.85 + 0.3 * n_mid), rock);
+		float rock = smoothstep(0.3, 0.46, slope + (n_mid - 0.5) * 0.12);
+		col = mix(sand, strata(c_rock.rgb * (0.85 + 0.3 * n_mid), hgt, n_mid), rock);
 		float pebble = smoothstep(0.8, 0.88, n_fine) * fine * pavement;
 		col *= 1.0 - pebble * 0.3;
 		bump = (ripple * 0.05 * fine + n_mid * 0.12 * mid) * (1.0 - rock) + rock * n_mid * 0.45 + pebble * 0.04;
@@ -250,7 +259,7 @@ void fragment() {
 		base *= mix(0.78, 1.0, smoothstep(0.3, 0.7, big));     // darker plains
 		base *= 0.9 + 0.2 * n_mid * mid;
 		float rock = smoothstep(0.3, 0.45, slope + (n_mid - 0.5) * 0.15);
-		col = mix(base, c_rock.rgb, rock * 0.8);
+		col = mix(base, strata(c_rock.rgb, hgt, n_mid), rock * 0.8);
 		// scattered pebbles and boulders up close
 		float pebble = smoothstep(0.78, 0.86, n_fine) * fine;
 		col *= 1.0 - pebble * 0.35;

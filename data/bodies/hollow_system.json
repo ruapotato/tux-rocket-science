@@ -29,7 +29,7 @@
       "orbit": { "a": 900000000, "e": 0.01, "inc_deg": 0.2, "lan_deg": 0, "argp_deg": 0, "mean_anomaly_deg": 0 },
       "terrain": {
         "seed": 311,
-        "hills": 150,
+        "hills": 150, "crags": 30, "crags_m": 420, "crags_coverage": 0.55, "terraces": 50, "terraces_coverage": 0.35,
         "hills_km": 3,
         "amplitude": 3000,
         "base_freq": 2.4,

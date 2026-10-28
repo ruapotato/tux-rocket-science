@@ -116,6 +116,81 @@ static double craters(const trs_terrain *t, trs_v3 d) {
 
 static double smooth01(double x) { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
 
+/* 0 at a calm spot, 1 clear of them all (see trs_terrain.calm_dir). */
+static double calm_factor(const trs_terrain *t, double R, trs_v3 d) {
+	double k = 1.0;
+	for (int c = 0; c < t->ncalm; c++) {
+		double x = v3_dot(d, t->calm_dir[c]);
+		if (x < 0.5)
+			continue;
+		double dist = acos(fmin(1.0, x)) * R, r = t->calm_radius[c];
+		k *= smooth01((dist - r) / (r * 1.5));
+	}
+	return k;
+}
+
+/* A regional mask in 0..1: where a layer is (coverage the fraction). */
+static double region(trs_v3 d, double f, unsigned s, double coverage) {
+	double m = noise3(d.x * f, d.y * f, d.z * f, s) * 0.5 + 0.5 + 0.2 * noise3(d.x * f * 3.1, d.y * f * 3.1, d.z * f * 3.1, s + 1);
+	return smooth01((m - (1.0 - coverage)) / 0.2);
+}
+
+/* The close-up ground: terraces (applied to h), then gullies and crags
+ * (returned as an addition). */
+static double close_ground(const trs_terrain *t, double R, trs_v3 d, double *h) {
+	double calm = (t->ncalm > 0) ? calm_factor(t, R, d) : 1.0;
+	if (calm <= 0)
+		return 0;
+	double add = 0;
+	if (t->terraces_step > 0) {
+		/* strata: flat benches and short steep risers, the risers ragged */
+		double m = region(d, R / 40000.0, t->seed + 8600u, t->terraces_coverage) * calm;
+		if (m > 0) {
+			double st = t->terraces_step;
+			double f = R / 1500.0;
+			double hh = *h + st * 0.35 * noise3(d.x * f, d.y * f, d.z * f, t->seed + 8602u);
+			double k = floor(hh / st), fr = hh / st - k;
+			double stepped = st * (k + smooth01((fr - 0.72) / 0.28)) - (hh - *h);
+			*h += (stepped - *h) * m;
+		}
+	}
+	if (t->gullies_depth > 0) {
+		/* ravines: the zero lines of a warped noise, cut as narrow V's
+		 * with smaller ones branching off them */
+		double f = R / t->gullies_size;
+		unsigned s = t->seed + 8700u;
+		double m = region(d, f / 12.0, s + 9, 0.6) * calm;
+		if (m > 0) {
+			double w = noise3(d.x * f * 0.3, d.y * f * 0.3, d.z * f * 0.3, s + 1) * 1.5;
+			double n1 = noise3(d.x * f + w, d.y * f - w, d.z * f, s + 2);
+			double n2 = noise3(d.x * f * 2.6 - w, d.y * f * 2.6, d.z * f * 2.6 + w, s + 3);
+			/* (wide enough for the mesh to hold, deeper and shallower
+			 * along their way, dying out here and there) */
+			double c1 = smooth01(1.0 - fabs(n1) / 0.2), c2 = smooth01(1.0 - fabs(n2) / 0.15);
+			double along = smooth01(noise3(d.x * f * 0.7, d.y * f * 0.7, d.z * f * 0.7, s + 4) * 2.5 + 0.5);
+			add -= t->gullies_depth * m * along * (c1 * c1 + 0.45 * c2 * c2 * (1.0 - c1));
+		}
+	}
+	if (t->crags_amplitude > 0) {
+		/* outcrops: where a warped noise rises over a threshold the rock
+		 * stands up in one or two steps, cliff-sided, its top rough */
+		double f = R / t->crags_size;
+		unsigned s = t->seed + 8500u;
+		double m = region(d, f / 15.0, s + 9, t->crags_coverage) * calm;
+		if (m > 0) {
+			double w = noise3(d.x * f * 0.4, d.y * f * 0.4, d.z * f * 0.4, s + 1) * 1.2;
+			double qx = d.x * f + w, qy = d.y * f + w * 0.7, qz = d.z * f - w * 0.5;
+			double v = 0.68 * noise3(qx, qy, qz, s + 2) + 0.32 * noise3(qx * 2.3, qy * 2.3, qz * 2.3, s + 3);
+			double tier = 0.62 * smooth01((v - 0.12) / 0.08) + 0.38 * smooth01((v - 0.29) / 0.07);
+			if (tier > 0) {
+				double rough = 1.0 + 0.18 * noise3(qx * 6.1, qy * 6.1, qz * 6.1, s + 4);
+				add += t->crags_amplitude * m * tier * rough;
+			}
+		}
+	}
+	return add;
+}
+
 /* What a landmark adds to the ground's height h at d (0 away from it). */
 static double feature_height(const struct trs_feature *f, double R, trs_v3 d, unsigned seed, double h) {
 	double c = v3_dot(d, f->dir);
@@ -261,6 +336,9 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 		double m = smooth01((mask - (1.0 - t->hills_coverage)) / 0.22);
 		h += t->hills_amplitude * m * (sum / ws - 0.5);
 	}
+	double close = 0;
+	if (t->crags_amplitude > 0 || t->gullies_depth > 0 || t->terraces_step > 0)
+		close = close_ground(t, body_radius, d, &h);
 	if (t->dunes_amplitude > 0) {
 		/* dunes: long crests, each with a gentle windward back and a steep
 		 * lee face, bent and broken by warping; they gather in the low
@@ -285,6 +363,7 @@ double trs_terrain_height(const trs_terrain *t, double body_radius, trs_v3 d) {
 		double sea = smooth01((t->dunes_below - h) / 150.0);
 		h += t->dunes_amplitude * prof * breaks * sea;
 	}
+	h += close;   /* (after the dunes: they gather by the ground's lie, not the rocks') */
 	for (int r = 0; r < t->nranges; r++) {
 		double ang = acos(fmax(-1.0, fmin(1.0, v3_dot(d, t->range_dir[r]))));
 		double x = ang * body_radius / t->range_radius[r];
@@ -338,6 +417,34 @@ trs_v3 trs_terrain_normal(const trs_terrain *t, double R, trs_v3 d, double step)
 	trs_v3 p2 = v3_scale(d2, R + trs_terrain_height(t, R, d2)), p2m = v3_scale(d2m, R + trs_terrain_height(t, R, d2m));
 	trs_v3 n = v3_norm(v3_cross(v3_sub(p1, p1m), v3_sub(p2, p2m)));
 	return v3_dot(n, d) < 0 ? v3_neg(n) : n;
+}
+
+double trs_terrain_level_spot(const trs_terrain *t, double R, trs_v3 dir, double reach, double max_slope,
+		trs_v3 *out, double *slope) {
+	trs_v3 a = fabs(dir.z) < 0.9 ? v3(0, 0, 1) : v3(1, 0, 0);
+	trs_v3 e1 = v3_norm(v3_cross(a, dir)), e2 = v3_cross(dir, e1);
+	double best = 1e9, best_any = 1e9;
+	trs_v3 at = dir, at_any = dir;
+	/* (a lander's legs span a few metres: the tilt over 4 m is what tips it) */
+	for (double rr = 0; rr <= reach; rr += 8.0) {
+		int n = rr <= 0 ? 1 : (int)ceil(2 * TRS_PI * rr / 8.0);
+		for (int k = 0; k < n; k++) {
+			double th = 2 * TRS_PI * k / n;
+			trs_v3 d = v3_norm(v3_add(dir, v3_add(v3_scale(e1, cos(th) * rr / R), v3_scale(e2, sin(th) * rr / R))));
+			double s = 1.0 - v3_dot(trs_terrain_normal(t, R, d, 4.0), d);
+			if (s < best) best = s, at = d;
+			if (s < best_any) best_any = s, at_any = d;
+		}
+		if (best < max_slope) {
+			*out = at;
+			*slope = best;
+			return rr;
+		}
+		best = 1e9;
+	}
+	*out = at_any;
+	*slope = best_any;
+	return -1;
 }
 
 /* ---- cube sphere ------------------------------------------------------------- */

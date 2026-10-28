@@ -114,6 +114,13 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			t->dunes_amplitude = trs_json_num(tj, "dunes", 0);
 			t->dunes_size = trs_json_num(tj, "dunes_km", 1.5) * 1000.0;
 			t->dunes_below = trs_json_num(tj, "dunes_below", 800);
+			t->crags_amplitude = trs_json_num(tj, "crags", 0);
+			t->crags_size = trs_json_num(tj, "crags_m", 400);
+			t->crags_coverage = trs_json_num(tj, "crags_coverage", 0.4);
+			t->gullies_depth = trs_json_num(tj, "gullies", 0);
+			t->gullies_size = trs_json_num(tj, "gullies_m", 900);
+			t->terraces_step = trs_json_num(tj, "terraces", 0);
+			t->terraces_coverage = trs_json_num(tj, "terraces_coverage", 0.35);
 			const trs_json *rg = trs_json_get(tj, "ranges");
 			for (size_t k = 0; rg && k < rg->count && t->nranges < 8; k++) {
 				const trs_json *r = trs_json_at(rg, k);
@@ -199,6 +206,11 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			snprintf(r->name, sizeof r->name, "%s", trs_json_str(e, "name", r->id));
 			double la = trs_json_num(e, "lat_deg", 0) * DEG, lo = trs_json_num(e, "lon_deg", 0) * DEG;
 			r->dir = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la));
+			/* (the crags, gullies and terraces stay clear of it) */
+			if (b->terrain.ncalm < 8) {
+				b->terrain.calm_dir[b->terrain.ncalm] = r->dir;
+				b->terrain.calm_radius[b->terrain.ncalm++] = 300.0;
+			}
 		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {

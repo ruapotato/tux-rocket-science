@@ -49,7 +49,7 @@
         "mean_anomaly_deg": 60
       },
       "terrain": {
-        "seed": 131, "hills": 220, "hills_km": 4,
+        "seed": 131, "hills": 220, "crags": 34, "crags_m": 420, "crags_coverage": 0.55, "terraces": 40, "terraces_coverage": 0.3, "hills_km": 4,
         "amplitude": 2600,
         "base_freq": 2.4,
         "octaves": 15,
@@ -131,7 +131,7 @@
         "scale_height": 6200
       },
       "terrain": {
-        "seed": 149, "hills": 260, "hills_km": 4,
+        "seed": 149, "hills": 260, "crags": 22, "crags_m": 380, "crags_coverage": 0.55, "gullies": 18, "gullies_m": 800, "hills_km": 4,
         "amplitude": 2000,
         "base_freq": 2.8,
         "octaves": 15,
@@ -232,7 +232,7 @@
         "mean_anomaly_deg": 15
       },
       "terrain": {
-        "seed": 163, "hills": 100, "hills_km": 2.5,
+        "seed": 163, "hills": 100, "crags": 18, "crags_m": 300, "crags_coverage": 0.55, "hills_km": 2.5,
         "amplitude": 1500,
         "base_freq": 2.2,
         "octaves": 14,

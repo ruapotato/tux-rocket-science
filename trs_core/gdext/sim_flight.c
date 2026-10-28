@@ -1742,6 +1742,24 @@ static void m_subpoint(void *self, const trs_val *a, trs_val *r) {
 	ret_doubles(r, out, 2);
 }
 
+/* level_spot(body, lat_deg, lon_deg, reach_m, max_slope) -> [lat_deg,
+ * lon_deg, slope, distance m (-1: none that level in reach)]: the nearest
+ * level ground (trs_terrain_level_spot) */
+static void m_level_spot(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	double out[4] = { a[1].f, a[2].f, 0, 0 };
+	if (ok_body(h, a[0].i) && h->world->sys.bodies[a[0].i].terrain.enabled) {
+		const trs_body *b = &h->world->sys.bodies[a[0].i];
+		double la = a[1].f / DEG, lo = a[2].f / DEG, sl = 0;
+		trs_v3 d = v3(cos(la) * cos(lo), cos(la) * sin(lo), sin(la)), at;
+		out[3] = trs_terrain_level_spot(&b->terrain, b->radius, d, a[3].f, a[4].f, &at, &sl);
+		out[0] = asin(at.z) * DEG;
+		out[1] = atan2(at.y, at.x) * DEG;
+		out[2] = sl;
+	}
+	ret_doubles(r, out, 4);
+}
+
 /* subsolar_point(body) -> [lat_deg, lon_deg] where its star is overhead now */
 static void m_subsolar_point(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
@@ -1861,6 +1879,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
+	{ "level_spot", m_level_spot, A, 5, { I, F, F, F, F }, { "body", "lat_deg", "lon_deg", "reach", "max_slope" } },
 	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },
 	{ "subsolar_point", m_subsolar_point, A, 1, { I }, { "body" } },
 	{ "subpoint", m_subpoint, A, 2, { I, I }, { "body", "target" } },

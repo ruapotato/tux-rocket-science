@@ -92,6 +92,39 @@ static int check_body(trs_log *out, const trs_body *b) {
 	return ok;
 }
 
+/* The close-up ground (crags, gullies, terraces) is rough, and still a
+ * lander finds level ground: at spots spread over the body, the nearest
+ * within 250 m tilted under 14 degrees (what the autopilot's land looks
+ * for); and somewhere among them a face steeper than 45 degrees. */
+static int check_close_ground(trs_log *out, const trs_body *b) {
+	const trs_terrain *t = &b->terrain;
+	if (t->crags_amplitude <= 0 && t->gullies_depth <= 0 && t->terraces_step <= 0)
+		return 1;
+	int n = 0, found = 0;
+	double far = 0, steep = 0;
+	for (int k = 0; k < 80; k++) {
+		/* (spread evenly: a Fibonacci sphere) */
+		double z = 1.0 - (k + 0.5) / 40.0, r = sqrt(fmax(0.0, 1.0 - z * z)), ph = k * 2.39996323;
+		trs_v3 d = v3(r * cos(ph), r * sin(ph), z), at;
+		double sl;
+		double dist = trs_terrain_level_spot(t, b->radius, d, 250.0, 0.03, &at, &sl);
+		n++;
+		if (dist >= 0) {
+			found++;
+			far = fmax(far, dist);
+		}
+		/* the steepest ground round the spot, over the 4 m a lander spans */
+		for (int q = 0; q < 24; q++) {
+			trs_v3 e = v3_norm(v3_add(d, v3((q % 5 - 2) * 30.0 / b->radius, (q / 5 - 2) * 30.0 / b->radius, 0)));
+			steep = fmax(steep, 1.0 - v3_dot(trs_terrain_normal(t, b->radius, e, 4.0), e));
+		}
+	}
+	int good = found >= n * 95 / 100 && steep > 1.0 - cos(45.0 * TRS_PI / 180.0);
+	trs_log_printf(out, "  %s: level ground within 250 m at %d of %d spots (farthest %.0f m); steepest face seen %.0f deg%s\n", b->id, found, n,
+		far, acos(1.0 - steep) * 180.0 / TRS_PI, good ? "" : "  FAIL");
+	return good;
+}
+
 trs_gate_status trs_gate_landmarks(trs_log *out, const char *data_dir) {
 	const char *files[] = { "austra_system.json" };   /* (it loads its neighbours: every other star too) */
 	int ok = 1, n = 0;
@@ -103,6 +136,9 @@ trs_gate_status trs_gate_landmarks(trs_log *out, const char *data_dir) {
 			trs_log_printf(out, "cannot load %s: %s\n", files[fi], err);
 			return TRS_GATE_FAIL;
 		}
+		for (int bi = 0; bi < sys.count; bi++)
+			if (sys.bodies[bi].terrain.enabled)
+				ok = check_close_ground(out, &sys.bodies[bi]) && ok;
 		for (int bi = 0; bi < sys.count; bi++) {
 			if (!sys.bodies[bi].terrain.nfeatures)
 				continue;

@@ -226,9 +226,11 @@ func _frames(tree: SceneTree, n: int) -> void:
 		await tree.process_frame
 
 
-func _scene(tree: SceneTree, craft: String, site: String) -> Node3D:
+func _scene(tree: SceneTree, craft: String, site: String, clock := -1.0) -> Node3D:
 	for v in Sim.vessels():
 		Sim.game.core.vessel_remove(int(v.id))
+	if clock >= 0.0:
+		Sim.game.core.reset_time(clock)
 	Sim.seats = {}
 	for c in tree.root.get_children():
 		if c is Node3D or (c is Control and c.name != "GateRunner"):
@@ -375,8 +377,12 @@ func run(runner: Node) -> Dictionary:
 	await _frames(tree, 2)
 
 	# 4. to Krill and down, by your own logic
-	scene = await _scene(tree, "krill_lander", "pad")
+	# (from the clock it has when run alone: the whole run's earlier gates
+	# leave the moons elsewhere, and one in a few of those trips missed)
+	var t_was: float = Sim.game.core.time()
+	scene = await _scene(tree, "krill_lander", "pad", 333.0)
 	s = scene.session
+	var t_from := s.time()
 	comp = scene.computer
 	comp.update(scene, s.telemetry())
 	r = _fly(scene, "/root/scripts/krill_by_hand.py", KRILL, 3.0e6)
@@ -386,10 +392,12 @@ func run(runner: Node) -> Dictionary:
 			and float(t.get("max_impact", 99.0)) < 6.0 and said.contains("down on Krill"),
 		"krill_by_hand.py: when_to_leave, a what_if search for the fix, a capture worked out, a landing by hand: landed %s on %s, pitch %.0f, worst contact %.1f m/s, %.0f s (%s)" % [
 			t.get("landed", false), t.get("body", "?"), float(t.get("pitch_deg", 0.0)), float(t.get("max_impact", 0.0)), r.t, said])
+	var spent := s.time() - t_from
 	scene.queue_free()
 	await _frames(tree, 2)
 	for v in Sim.vessels():
 		Sim.game.core.vessel_remove(int(v.id))
+	Sim.game.core.reset_time(t_was + spent)   # (the clock goes on from where it was)
 	Sim.seats = {}
 	Sim.save_game()
 	return {"status": "FAIL" if _failed else "PASS", "log": "\n".join(_log)}
