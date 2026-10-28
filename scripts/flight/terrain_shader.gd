@@ -196,13 +196,13 @@ void fragment() {
 		// low pits slag that still glows through its cracks
 		vec3 base = mix(c_low.rgb, c_high.rgb, clamp(h01 * 0.7 + (n_big - 0.5) * 0.5, 0.0, 1.0));
 		float ash = smoothstep(0.35, 0.8, vnoise(p, 1.0 / 128.0) * 0.7 + n_mid * 0.3) * (1.0 - smoothstep(0.15, 0.3, slope));
-		base = mix(base, vec3(0.3, 0.28, 0.27), ash * 0.3);
+		base = mix(base, vec3(0.3, 0.28, 0.27), ash * 0.12);
 		float rock = smoothstep(0.3, 0.45, slope + (n_mid - 0.5) * 0.15);
 		col = mix(base, c_rock.rgb, rock * 0.85);
 		float pit = clamp((lava_level - hgt) / 300.0, 0.0, 1.0);
 		// cracks: the edges of a cell pattern, hot where the pits are deepest
 		vec3 cell = floor(p / 6.0);
-		float crack = 1.0 - smoothstep(0.02, 0.09, abs(vnoise(p, 1.0 / 6.0) - 0.5));
+		float crack = (1.0 - smoothstep(0.006, 0.025, abs(vnoise(p, 1.0 / 8.0) - 0.5))) * smoothstep(0.35, 0.6, vnoise(p, 1.0 / 64.0));
 		float glow = crack * pit * (0.6 + 0.4 * sin(TIME * 0.7 + hash3(cell).x * 6.28));
 		col = mix(col, col * 0.6, pit * 0.6);
 		EMISSION = vec3(1.0, 0.36, 0.08) * glow * 2.2;

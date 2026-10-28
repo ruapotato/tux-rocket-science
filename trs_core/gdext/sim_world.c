@@ -179,6 +179,20 @@ static void m_body_info(void *self, const trs_val *a, trs_val *r) {
 		}
 		trs_json_set(j, "relics", rl);
 	}
+	if (b->terrain.nfeatures > 0) {
+		/* the landmarks' centres on the ground (body-fixed, m), in data order */
+		trs_json *ll = trs_json_new(TRS_JSON_ARRAY);
+		for (int k = 0; k < b->terrain.nfeatures; k++) {
+			trs_v3 d = b->terrain.feature[k].dir;
+			trs_v3 p = v3_scale(d, b->radius + trs_terrain_height(&b->terrain, b->radius, d));
+			trs_json *pj = trs_json_new(TRS_JSON_ARRAY);
+			trs_json_push(pj, trs_json_new_num(p.x));
+			trs_json_push(pj, trs_json_new_num(p.y));
+			trs_json_push(pj, trs_json_new_num(p.z));
+			trs_json_push(ll, pj);
+		}
+		trs_json_set(j, "landmark_fixed", ll);
+	}
 	if (b->parent >= 0) {
 		trs_json_set(j, "sma", trs_json_new_num(b->orbit.a));
 		trs_json_set(j, "period", trs_json_new_num(b->orbit.period));

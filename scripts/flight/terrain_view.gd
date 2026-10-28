@@ -39,6 +39,7 @@ var _site_node: Node3D
 var _site_pos := Vector3.ZERO
 var _site_d: Array = [0.0, 0.0, 0.0]  # the same, Godot axes, doubles
 var _relics: Array = []  # [{id, node, pos (Godot, body-fixed), d (doubles)}]
+var _fx: Array = []      # the landmarks' effects, placed as relics are
 var life: TerrainLife
 var _life_t := -1
 
@@ -81,6 +82,20 @@ func set_body(b: int) -> void:
 	for r in _relics:
 		r.node.queue_free()
 	_relics.clear()
+	for r in _fx:
+		r.node.queue_free()
+	_fx.clear()
+	var lms := Sim.landmarks(str(info.id))
+	var fixed: Array = info.get("landmark_fixed", [])
+	var kept := lms.filter(func(l): return l.get("kind", "") in ["volcano", "crater", "canyon", "mesa"])
+	for k in mini(kept.size(), fixed.size()):
+		var node := LandmarkFX.build(kept[k], float(info.get("atmosphere_height", 0.0)) > 0.0)
+		if node == null:
+			continue
+		var f: Array = fixed[k]
+		var d := [float(f[0]), float(f[2]), -float(f[1])]
+		add_child(node)
+		_fx.append({"node": node, "pos": Vector3(d[0], d[1], d[2]), "d": d})
 	for r in info.get("relics", []):
 		var f: Array = r.fixed
 		var d := [float(f[0]), float(f[2]), -float(f[1])]  # sim -> Godot axes
@@ -190,7 +205,7 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void
 		var p: Dictionary = _patches[key]
 		var c: Array = p.center
 		p.node.transform = Transform3D(basis * _sim_basis(), _place(body_rel, cr, sr, c[0], c[2], -c[1]))
-	for r in _relics:
+	for r in _relics + _fx:
 		r.node.transform = Transform3D(basis * LaunchSite.site_basis(r.pos), _place(body_rel, cr, sr, r.d[0], r.d[1], r.d[2]))
 	if _site_node:
 		_site_node.transform = Transform3D(basis * LaunchSite.site_basis(_site_pos),

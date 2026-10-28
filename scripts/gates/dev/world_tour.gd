@@ -63,7 +63,7 @@ func run(runner: Node) -> Dictionary:
 		if OS.get_environment("LANDMARKS") != "":
 			for lm in Sim.landmarks(bid):
 				var R: float = JSON.parse_string(core.body_info(bi)).radius
-				var at := {"volcano": 0.5, "crater": 1.0, "mesa": 1.05}
+				var at := {"volcano": float(OS.get_environment("VOLC_AT")) if OS.get_environment("VOLC_AT") != "" else 0.5, "crater": 1.0, "mesa": 1.05}
 				var reach := float(lm.get("radius_km", 6.0)) * 1000.0 * float(at.get(lm.kind, 0.0)) + (float(lm.get("width_km", 3.0)) * 900.0 if lm.kind == "canyon" else 0.0)
 				spots[lm.id] = [float(lm.lat_deg) - rad_to_deg(reach / R), float(lm.lon_deg), lm.name]
 			per = 0
@@ -89,12 +89,18 @@ func run(runner: Node) -> Dictionary:
 			for view in ["ground", "air"]:
 				scene._clear_views()
 				var lmk := OS.get_environment("LANDMARKS") != ""
-				scene._cam_yaw = 0.6 if not lmk else PI     # (a landmark: looking north, at it)
+				scene._cam_yaw = 0.6 if not lmk else 0.0     # (a landmark: looking north, at it)
 				scene._cam_pitch = 0.08 if view == "ground" else (0.55 if not lmk else 0.62)
 				scene._cam_dist = 22.0 if view == "ground" else air
 				for q in wait:
 					await tree.process_frame
 				await RenderingServer.frame_post_draw
+				if OS.get_environment("FXDBG") != "":
+					for r in scene._terrain._fx:
+						var fw: Vector3 = -scene._cam.global_transform.basis.z
+						var to: Vector3 = (r.node.global_position - scene._cam.global_position).normalized()
+						var upv: Vector3 = scene._cam.global_transform.basis.y
+						log.append("fx dist %.0f, angle off view %.1f deg, up-component %.2f, visible %s, in tree %s" % [r.node.global_position.distance_to(scene._cam.global_position), rad_to_deg(fw.angle_to(to)), to.dot(upv), r.node.is_visible_in_tree(), r.node.is_inside_tree()])
 				scene.get_viewport().get_texture().get_image().save_png(DIR + "tour_%s_%s_%s.png" % [bid, key, view])
 			log.append("%s %s (%s) at %.2f, %.2f: saved" % [bid, key, spots[key][2], lat, lon])
 			core.vessel_remove(id)

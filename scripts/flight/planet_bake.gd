@@ -277,7 +277,7 @@ static func _bake(core: TrsSim, body: int, info: Dictionary) -> Array:
 				col = Color(minf(col.r * tint.r, 1.0), minf(col.g * tint.g, 1.0), minf(col.b * tint.b, 1.0))
 			a_img.set_pixel(x, y, col)
 			# normal in sim body-fixed axes, relief exaggerated for distance
-			var k := 3.0 if ice_world else 7.0
+			var k := 3.0 if ice_world or ash else 7.0
 			var ln := Vector3(-gx * k, -gy * k, 1.0).normalized()  # (east, north, up)
 			var e := Vector3(-sin(lon), cos(lon), 0.0)
 			var nv := Vector3(-sl * cos(lon), -sl * sin(lon), cl)
