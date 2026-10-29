@@ -172,9 +172,12 @@ func run(runner: Node) -> Dictionary:
 	var n_then := int(_watch(app).get("n", "0"))
 	app._stop()
 	_fly(scene, app, 10)
+	# (alive by the computer's own list of scripts: a process an earlier
+	# gate's kill left in ps, never to run again, is not this one)
 	var running := false
-	for row in str(comp.sh("ps")).split("\n", false):
-		running = running or (row.contains("/bin/py") and row.contains(" running "))
+	for row in str(comp.machine.scripts()).split("\n", false):
+		var g := row.split("\t")
+		running = running or (g.size() >= 4 and g[1] == "1" and g[3] != "-i")
 	var hundreds := 0
 	for line in comp.log:
 		hundreds += 1 if str(line).begins_with("hundred ") else 0

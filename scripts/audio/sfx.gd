@@ -16,8 +16,9 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 ## Procedural audio: every sound is synthesized here (no sample assets).
-## Continuous beds (engine rumble, wind) follow flight state; one-shots
-## (stage, explosion, chute, touchdown, UI click, alarm) are short voices.
+## Continuous beds (engine rumble, wind, a laser's hum) follow flight
+## state; one-shots (stage, explosion, chute, touchdown, UI click, alarm,
+## a zap, a bite, an animal going down) are short voices.
 ## In vacuum the rumble is what the crew feels through the hull: low and
 ## muffled; in air it opens up into a roar.
 extends Node
@@ -29,6 +30,12 @@ var engine_solid := 0.0   # 0..1 share of thrust from solid motors
 var air := 1.0            # 0 vacuum .. 1 sea level
 var wind_level := 0.0     # 0..1 from dynamic pressure
 var jet_level := 0.0      # 0..1 jets' throttle (they whine, rockets roar)
+var laser_level := 0.0    # 0..1 our beams firing near (they hum)
+var alien_level := 0.0    # 0..1 theirs (a lower, sourer buzz)
+var _env_laser := 0.0
+var _env_alien := 0.0
+var _laser_phase := 0.0
+var _alien_phase := 0.0
 var _env_jet := 0.0
 var _jet_phase := 0.0
 var _jet_phase2 := 0.0
@@ -101,13 +108,15 @@ func silence_beds() -> void:
 	engine_level = 0.0
 	wind_level = 0.0
 	jet_level = 0.0
+	laser_level = 0.0
+	alien_level = 0.0
 
 
 func play(kind: String, strength := 1.0) -> void:
 	if _playback == null:
 		return
 	var dur: float = {"stage": 0.6, "decouple": 0.35, "boom": 2.2, "chute": 1.4, "touchdown": 0.5, "click": 0.05,
-		"alarm": 0.9, "chime": 0.8, "ignite": 0.9}.get(kind, 0.5)
+		"alarm": 0.9, "chime": 0.8, "ignite": 0.9, "zap": 0.25, "snap": 0.18, "squeal": 0.6, "ouch": 0.3}.get(kind, 0.5)
 	_voices.append({"kind": kind, "t": 0.0, "dur": dur, "k": clampf(strength, 0.0, 2.0), "lp": 0.0, "lp2": 0.0})
 
 
@@ -146,6 +155,15 @@ func _process(_dt: float) -> void:
 			_jet_phase2 = fmod(_jet_phase2 + f * 1.5 * dt, 1.0)
 			var tone := sin(TAU * _jet_phase) * 0.5 + sin(TAU * _jet_phase2) * 0.2
 			s += (tone * 0.10 + (_lp1 - _lp2) * 1.6) * _env_jet * air
+		# --- lasers: ours a bright hum with a shimmer, theirs a low buzz
+		_env_laser += (laser_level - _env_laser) * 0.004
+		_env_alien += (alien_level - _env_alien) * 0.004
+		if _env_laser > 0.001:
+			_laser_phase = fmod(_laser_phase + (880.0 + 30.0 * sin(_phase * 40.0)) * dt, 1.0)
+			s += (sin(TAU * _laser_phase) * 0.06 + sin(TAU * _laser_phase * 2.0) * 0.03 + white * 0.02) * _env_laser
+		if _env_alien > 0.001:
+			_alien_phase = fmod(_alien_phase + 210.0 * dt, 1.0)
+			s += ((_alien_phase * 2.0 - 1.0) * 0.07 + sin(TAU * _alien_phase * 3.0) * 0.03) * _env_alien
 		# --- wind: band-passed noise, gusting
 		_wind_lp += (white - _wind_lp) * 0.08
 		_wind_lp2 += (_wind_lp - _wind_lp2) * 0.04
@@ -198,4 +216,17 @@ func _voice(v: Dictionary, white: float, dt: float) -> float:
 		"alarm":
 			var on := float(fmod(t, 0.3) < 0.18)
 			return sin(TAU * 880.0 * t) * on * 0.18
+		"zap":
+			# a falling chirp: pew
+			v.lp = fmod(float(v.lp) + (2400.0 * exp(-t * 14.0) + 300.0) * dt, 1.0)
+			return sin(TAU * v.lp) * exp(-t * 12.0) * 0.3
+		"snap":
+			# jaws: a click and a crunch
+			return white * exp(-t * 60.0) * 0.7 + sin(TAU * 140.0 * t) * exp(-t * 25.0) * 0.5
+		"squeal":
+			v.lp = fmod(float(v.lp) + (900.0 - 600.0 * t / v.dur + 60.0 * sin(t * 50.0)) * dt, 1.0)
+			return sin(TAU * v.lp) * sin(PI * clampf(t / v.dur, 0.0, 1.0)) * 0.22
+		"ouch":
+			v.lp = fmod(float(v.lp) + (700.0 - 900.0 * t) * dt, 1.0)
+			return (sin(TAU * v.lp) * 0.25 + white * 0.05) * exp(-t * 8.0)
 	return 0.0

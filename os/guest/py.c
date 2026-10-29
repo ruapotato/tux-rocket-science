@@ -1150,8 +1150,12 @@ static bool frame_passes(VM *v)
 static bool gone(VM *v, Value obj, const char *r)
 {
     if (nom_strcmp(r, "-ERR not aboard")) return false;
-    vm_runtime_error(v, "%s isn't aboard any more (it went with a stage, or broke off)",
-                     AS_HANDLE(obj)->label[0] ? AS_HANDLE(obj)->label : "that part");
+    if (!nom_strncmp(AS_HANDLE(obj)->path, "thing.", 6))
+        vm_runtime_error(v, "%s is gone (down, or out of the ship's sight): check .alive first",
+                         AS_HANDLE(obj)->label[0] ? AS_HANDLE(obj)->label : "that");
+    else
+        vm_runtime_error(v, "%s isn't aboard any more (it went with a stage, or broke off)",
+                         AS_HANDLE(obj)->label[0] ? AS_HANDLE(obj)->label : "that part");
     return true;
 }
 
@@ -1409,7 +1413,12 @@ VmStatus host_callmethod(VM *v, Value obj, Str *name, Value *args, int n, Value 
         Buf b; buf_init(&b);
         buf_puts(&b, "obj call ");
         buf_puts(&b, path);
-        for (int i = 0; i < n; i++) { buf_putc(&b, ' '); val_tostr(&b, args[i]); }
+        for (int i = 0; i < n; i++) {
+            buf_putc(&b, ' ');
+            /* a thing passed to a call goes as itself (ship.fire_at(beast)), not its name */
+            if (IS_HANDLE(args[i])) { buf_putc(&b, '@'); buf_puts(&b, AS_HANDLE(args[i])->path); }
+            else val_tostr(&b, args[i]);
+        }
         buf_putc(&b, 0);
         const char *r = ask(v, b.p);
         buf_free(&b);

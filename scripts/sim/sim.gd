@@ -22,6 +22,7 @@ extends Node
 const SYSTEM_PATH := "res://data/bodies/austra_system.json"
 const CATALOG_PATH := "res://data/parts/stock_parts.json"
 const STOCK_CRAFT_DIR := "res://data/craft/"
+const ALIEN_CRAFT_DIR := "res://data/craft/alien/"
 const USER_CRAFT_DIR := "user://craft/"
 
 var core: TrsSim
@@ -93,6 +94,24 @@ func look(body_id: String) -> Dictionary:
 
 
 ## What grows and lives on a body (data/bodies "life"), in the core's order.
+## The craft ids the Jaegers' nests put up, anywhere.
+func nest_crafts() -> Array:
+	var out := []
+	for b in system_bodies():
+		for n in b.get("nests", []):
+			if not str(n.get("craft", "jaeger_raider")) in out:
+				out.append(str(n.get("craft", "jaeger_raider")))
+	return out
+
+
+## A kind of life on a body, by its id (its data entry), or {}.
+func life_kind(body_id: String, kind_id: String) -> Dictionary:
+	for k in _life.get(body_id, []):
+		if str(k.id) == kind_id:
+			return k
+	return {}
+
+
 func life(body_id: String) -> Array:
 	return _life.get(body_id, [])
 

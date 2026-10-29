@@ -342,6 +342,116 @@ static func _antenna(root: Node3D, sh: Dictionary) -> void:
 
 ## The Signal Scanner: a stubby mast off the hull carrying a tilted dish,
 ## its feed horn on struts, and a sea-green ring that glows faintly.
+## A laser turret: a squat base on the hull (out along +Z), and a head on
+## a swivel ("Head", the beam out along its +Y) that VesselView turns to
+## where the core says it points. A Jaeger's lance is the same, in their
+## dark metal with a green eye.
+static func _turret(root: Node3D, sh: Dictionary, alien: bool) -> void:
+	var r: float = sh.get("radius", 0.26)
+	var h: float = sh.get("height", 0.4)
+	var body := mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35) if alien else mat("graphite", GRAPHITE, 0.4, 0.5)
+	var eye := Color(0.3, 1.0, 0.45) if alien else Color(1.0, 0.25, 0.15)
+	var base := CylinderMesh.new()
+	base.top_radius = r * 0.8
+	base.bottom_radius = r
+	base.height = h * 0.35
+	_mesh(root, base, body, Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, h * 0.17)))
+	var ring := TorusMesh.new()
+	ring.inner_radius = r * 0.72
+	ring.outer_radius = r * 0.86
+	_mesh(root, ring, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0, h * 0.36)))
+	var head := Node3D.new()
+	head.name = "Head"
+	head.position = Vector3(0, 0, h * 0.6)
+	head.basis = Basis(Vector3.RIGHT, PI / 2)  # (resting: the beam along the mount)
+	root.add_child(head)
+	var dome := SphereMesh.new()
+	dome.radius = r * 0.62
+	dome.height = r * 1.0
+	_mesh(head, dome, body if alien else mat("dial", WHITE, 0.0, 0.3))
+	var barrel := CylinderMesh.new()
+	barrel.top_radius = r * 0.12
+	barrel.bottom_radius = r * 0.18
+	barrel.height = r * 1.7
+	_mesh(head, barrel, mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis.IDENTITY, Vector3(0, r * 0.95, 0)))
+	var tip := SphereMesh.new()
+	tip.radius = r * 0.13
+	tip.height = r * 0.26
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = eye
+	glow.emission_enabled = true
+	glow.emission = eye
+	glow.emission_energy_multiplier = 2.0
+	_mesh(head, tip, glow, Transform3D(Basis.IDENTITY, Vector3(0, r * 1.8, 0)))
+	if not alien:
+		for s in [-1.0, 1.0]:
+			_mesh(head, BoxMesh.new(), mat("orange", ORANGE, 0.0, 0.5), Transform3D(Basis.IDENTITY.scaled(Vector3(0.03, r * 0.5, r * 0.5)), Vector3(s * r * 0.6, 0, 0)))
+
+
+## The Jaegers' hull: a lens of dark metal, a glowing seam round its rim,
+## a dome for the pilot.
+static func _saucer(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.get("radius", 3.0)
+	var h: float = sh.get("height", 1.3)
+	var hull := mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35)
+	for s in [-1.0, 1.0]:
+		var lens := SphereMesh.new()
+		lens.radius = r
+		lens.height = h
+		lens.is_hemisphere = true
+		lens.radial_segments = 48
+		lens.rings = 8
+		_mesh(root, lens, hull, Transform3D(Basis.IDENTITY.scaled(Vector3(1, s, 1)), Vector3.ZERO))
+	var seam := TorusMesh.new()
+	seam.inner_radius = r * 0.97
+	seam.outer_radius = r * 1.02
+	seam.rings = 64
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(0.3, 1.0, 0.45)
+	glow.emission_enabled = true
+	glow.emission = Color(0.25, 1.0, 0.4)
+	glow.emission_energy_multiplier = 2.5
+	_mesh(root, seam, glow)
+	var dome := SphereMesh.new()
+	dome.radius = r * 0.28
+	dome.height = r * 0.3
+	dome.is_hemisphere = true
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.2, 0.5, 0.35, 0.75)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.metallic = 0.3
+	glass.roughness = 0.1
+	glass.emission_enabled = true
+	glass.emission = Color(0.1, 0.4, 0.2)
+	_mesh(root, dome, glass, Transform3D(Basis.IDENTITY, Vector3(0, h * 0.42, 0)))
+	for k in 6:
+		var a := TAU * k / 6.0
+		_mesh(root, BoxMesh.new(), mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.UP, -a).scaled(Vector3(r * 0.5, 0.06, 0.12)),
+			Vector3(cos(a), 0, sin(a)) * r * 0.62 + Vector3(0, h * 0.25, 0)))
+
+
+## Their lift drive: a ring under the hull, glowing underneath when it pushes.
+static func _lift_ring(root: Node3D, sh: Dictionary) -> void:
+	var r: float = sh.get("radius", 1.2)
+	var h: float = sh.get("height", 0.5)
+	var ring := TorusMesh.new()
+	ring.inner_radius = r * 0.55
+	ring.outer_radius = r
+	ring.rings = 48
+	_mesh(root, ring, mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35), Transform3D(Basis.IDENTITY.scaled(Vector3(1, h / (r * 0.45), 1)), Vector3.ZERO))
+	var disc := CylinderMesh.new()
+	disc.top_radius = r * 0.6
+	disc.bottom_radius = r * 0.6
+	disc.height = 0.04
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(0.4, 1.0, 0.6)
+	glow.emission_enabled = true
+	glow.emission = Color(0.3, 1.0, 0.5)
+	glow.emission_energy_multiplier = 3.0
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_mesh(root, disc, glow, Transform3D(Basis.IDENTITY, Vector3(0, -h * 0.4, 0)))
+
+
 static func _dish(root: Node3D, sh: Dictionary) -> void:
 	var r: float = sh.get("radius", 0.35)
 	var h: float = sh.get("height", 0.4)
@@ -639,6 +749,14 @@ static func _build_shape(root: Node3D, d: Dictionary, sh: Dictionary, opts: Dict
 			_antenna(root, sh)
 		"dish":
 			_dish(root, sh)
+		"turret":
+			_turret(root, sh, false)
+		"lance":
+			_turret(root, sh, true)
+		"saucer":
+			_saucer(root, sh)
+		"lift_ring":
+			_lift_ring(root, sh)
 		"wheel":
 			_wheel(root, sh)
 		"lab":

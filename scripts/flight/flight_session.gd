@@ -68,6 +68,9 @@ func _init() -> void:
 	core = TrsSim.new()
 	core.load_system(ProjectSettings.globalize_path(Sim.SYSTEM_PATH))
 	core.load_catalog(ProjectSettings.globalize_path(Sim.CATALOG_PATH))
+	# the ships the Jaegers' nests put up (data/craft/alien: not in the hangar)
+	for id in Sim.nest_crafts():
+		core.nest_craft(id, FileAccess.get_file_as_string(Sim.ALIEN_CRAFT_DIR + id + ".craft.json"))
 
 
 ## Resets the world and puts the craft on the body's launch pad.
@@ -367,6 +370,8 @@ func rails_refusal() -> String:
 func _begin_rails() -> void:
 	var vessels: Array = JSON.parse_string(core.vessel_list())
 	for v in vessels:
+		if v.get("pilot", false):
+			continue  # (the Jaegers go home by themselves before a warp)
 		var tv: Dictionary = JSON.parse_string(core.telemetry(v.id))
 		if tv.landed:
 			core.vessel_set_mode(v.id, "landed")
@@ -396,6 +401,7 @@ func _distance_to_active(id: int) -> float:
 
 ## Advances by fixed ticks regardless of warp (blind control, gates).
 func step_ticks(n: int) -> void:
+	core.set_focus(active)  # (the wild wakes round it, and the nests near it)
 	for i in n:
 		core.step_physics(1)
 		ticks += 1
@@ -463,8 +469,8 @@ func _manage_ranges() -> void:
 			return
 	var vessels: Array = JSON.parse_string(core.vessel_list())
 	for v in vessels:
-		if v.id == active:
-			continue
+		if v.id == active or v.get("pilot", false):
+			continue  # (a Jaeger flies itself, wherever it is)
 		var d := _distance_to_active(v.id)
 		if d > PHYSICS_RANGE and v.mode == "physics":
 			var tv: Dictionary = JSON.parse_string(core.telemetry(v.id))
@@ -500,8 +506,8 @@ func _pick_new_active() -> void:
 	var best := -1
 	var score := -1.0
 	for v in vessels:
-		if v.mode != "physics":
-			continue  # far away: not a piece of what just broke up
+		if v.mode != "physics" or v.get("alien", false):
+			continue  # far away (not a piece of what just broke up), or theirs
 		var s: float = v.get("crew", 0) * 1000.0 + v.get("parts", 0)
 		if s > score:
 			score = s

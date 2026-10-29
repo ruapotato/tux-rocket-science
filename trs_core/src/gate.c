@@ -137,6 +137,7 @@ static const trs_gate_def GATES[] = {
 	{ "test-life", "M26", trs_gate_life },
 	{ "test-wild", "M31", trs_gate_wild },
 	{ "test-aliens", "M31", trs_gate_aliens },
+	{ "test-guard", "M31", NULL },
 	{ "test-shapes", "M27", trs_gate_shapes },
 	{ "test-spaceship", "M27", NULL },
 	{ "test-computer", "M28", trs_gate_computer },

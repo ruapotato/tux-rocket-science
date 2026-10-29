@@ -50,6 +50,9 @@ var surveys: Array = []       # standing contracts: [{subject, exp, body, situat
 var surveys_done := 0
 var heard: Array = []         # relic ids a Signal Scanner has heard (their place is known)
 var sighted: Array = []       # "body/landmark" ids seen (close enough to see from)
+var catalogued: Array = []    # "body/species" ids a penguin has had a good look at (E, on EVA)
+var downed := 0               # Jaeger raiders brought down
+var _home_ids: Array = []     # the home system's bodies
 var _over := ""               # the landmark below the ship now
 const LANDMARK_RESEARCH := 4.0  # what seeing one for the first time teaches
 var path := ""
@@ -102,6 +105,8 @@ func load_from(file: String, new_mode := "sandbox") -> void:
 	surveys_done = int(d.get("surveys_done", 0))
 	heard = d.get("heard", [])
 	sighted = d.get("sighted", [])
+	catalogued = d.get("catalogued", [])
+	downed = int(d.get("downed", 0))
 	refresh_surveys()
 	changed.emit()
 
@@ -117,7 +122,7 @@ func save() -> void:
 func state() -> Dictionary:
 	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
 		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done, "heard": heard,
-		"sighted": sighted}
+		"sighted": sighted, "catalogued": catalogued, "downed": downed}
 
 
 ## Puts the program back as `s` (a revert undoes the flight's results).
@@ -134,6 +139,41 @@ func restore(s: Dictionary) -> void:
 	surveys_done = int(s.get("surveys_done", 0))
 	heard = s.get("heard", []).duplicate()
 	sighted = s.get("sighted", []).duplicate()
+	catalogued = s.get("catalogued", []).duplicate()
+	downed = int(s.get("downed", 0))
+	save()
+	changed.emit()
+
+
+## A penguin has had a good look at one of a body's kinds of animal: the
+## research it's worth the first time (0 after), into the program.
+func catalogue(body: String, species: String) -> float:
+	var key := "%s/%s" % [body, species]
+	if key in catalogued:
+		return 0.0
+	catalogued.append(key)
+	# (the worlds of other stars are further to go, and stranger)
+	if _home_ids.is_empty():
+		for b in JSON.parse_string(FileAccess.get_file_as_string(Sim.SYSTEM_PATH)).bodies:
+			_home_ids.append(str(b.id))
+	var r := 2.0 if body in _home_ids else 4.0
+	research += r
+	save()
+	changed.emit()
+	return r
+
+
+## The kinds of animal on a body a penguin has catalogued.
+func catalogued_on(body: String) -> Array:
+	var out := []
+	for k in catalogued:
+		if str(k).begins_with(body + "/"):
+			out.append(str(k).substr(body.length() + 1))
+	return out
+
+
+func raider_downed() -> void:
+	downed += 1
 	save()
 	changed.emit()
 
@@ -728,6 +768,12 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 				hit = t.body != "floe" and float(t.get("refine_rate", 0.0)) > 0.0
 			"hear":
 				hit = g.relic in heard
+			"catalogue":
+				hit = catalogued_on(str(g.body)).size() >= int(g.value)
+			"downed":
+				hit = downed >= int(g.get("value", 1))
+			"guarded":
+				hit = t.body == g.body and float(extra.get("guarded", 0.0)) >= float(g.value)
 			"investigate":
 				var r := relic_in(t, g.relic)
 				hit = extra.get("eva", false) and t.landed and not r.is_empty() and float(r.surface_distance) <= INVESTIGATE_M

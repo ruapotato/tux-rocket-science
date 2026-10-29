@@ -751,7 +751,7 @@
       "id": "laser_turret",
       "name": "Tern Laser Turret",
       "category": "utility",
-      "description": "A laser on a swivel: 60 hp a second to whatever it meets first, out to 1.5 km, for 15 kW while it fires. Fire it by hand (hold the left mouse button on what you want gone), let the computer see to it (F6: guard), or from a script: ship.fire_at(thing).",
+      "description": "A laser on a swivel: 60 hp a second to whatever it meets first, out to 1.5 km, for 15 kW while it fires. Fire it by hand (hold the left mouse button on what you want gone), or from a script: ship.fire_at(thing) (guard.py keeps the ground round the ship clear).",
       "mass": 90,
       "cost": 1800,
       "hp": 140,

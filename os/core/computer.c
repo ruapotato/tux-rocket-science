@@ -244,10 +244,15 @@ static void obj_api(Computer *c, const char *rest, Buf *out) {
 			return;
 		}
 		const char *dot = strrchr(path, '.');
-		if (!strncmp(path, "part.", 5) && dot) {
+		if ((!strncmp(path, "part.", 5) || !strncmp(path, "thing.", 6)) && dot) {
 			char whole[96];
 			snprintf(whole, sizeof whole, "%.*s", (int)(dot - path), path);
 			if (!obj_has_children(c, whole)) {
+				/* (a thing gone -- down, or out of reach -- is no longer alive, and has nothing else to say) */
+				if (!strncmp(path, "thing.", 6) && !strcmp(dot + 1, "alive")) {
+					ok_body(out, "false");
+					return;
+				}
 				buf_puts(out, "-ERR not aboard\n"); /* (py.c says which, by its name) */
 				return;
 			}

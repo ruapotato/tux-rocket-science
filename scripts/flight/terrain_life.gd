@@ -19,8 +19,12 @@
 ## each one is (life.c: the same every visit, on the terrain's own height);
 ## this node draws them: each kind of plant in each cell as one MultiMesh
 ## of a small procedural model, each animal as its own little rig walking
-## (or flying) its loop. A kind is drawn only out to its "range" from the
-## data, so grass stays near and trees go far. Scenery: nothing collides.
+## (or flying) its loop on the world's clock (trs_life_animal_at's own
+## formula, so it is where the core has it). Those near the player are
+## alive in the core (wild.c): they are drawn where it says, running,
+## following, charging, or down; the downed are not drawn until their
+## herds have made up the loss. A kind is drawn only out to its "range"
+## from the data, so grass stays near and trees go far.
 class_name TerrainLife
 extends Node3D
 
@@ -41,6 +45,13 @@ var _time := 0.0
 var _frame := 0
 var _todo := []      # [dist, cell key, kind], farthest first
 var _scan_eye: Array = [0.0, 0.0, 0.0]
+var _live := {}      # "cell key/kind/idx" -> offset into _wild: the animals alive in the core
+var _dead := {}      # "cell key/kind/idx" -> true: downed, not drawn
+var _wild := PackedFloat64Array()
+var _clock := 0.0    # the world's time, s
+
+const LOOP_OMEGA := 0.21  # (wild.c's)
+const WPP := 20
 
 
 func setup(c: TrsSim) -> void:
@@ -70,6 +81,21 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float, dt: flo
 	_frame += 1
 	if body < 0 or _kinds.is_empty():
 		return
+	_clock = core.time()
+	# the live ones, and the downed, by which they are
+	_live.clear()
+	_dead.clear()
+	_wild = core.wild_list()
+	if _wild.size() >= 2 and int(_wild[0]) == body:
+		var n := int(_wild[1])
+		for i in n:
+			var o := 2 + i * WPP
+			_live["%d/%d/%d/%d/%d/%d" % [int(_wild[o + 1]), int(_wild[o + 2]), int(_wild[o + 3]), int(_wild[o + 4]), int(_wild[o + 5]), int(_wild[o + 6])]] = o
+		var k := 2 + n * WPP
+		var m := int(_wild[k]) if _wild.size() > k else 0
+		for i in m:
+			var o := k + 1 + i * 6
+			_dead["%d/%d/%d/%d/%d/%d" % [int(_wild[o]), int(_wild[o + 1]), int(_wild[o + 2]), int(_wild[o + 3]), int(_wild[o + 4]), int(_wild[o + 5])]] = true
 	_since += dt
 	var ex: float = eye_fixed[0]
 	var ey: float = eye_fixed[1]
@@ -139,7 +165,8 @@ func _new_cell(id: Array) -> Dictionary:
 	var R := sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
 	var up := Vector3(c[0] / R, c[1] / R, c[2] / R)  # sim axes, the cell's own frame
 	var size: float = R * PI * 0.5 / float(1 << int(id[1]))
-	return {"id": id, "node": node, "center": c, "up": up, "kinds": 0, "parts": {}, "animals": [], "half": size * 0.75, "dist": 1e9}
+	return {"id": id, "key": "%d/%d/%d/%d" % [int(id[0]), int(id[1]), int(id[2]), int(id[3])], "node": node, "center": c, "up": up,
+		"kinds": 0, "parts": {}, "animals": [], "half": size * 0.75, "dist": 1e9}
 
 
 func _drop_kind(cell: Dictionary, k: int) -> void:
@@ -189,7 +216,7 @@ func _build_kind(cell: Dictionary, k: int) -> void:
 			cell.node.add_child(rig)
 			var a := {"kind": k, "node": rig, "pos": pos, "loop": loop, "s": start, "go": 0.0,
 				"phase": yaw, "speed": float(spec.get("speed", 0.5)), "size": s, "fly": float(spec.get("fly", 0.0)) > 0.0,
-				"shape": spec.get("shape", "")}
+				"shape": spec.get("shape", ""), "who": "%s/%d/%d" % [cell.key, k, i], "at": pos, "live": false}
 			rig.transform = Transform3D(_upright(cell.up, yaw).scaled(Vector3.ONE * s), pos)
 			cell.animals.append(a)
 		return
@@ -219,23 +246,38 @@ func _build_kind(cell: Dictionary, k: int) -> void:
 	cell.parts[k] = mi
 
 
-## Walks each animal round its loop (smoothly, with stops to graze), or
-## flies it round, and poses it.
+## Walks each animal round its loop on the world's clock (with stops to
+## graze), or flies it round, and poses it; the live ones where the core
+## has them, and the downed not at all.
 func _animate(cell: Dictionary, dt: float) -> void:
+	var c: Array = cell.center
+	var up: Vector3 = cell.up
 	for a in cell.animals:
-		var loop: PackedVector3Array = a.loop
 		var rig: Node3D = a.node
+		if _dead.has(a.who):
+			rig.visible = false
+			continue
+		rig.visible = true
+		if _live.has(a.who):
+			_animate_live(a, int(_live[a.who]), c, up, dt)
+			continue
+		if a.live:
+			a.live = false  # (let go by the core: back on its loop from here)
+		var loop: PackedVector3Array = a.loop
 		if loop.size() < 2:
 			LifeModels.pose(rig, a.shape, _time + a.phase, 0.0)
 			continue
-		# walk a while, stop a while (flyers never stop)
-		var go := 1.0 if a.fly else clampf(sin(_time * 0.21 + a.phase * 3.0) * 2.5 + 0.6, 0.0, 1.0)
-		a.go = lerpf(a.go, go, clampf(dt * 2.0, 0.0, 1.0))
-		var seg := (loop[1] - loop[0]).length()
-		a.s = fposmod(a.s + a.speed * a.go * dt / maxf(seg, 0.1), float(loop.size()))
-		var i := int(a.s)
-		var f: float = a.s - i
 		var n := loop.size()
+		var seg := maxf((loop[1] - loop[0]).length(), 0.1)
+		var gone := _clock
+		var pace := 1.0
+		if not a.fly:
+			var x := LOOP_OMEGA * _clock + 3.0 * float(a.phase)
+			gone = 3.0 * _clock / 8.0 - cos(x) / (2.0 * LOOP_OMEGA) - sin(2.0 * x) / (16.0 * LOOP_OMEGA)
+			pace = pow((1.0 + sin(x)) * 0.5, 2.0)
+		var sp := fposmod(float(a.s) + float(a.speed) * gone / seg, float(n))
+		var i := mini(int(sp), n - 1)
+		var f: float = sp - i
 		var p0 := loop[(i - 1 + n) % n]
 		var p1 := loop[i]
 		var p2 := loop[(i + 1) % n]
@@ -244,7 +286,6 @@ func _animate(cell: Dictionary, dt: float) -> void:
 		var ahead := _catmull(p0, p1, p2, p3, minf(f + 0.05, 1.0)) - at
 		if f + 0.05 > 1.0:
 			ahead = p2 - p1
-		var up: Vector3 = cell.up
 		var fwd := (ahead - up * ahead.dot(up)).normalized()
 		if fwd.length() < 0.5:
 			fwd = Vector3(1, 0, 0)
@@ -252,8 +293,42 @@ func _animate(cell: Dictionary, dt: float) -> void:
 		var b := Basis(right, up, fwd)
 		if a.fly:
 			b = Basis(fwd, 0.35) * b  # banking round the turn
+		a.at = at
 		rig.transform = Transform3D(b.scaled(Vector3.ONE * float(a.size)), at)
-		LifeModels.pose(rig, a.shape, _time + a.phase, a.go * a.speed)
+		LifeModels.pose(rig, a.shape, _time + a.phase, pace * float(a.speed))
+
+
+## One the core has alive: drawn where it is (eased between its steps, ten
+## a second), facing its way, at its pace; a downed one on its side,
+## sinking out of sight before it goes.
+func _animate_live(a: Dictionary, o: int, c: Array, up: Vector3, dt: float) -> void:
+	var rig: Node3D = a.node
+	var at := Vector3(_wild[o + 8] - c[0], _wild[o + 9] - c[1], _wild[o + 10] - c[2])
+	var vel := Vector3(_wild[o + 11], _wild[o + 12], _wild[o + 13])
+	var fwd := Vector3(_wild[o + 14], _wild[o + 15], _wild[o + 16])
+	var state := int(_wild[o + 7])
+	var since: float = _wild[o + 18]
+	if not a.live:
+		a.live = true
+		a.at = at
+	a.at = (a.at as Vector3).lerp(at + vel * 0.05, clampf(dt * 10.0, 0.0, 1.0))
+	var u: Vector3 = (Vector3(c[0], c[1], c[2]) + a.at).normalized()
+	fwd = (fwd - u * fwd.dot(u)).normalized()
+	if fwd.length() < 0.5:
+		fwd = Vector3(1, 0, 0)
+	var right := u.cross(fwd).normalized()
+	var b := Basis(right, u, fwd)
+	var pos: Vector3 = a.at
+	if state == 5:
+		# down: over on its side, then into the ground
+		b = Basis(fwd, minf(since * 4.0, 1.45)) * b
+		pos -= u * float(a.size) * clampf((since - 3.0) / 3.0, 0.0, 1.0) * 0.8
+		LifeModels.pose(rig, a.shape, _time + a.phase, 0.0)
+	else:
+		if a.fly:
+			b = Basis(fwd, 0.35 * clampf(vel.length() / maxf(float(a.speed), 0.1), 0.0, 1.0)) * b
+		LifeModels.pose(rig, a.shape, _time + a.phase, vel.length(), state == 4)
+	rig.transform = Transform3D(b.scaled(Vector3.ONE * float(a.size)), pos)
 
 
 static func _catmull(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: float) -> Vector3:

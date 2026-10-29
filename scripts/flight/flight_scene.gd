@@ -444,8 +444,13 @@ func _build() -> void:
 	map_layer.add_child(_map)
 	_map.setup(session)
 	_map.visible = false
+	combat = FlightCombat.new()
+	combat.setup(self)
+	ui.add_child(combat)
 	hud = FlightHUD.new()
 	ui.add_child(hud)
+	_lasers = LaserView.new()
+	add_child(_lasers)
 	hud.sas_pressed.connect(func(mode): hands_used = true; _on_sas(mode))
 	hud.menu_action.connect(_on_menu)
 	hud.warp_pressed.connect(func(dir: int):
@@ -494,10 +499,14 @@ func _input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and combat != null:
+		combat.motion(event as InputEventMouseMotion)  # (the crosshair follows the mouse)
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
 			_orbiting = mb.pressed
+		elif combat != null and combat.mouse(mb):
+			pass  # (the lasers had it: fire by hand, or lock on)
 		elif _inside and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _inside.screen_hit(_cam, mb.position):
 			_toggle_desk()
 		elif _inside and mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
@@ -557,6 +566,9 @@ func _key(k: InputEventKey) -> void:
 				_stage()
 		KEY_F:
 			_eva_key()
+		KEY_E:
+			if session.telemetry().get("eva", false) and not combat.look():
+				hud.toast("Nothing alive near enough to look at (E, within %.0f m)" % FlightCombat.LOOK_REACH, 2.0)
 		KEY_B:
 			_toggle_brakes()
 		KEY_O:
@@ -731,8 +743,11 @@ func _cycle_vessel(dir: int) -> void:
 		return
 	var ids := []
 	for v in vessels:
-		ids.append(int(v.id))
+		if not v.get("alien", false) or int(v.id) == session.active:
+			ids.append(int(v.id))  # (not theirs: nobody here can fly a Jaeger)
 	ids.sort()
+	if ids.size() < 2:
+		return
 	var k := ids.find(session.active)
 	session.switch_to(ids[(k + dir + ids.size()) % ids.size()])
 
@@ -857,8 +872,12 @@ func _on_menu(action: String) -> void:
 func _on_sim_event(e: Dictionary) -> void:
 	match e.kind:
 		"part_destroyed":
+			if Sim.part(e.part).get("alien", false):
+				return  # (theirs: "downed" says what matters)
 			_react("boom", 3.5)
-			var how: String = "by overheating" if float(e.speed) <= -2.0 else "in the blast" if float(e.speed) < 0.0 else "at %.0f m/s" % float(e.speed)
+			var sp := float(e.speed)
+			var how: String = "to laser fire" if sp == -4.0 else "to the wild" if sp == -5.0 \
+				else "by overheating" if sp <= -2.0 else "in the blast" if sp < 0.0 else "at %.0f m/s" % sp
 			if Sim.part(e.part).has("eva"):
 				# a penguin out walking: just that one is lost
 				var lost: Array = Sim.sync_crew(_mission) if persistent else []
@@ -869,6 +888,10 @@ func _on_sim_event(e: Dictionary) -> void:
 				_crew_lost(Sim.part(e.part).name, how)
 			elif not _mission.pod_lost:
 				hud.toast("%s destroyed %s" % [Sim.part(e.part).name, how], 2.5)
+		"downed":
+			Sfx.play("boom", 0.8)
+			Career.raider_downed()
+			hud.toast("Jaeger raider down! What's left of it falls (%d downed so far)" % Career.downed, 3.5)
 		"docked":
 			_docked_seen = true
 			_refresh_crew()
@@ -946,6 +969,7 @@ func _process(delta: float) -> void:
 	for line in computer.take_said():
 		hud.toast(line, 4.0)
 	_render(delta)
+	combat.step(delta)
 	_update_course_panel()
 	_mission_tick += delta
 	if persistent and _mission_tick > 0.25:
@@ -971,7 +995,8 @@ func _check_missions() -> void:
 	_note_liftoff(t)
 	var ti := session.target_info()
 	Career.check(t, session.core.vessel_serial(session.active), {"eva": t.get("eva", false),
-		"target_distance": ti.get("distance", INF), "docked": _docked_seen, "hands_off": _launched and not hands_used})
+		"target_distance": ti.get("distance", INF), "docked": _docked_seen, "hands_off": _launched and not hands_used,
+		"guarded": combat.guarded_s})
 	_docked_seen = false
 
 
@@ -1887,6 +1912,7 @@ func _render(delta: float) -> void:
 			_views.erase(id)
 	for id in _views:
 		_explode_vanished(_views[id].vanished)
+	_lasers.refresh(core, origin, _views, _cam.position, delta)
 
 	# camera rig in the local horizon frame
 	var up := Frame.vec_arr(t.up)
@@ -2312,6 +2338,8 @@ var _front_ids: Array = []  # per rendered part: [radius, half height]
 var _front_key := ""  # which vessel (and how many parts) _front_ids describes
 var _inside: InteriorView  # a penguin walking about inside the active craft
 var computer: ShipComputer  # the ship's computer (F2 opens its desktop)
+var combat: FlightCombat   # lasers by hand and locks; the wild up close
+var _lasers: LaserView
 var _desk: CanvasLayer        # the ship's desktop, full screen (hidden when not)
 var _desk_box: SubViewportContainer
 var _desk_vp: SubViewport      # where the desktop is drawn: full screen and the cabin's screen

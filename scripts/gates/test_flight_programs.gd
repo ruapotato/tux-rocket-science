@@ -57,9 +57,14 @@ func _frames(tree: SceneTree, n: int) -> void:
 		await tree.process_frame
 
 
-func _scene(tree: SceneTree, craft: String, site: String) -> Node3D:
+const CLOCK := 0.0
+
+
+func _scene(tree: SceneTree, craft: String, site: String, clock := -1.0) -> Node3D:
 	for v in Sim.vessels():
 		Sim.game.core.vessel_remove(int(v.id))
+	if clock >= 0.0:
+		Sim.game.core.reset_time(clock)
 	Sim.seats = {}
 	for c in tree.root.get_children():
 		if c is Node3D or (c is Control and c.name != "GateRunner"):
@@ -76,10 +81,17 @@ func _scene(tree: SceneTree, craft: String, site: String) -> Node3D:
 
 ## The pids of scripts still running on the computer.
 static func _scripts(comp: ShipComputer) -> Array:
+	# (the computer's own list of scripts, alive: a process a kill has left
+	# behind in ps, never to run again, is no script still going)
+	var live := {}
+	for row in str(comp.machine.scripts()).split("\n", false):
+		var g := row.split("\t")
+		if g.size() >= 4 and g[1] == "1" and g[3] != "-i":
+			live[g[0]] = true
 	var pids := []
 	for row in str(comp.sh("ps")).split("\n", false):
 		var f := row.strip_edges().split(" ", false)
-		if f.size() >= 6 and f[2] == "running" and f[f.size() - 1] in ["/bin/py", "/bin/sh"] and f[1] == "1":
+		if f.size() >= 6 and f[2] == "running" and f[f.size() - 1] in ["/bin/py", "/bin/sh"] and f[1] == "1" and live.has(f[0]):
 			pids.append(f[0])
 	return pids
 
@@ -118,8 +130,12 @@ func _fly(scene: Node3D, path: String, text: String, max_s: float, step := 5) ->
 func run(runner: Node) -> Dictionary:
 	var tree := runner.get_tree()
 	tree.paused = false
-	var scene := await _scene(tree, "krill_lander", "pad")
+	# (from the clock it has when run alone: where the moons are depends on
+	# how long the gates before it ran, and some of those clocks miss)
+	var t_was: float = Sim.game.core.time()
+	var scene := await _scene(tree, "krill_lander", "pad", CLOCK)
 	var s: FlightSession = scene.session
+	var t_from := s.time()
 	var comp: ShipComputer = scene.computer
 	_check(comp != null and comp.machine != null, "the ship's computer is up")
 	comp.update(scene, s.telemetry())
@@ -146,10 +162,12 @@ func run(runner: Node) -> Dictionary:
 		"simple.py from a %s orbit: wait_for_window, until_orbit_crosses, warp_to: in %s's sphere, periapsis %.1f km (%s)" % [
 			FlightPrograms.km(float(t1.get("altitude", 0.0))), t.get("body", "?"), float(t.get("orbit", {}).get("pe_alt", -1.0)) / 1000.0, said])
 
+	var spent := s.time() - t_from
 	scene.queue_free()
 	await _frames(tree, 2)
 	for v in Sim.vessels():
 		Sim.game.core.vessel_remove(int(v.id))
+	Sim.game.core.reset_time(t_was + spent)   # (the clock goes on from where it was)
 	Sim.seats = {}
 	Sim.save_game()
 	return {"status": "FAIL" if _failed else "PASS", "log": "\n".join(_log)}

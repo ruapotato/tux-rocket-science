@@ -84,6 +84,10 @@ tapering leading end takes less heating than a flat one (see
 | `mining` | `ore_kg` (a bin), `drill_kg_s`, `drill_kw`, `drill_reach` (m from the part to the ground), `refine_kg_s`, `refine_yield`, `refine_kw` |
 | `eva` | `walk_speed`, `jump_speed`, `reach` (the penguin) |
 | `scanner` | `range_km`: a Signal Scanner hears a relic in sight of it this far away (with the power on) |
+| `hp` | (a number, not a block) what a part takes before it breaks, from lasers or bites; default 50 + half its mass in kg. A penguin on EVA heals once left alone 8 s |
+| `laser` | `range_m`, `dps` (hp a second to the first thing the beam meets), `kw` (drawn while it fires), `slew_deg_s`, `arc_deg` (how far off its mount's axis it reaches: +Z, off the hull; 360 = any way, as the penguin's zapper) |
+| `alien` | (true) one of the Jaegers' parts: hidden from the hangar; a ship with one aboard is theirs. `alien_pilot` marks the hull their pilot sits in (break it and the ship is wreckage) |
+| `lift` | the Jaegers' lift drive: `force_kn` in any direction the pilot asks, `kw` at full push |
 | `resize` | `kind` (`round`: X and Z together, or `box`), `min`, `max` ([x, y, z] multipliers): the hangar resizes it in that range; mass, propellant, batteries, ore and crew scale with the volume, nodes, rooms and areas with the size |
 | `engine.kw` | an engine that runs on electricity (the Hearth Torch): what it draws at full thrust; short of it, it gives what the power pays for |
 | `interior` | rooms a penguin can walk about in: `volumes: [...]`, part-local, each a `cylinder` (`radius`, `y0`, `y1` along +Y), an `annulus` (`r0`, `r1`: a spin ring's deck is its outer wall), a `box` (`min`, `max`, `yaw_deg`) or `spokes` (`count` boxes `width` square from `r0` out to `r1`, between `y0` and `y1`), with optional `windows: [{at, count, size}]` (a row round a cylinder's wall at height `at`, or round an annulus's side walls at radius `at`). Rooms that touch or overlap are one space: make them reach the part's ends so they meet the next part's. `spin_rpm` is the rate the spin hold turns a craft with this part at. |
@@ -113,7 +117,8 @@ gates check the stock parts still behave.
 | `ore` | ore abundance 0..1: drills dig `drill_kg_s` x this |
 | `biomes` | `[{id, name, abs_lat_min_deg, abs_lat_max_deg, height_min, height_max, near: {lat_deg, lon_deg, radius_km}}]`: a point is in the first biome whose every condition holds; the last one, with none, catches the rest. Landed and low-flying science counts separately per biome |
 | `relics` | `[{id, name, lat_deg, lon_deg}]`: signal sources standing on the ground there; a scanner hears one when it is above the relic's horizon and in range. A visual for each id is in `scripts/flight/relic_visual.gd` (an unknown id gets a plain standing stone) |
-| `life` | plants and animals (up to 12 kinds): `{id, shape, per_km2, herd, spread, biomes, max_slope_deg, height_min, height_max, size: [min, max] m, color, color2, range}`; `per_km2` groups (a grove, a herd) of `herd` within `spread` m; only in the listed `biomes` (none = anywhere), on ground no steeper than `max_slope_deg`, never by the launch site or a relic. Animals add `"animal": true`, `loop` (m they wander round their spot), `fly` (m above the ground), `speed` m/s, and for grazers `legs`, `horns`. Shapes: `pine`, `broadleaf`, `frond`, `shrub`, `grass`, `flower`, `puffball`, `crystal`, `mat`, `rock`; animals `penguin`, `seal`, `bird`, `grazer`, `drifter`. `range` is how far away it is drawn. Scenery: nothing collides with it |
+| `life` | plants and animals (up to 12 kinds): `{id, shape, per_km2, herd, spread, biomes, max_slope_deg, height_min, height_max, size: [min, max] m, color, color2, range}`; `per_km2` groups (a grove, a herd) of `herd` within `spread` m; only in the listed `biomes` (none = anywhere), on ground no steeper than `max_slope_deg`, never by the launch site or a relic. Animals add `"animal": true`, `name` and `about` (what E on EVA says of them), `loop` (m they wander round their spot), `fly` (m above the ground), `speed` m/s (walking) and `run` (fleeing or charging), and for grazers `legs`, `horns`. Their ways: `temper` is `calm` (carries on until hurt), `shy` (runs from anyone within `wary` m), `curious` (comes up to a penguin) or `hostile` (goes for a penguin within `aggro` m, or a ship within 0.6 of that, and bites for `bite` hp every 1.2 s); `hp` is what it takes; `penguin: true` marks our own kind, which guard.py leaves alone. Shapes: `pine`, `broadleaf`, `frond`, `shrub`, `grass`, `flower`, `puffball`, `crystal`, `mat`, `rock`; animals `penguin`, `seal`, `bird`, `grazer`, `drifter`, `stalker`. `range` is how far away it is drawn. Within 450 m of the vessel the player is with, animals are alive to what goes on (`wild.c`); a downed one is gone until its herd makes up the loss, six hours on. Plants are scenery: nothing collides with them |
+| `nests` | where the Jaegers keep ships (up to 4): `{id, name, lat_deg, lon_deg, craft, count, height, patrol_km, detect_km, respawn_h}`: `count` raiders of `craft` (a file in `data/craft/alien/`) hang `height` m over the ground and circle `patrol_km` round it; they go up when we come within 15 km (or 3 x `detect_km`), go for a ship of ours within `detect_km` of them or the nest, and come down when we're gone. One lost comes back after `respawn_h` hours |
 
 Spheres of influence come from the masses. Adding a body after the existing
 ones keeps old saves loadable.
@@ -131,8 +136,12 @@ ones keeps old saves loadable.
   `{id, title, text, goal: {kind, body, value, relic}, funds, research, after, story}`.
   Goal kinds: `altitude`, `space`, `orbit`, `soi`, `landed`, `eva_space`,
   `eva_landed`, `recover_from`, `flag`, `rendezvous`, `docked`, `refine`, `hear`
-  (a scanner has heard `relic`) and `investigate` (a penguin on foot within
-  25 m of `relic`). `story` is shown when the mission is done.
+  (a scanner has heard `relic`), `investigate` (a penguin on foot within
+  25 m of `relic`), `catalogue` (`value` kinds of animal on `body` looked at
+  with E), `downed` (`value` Jaeger raiders brought down) and `guarded` (a
+  penguin on foot for `value` s on `body`, within 300 m of its ship, no
+  shot fired by hand, while a script runs on the ship's computer). `story` is shown when the
+  mission is done.
 
 ## Stock craft: `data/craft/*.craft.json`
 
@@ -170,6 +179,16 @@ verbs the game declares.
   the parts are told through `core.part_action(id, uid, what, value)`
   (`trs_world_part_action`). A new reading is a row in `objects()` (and a line in
   `scripts/os/pylib.gd`, so the Script Editor suggests it).
+- **The lasers and the wild** for scripts: `ship.life` (animals near, nearest first),
+  `ship.contacts` (other ships), `ship.threats` (what threatens the ship), each a
+  `thing.<key>` with `name`, `kind`, `species`, `distance`, `bearing`, `above`,
+  `health`, `hostile`, `penguin`, `alien`, `threat`, `after_us`, `state` and
+  `alive` (False once it's gone); `ship.lasers` (the laser parts: `range`,
+  `dps`, `firing`, `health`), `ship.fire_at(thing)` (a call whose argument is
+  the thing itself: `call fire_at @thing.a17`, the lasers lock on it),
+  `ship.cease_fire()` and `ship.health`. There is no key that guards a ship:
+  keeping watch is a script's job (guard.py is the template). On a
+  walk they are the ship's the penguin climbed out of (`ShipComputer.gun`).
 - **Questions the game works out** (`when_to_leave`, `what_if`) are `ask <id> ...` lines:
   `ShipComputer._ask()` answers into `answer.<id>.*` rows, and the script waits for them.
 - **The debugger:** a script in the background writes `/run/py/<pid>.vars` (its line, its

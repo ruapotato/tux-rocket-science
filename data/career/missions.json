@@ -130,6 +130,15 @@
     { "id": "auto_orbit", "title": "Orbit, hands off", "text": "Reach orbit with your own script flying: no flying keys from the pad to the orbit (to_orbit.py is one way).",
       "goal": { "kind": "orbit", "body": "floe", "hands_off": true }, "funds": 25000, "research": 20, "after": ["orbit", "auto_hop"] },
     { "id": "auto_krill", "title": "Krill, hands off", "text": "Land on Krill with the computer flying all the way from the pad (krill_by_hand.py shows how; doing it your own way pays the same).",
-      "goal": { "kind": "landed", "body": "krill", "hands_off": true }, "funds": 70000, "research": 50, "after": ["krill_land", "auto_orbit"] }
+      "goal": { "kind": "landed", "body": "krill", "hands_off": true }, "funds": 70000, "research": 50, "after": ["krill_land", "auto_orbit"] },
+    { "id": "floe_guide", "title": "Who lives on Floe", "text": "Walk a penguin out among Floe's animals (they keep clear of the pad: go a little way) and get a good look at three kinds of them: walk up close and press E. The shelf penguins will come to you.",
+      "goal": { "kind": "catalogue", "body": "floe", "value": 3 }, "funds": 5000, "research": 6, "after": ["hop"] },
+    { "id": "kelp_guide", "title": "Kelp's Field Guide", "text": "On foot on Kelp, get a good look (E) at both of its kinds of animal: the six-legged grazers of the meadows, who run if you rush them, and the drifters floating over them.",
+      "goal": { "kind": "catalogue", "body": "kelp", "value": 2 }, "funds": 60000, "research": 40, "after": ["kelp_land"] },
+    { "id": "jaegers", "title": "Not Alone", "text": "Ships are circling twelve kilometres north of the Lamp, and they aren't the builders'. Bring one down: Tern Laser Turrets (R&D: Lasers) fired by hand, locked on with Shift + click, or by a script of your own (ship.fire_at). They go for anything that comes within a few kilometres of them, and they shoot back.",
+      "goal": { "kind": "downed", "value": 1 }, "funds": 1500000, "research": 800, "after": ["gloam_land"],
+      "story": "It comes down like any wreck. In what is left of its hull are pieces of the builders' work, cut loose and stacked like salvage: these are the Jaegers, and they have been following the thread too, taking it apart behind them. They keep camps by the builders' places, Gloam's Lamp, Saffron's Hourglass and the Great Ring of Cairn, and they will be back." },
+    { "id": "safe_ground", "title": "Safe Ground", "text": "Dune stalkers hunt Saffron's ergs and badlands. Land a ship with lasers, run a script on its computer that keeps the ground clear (guard.py, or your own), and spend two minutes on foot within 300 m of it without firing a shot yourself.",
+      "goal": { "kind": "guarded", "body": "saffron", "value": 120 }, "funds": 900000, "research": 500, "after": ["saffron_land"] }
   ]
 }

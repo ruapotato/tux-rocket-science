@@ -101,6 +101,16 @@ var _wake := [-100, 0.0]      # [frame said, game time] a sleeping script wakes 
 var _ship_id := [-1, -1]      # the vessel (id, serial) the aim was held for
 var _session: FlightSession = null
 var _ship_alive := true
+# the ship the computer is in: the one flown, or (a penguin out on a walk)
+# the one it climbed out of, whose lasers keep watch while it's away
+var _home := [-1, -1]
+var gun := -1                 # the vessel whose lasers ship.fire_at() uses this frame
+var _things := {}             # "a17" / "v3s41" -> [kind, id, serial] (ship.life, ship.contacts)
+
+const LIFE_RANGE := 600.0     # m: ship.life and ship.contacts reach this far
+const LIFE_MOST := 24         # ... and list no more than this many (the nearest)
+const NEAR_EVERY := 6         # frames between looks at what is near
+var _near_cache := {"frame": -1000, "gun": -1, "rows": [], "lists": {}}
 
 
 static func get_shared() -> ShipComputer:
@@ -234,6 +244,10 @@ func update(scene: Node, t: Dictionary) -> void:
 	r["frame"] = _frame  # which update this is: a script can tell a fresh reading from one it already acted on
 	r["time"] = _n(t.get("t", 0.0))
 	_parts = JSON.parse_string(scene.session.core.vessel_part_states(scene.session.active))
+	var s: FlightSession = scene.session
+	if not t.get("eva", false):
+		_home = [s.active, s.core.vessel_serial(s.active)]
+	gun = int(_home[0]) if t.get("eva", false) and s.still(int(_home[0]), int(_home[1])) else s.active
 	if not _parts is Array:
 		_parts = []
 	_session = scene.session
@@ -486,6 +500,14 @@ func objects(t: Dictionary, r: Dictionary, core: Object) -> String:
 			rows.append("%s.deployed\t%s\t" % [pre, "true" if p.legs else "false"])
 			rows.append("%s.deploy\t@call\t" % pre)
 			rows.append("%s.retract\t@call\t" % pre)
+	# the lasers and what is near: looked at every NEAR_EVERY frames (a
+	# fresh look each frame costs the frame more than a script needs)
+	if _frame - int(_near_cache.frame) >= NEAR_EVERY or int(_near_cache.gun) != gun:
+		_near_cache = {"frame": _frame, "gun": gun, "rows": [], "lists": {}}
+		_near_rows(t, core, _near_cache.rows, _near_cache.lists)
+	for row in _near_cache.rows:
+		rows.append(row)
+	lists.merge(_near_cache.lists, true)
 	for k in lists:
 		rows.append("%s\t@[%s]\t" % [k, "|".join(lists[k])])
 	# what the game has worked out for a script that asked (when_to_leave...)
@@ -497,6 +519,58 @@ func objects(t: Dictionary, r: Dictionary, core: Object) -> String:
 		for k in ans:
 			rows.append("answer.%s.%s\t%s\t" % [id, k, str(ans[k])])
 	return "\n".join(rows) + "\n"
+
+
+## The lasers' and the things near's rows (ship.lasers, ship.life...).
+func _near_rows(t: Dictionary, core: Object, rows: Array, lists: Dictionary) -> void:
+	# the lasers: the ship's own (the one the penguin came from, on a walk)
+	var lasers := []
+	var gun_parts: Array = _parts if gun == _session.active else JSON.parse_string(core.vessel_part_states(gun))
+	var gun_names := part_names(gun_parts) if gun != _session.active else _names
+	for p in gun_parts:
+		if not p.has("laser_range"):
+			continue
+		var pre := "part.%d" % int(p.uid)
+		lasers.append("%s:%s" % [pre, gun_names.get(int(p.uid), str(p.name))])
+		if gun != _session.active:
+			rows.append("%s.name\t%s\t" % [pre, gun_names.get(int(p.uid), str(p.name))])
+			rows.append("%s.kind\tlaser\t" % pre)
+		rows.append("%s.range\t%s\t" % [pre, _n(p.laser_range)])
+		rows.append("%s.dps\t%s\t" % [pre, _n(p.laser_dps)])
+		rows.append("%s.firing\t%s\t" % [pre, "true" if p.firing else "false"])
+		rows.append("%s.health\t%s\t" % [pre, _n(100.0 * (1.0 - float(p.damage) / maxf(float(p.hp), 1e-9)))])
+	lists["lasers"] = lasers
+	rows.append("fire_at\t@call\t")
+	rows.append("cease_fire\t@call\t")
+	rows.append("health\t%s\t" % _n(t.get("health", 100.0 * (1.0 - float(t.get("hurt", 0.0))))))
+	# what is alive near the ship, and the ships near it, nearest first
+	_things.clear()
+	lists["life"] = []
+	lists["contacts"] = []
+	lists["threats"] = []
+	var near: Array = JSON.parse_string(core.things_near(gun, LIFE_RANGE))
+	for th in near.slice(0, LIFE_MOST):
+		var animal := str(th.what) == "animal"
+		var key := ("a%d" % int(th.id)) if animal else ("v%ds%d" % [int(th.id), int(th.serial)])
+		_things[key] = [int(th.kind), int(th.id), int(th.serial)]
+		var pre := "thing." + key
+		var nm := str(th.get("name", ""))
+		if animal:
+			var k: Dictionary = Sim.life_kind(str(t.get("body", "")), str(th.species))
+			nm = str(k.get("name", th.species)).trim_suffix("s") if not k.is_empty() else str(th.species)
+		var item := "%s:%s" % [pre, nm]
+		(lists.life if animal else lists.contacts).append(item)
+		if th.get("threat", false):
+			lists.threats.append(item)
+		rows.append("%s.name\t%s\t" % [pre, nm.replace("\t", " ")])
+		rows.append("%s.kind\t%s\t" % [pre, th.what])
+		rows.append("%s.species\t%s\t" % [pre, th.get("species", "ship" if not animal else "")])
+		for f in ["distance", "bearing", "above", "health"]:
+			rows.append("%s.%s\t%s\t" % [pre, f, _n(th.get(f, 0.0))])
+		for f in ["hostile", "penguin", "alien", "threat", "after_us"]:
+			rows.append("%s.%s\t%s\t" % [pre, f, "true" if th.get(f, false) else "false"])
+		rows.append("%s.state\t%s\t" % [pre, th.get("state", "")])
+		rows.append("%s.alive\ttrue\t" % pre)
 
 
 ## The parts in the order they go: the next stage's first, then the one
@@ -680,7 +754,7 @@ func _do(scene: Node, t: Dictionary, line: String) -> void:
 				programs.start(scene, w, t)
 	# (what a script says every frame -- a throttle, an aim, a reading set --
 	# is the ship's to show, not the log's: it would push out what matters)
-	if not w[0] in ["throttle", "point", "aim", "aim_along", "set"]:
+	if not w[0] in ["throttle", "point", "aim", "aim_along", "set"] and not (w[0] == "call" and w.size() > 1 and w[1] in ["fire_at", "cease_fire"]):
 		_note("> " + line)
 
 
@@ -737,9 +811,26 @@ func _set_reading(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
 
 
 ## `call part.12.decouple`: a script told a part to do something.
+## `call fire_at @thing.a17`: the lasers lock on it (and fire while it's
+## in reach); `call cease_fire`: they let go.
 func _call_part(scene: Node, t: Dictionary, w: PackedStringArray) -> void:
 	var s: FlightSession = scene.session
 	var path := w[1].split(".") if w.size() > 1 else PackedStringArray()
+	if path.size() >= 1 and (path[path.size() - 1] == "fire_at" or path[path.size() - 1] == "cease_fire"):
+		var who := gun if gun >= 0 else s.active
+		if path[path.size() - 1] == "cease_fire":
+			s.core.lock_on(who, 0, 0, 0)
+			s._telemetry_tick = -1
+			return
+		var key := w[2].trim_prefix("@thing.") if w.size() > 2 else ""
+		if not _things.has(key):
+			_note("fire_at: %s is gone (or out of reach)" % (w[2] if w.size() > 2 else "nothing"))
+			return
+		var th: Array = _things[key]
+		if s.core.lock_on(who, th[0], th[1], th[2]) == 0:
+			_note("fire_at: there are no lasers aboard (a Tern Laser Turret, in Utility)")
+		s._telemetry_tick = -1
+		return
 	if path.size() != 3 or path[0] != "part":
 		return
 	var what := path[2]

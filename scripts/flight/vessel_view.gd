@@ -394,6 +394,21 @@ func has_uid(uid: int) -> bool:
 	return _parts.has(uid)
 
 
+## Turns a laser part's head so its beam (the head's +Y) points along dir
+## (render axes), where the core has it pointing.
+func aim_head(uid: int, dir: Vector3) -> void:
+	if not _parts.has(uid):
+		return
+	var e: Dictionary = _parts[uid]
+	if not e.has("head"):
+		e["head"] = (e.node as Node3D).find_child("Head", true, false)
+	var head: Node3D = e.head
+	if head == null or not head.is_inside_tree() or dir.length() < 0.5:
+		return
+	var s := head.global_basis.get_scale()
+	head.global_basis = LaserView.along_y(dir.normalized()).scaled(s)
+
+
 func _update_plume(p: Node3D, thr: float, pressure: float, flicker: float) -> void:
 	var on := thr > 0.01
 	p.set_meta("thr", thr)

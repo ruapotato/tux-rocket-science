@@ -169,6 +169,21 @@ const SHIP := [
 	["boosters", "the solid boosters"], ["tanks", "the tanks"], ["decouplers", "the decouplers"],
 	["parachutes", "the parachutes"], ["legs", "the landing legs"], ["pods", "the crew pods"],
 	["part", "(\"Walrus\"): the one part called that"],
+	["life", "what lives near, nearest first: .name .distance .hostile .penguin .health .alive ..."],
+	["contacts", "the other ships near: .name .distance .alien .health ..."],
+	["threats", "what near threatens the ship (Jaegers, hostile animals)"],
+	["lasers", "the laser parts aboard"], ["fire_at", "(thing): the lasers lock on it and fire while it's in reach"],
+	["cease_fire", "(): the lasers let go"],
+	["health", "%: a penguin's own, or the ship's worst-hurt part's"],
+]
+
+## What a thing near has (ship.life[0].X, ship.contacts[0].X).
+const THING := [
+	["name", ""], ["kind", "animal ship penguin"], ["species", "an animal's kind (\"dune_stalkers\")"], ["distance", "m to its edge"],
+	["bearing", "degrees from north"], ["above", "m above the ship (- below)"], ["health", "%"], ["hostile", "True if it means harm"],
+	["penguin", "True: one of ours"], ["alien", "True: the Jaegers'"], ["threat", "True: it means the ship harm (the Jaegers, hostile animals)"],
+	["after_us", "True: it's coming for us"], ["state", "roaming wandering fleeing following charging down / patrolling attacking"],
+	["alive", "False once it's gone (down, or out of sight)"],
 ]
 
 const ORBIT := [
@@ -193,4 +208,6 @@ const PART := [
 	["fired", "True once it has"], ["deploy", "(): opens (chutes, legs)"], ["cut", "(): cuts a chute away"],
 	["retract", "(): legs in"], ["deployed", "legs: True when out"], ["state", "chutes: stowed armed opening open cut"],
 	["capacity_kg", "a tank's"],
+	["range", "a laser's reach, m"], ["dps", "a laser's hp a second"], ["firing", "a laser: True while its beam is on"],
+	["health", "% of what it takes before it breaks"],
 ]

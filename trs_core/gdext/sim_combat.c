@@ -69,7 +69,8 @@ static void m_set_focus(void *self, const trs_val *a, trs_val *r) {
 #define WPP 20
 /* wild_list() -> [body, n, then per live animal: id, face, level, i, j,
  * kind, idx, state, pos(3), vel(3), fwd(3) (body-fixed), hp share, s in
- * its state, size]: WPP doubles each */
+ * its state, size: WPP doubles each; then m, and the m downed ones the
+ * herds haven't made up yet on that body: face, level, i, j, kind, idx] */
 static void m_wild_list(void *self, const trs_val *a, trs_val *r) {
 	(void)a;
 	trs_sim_handle *h = H(self);
@@ -79,7 +80,7 @@ static void m_wild_list(void *self, const trs_val *a, trs_val *r) {
 		return;
 	}
 	const trs_wild *wd = &h->world->wild;
-	double *d = malloc(sizeof(double) * (size_t)(2 + wd->n * WPP));
+	double *d = malloc(sizeof(double) * (size_t)(3 + wd->n * WPP + wd->ndead * 6));
 	d[0] = wd->body, d[1] = wd->n;
 	for (int i = 0; i < wd->n; i++) {
 		const trs_critter *c = &wd->c[i];
@@ -94,7 +95,16 @@ static void m_wild_list(void *self, const trs_val *a, trs_val *r) {
 		o[18] = h->world->t - c->t_state;
 		o[19] = c->size;
 	}
-	ret_doubles(r, d, 2 + wd->n * WPP);
+	int k = 2 + wd->n * WPP, m = 0;
+	for (int i = 0; i < wd->ndead; i++)
+		m += wd->dead[i].body == wd->body;
+	d[k++] = m;
+	for (int i = 0; i < wd->ndead; i++)
+		if (wd->dead[i].body == wd->body) {
+			const trs_wild_dead *x = &wd->dead[i];
+			d[k++] = x->cell.face, d[k++] = x->cell.level, d[k++] = x->cell.i, d[k++] = x->cell.j, d[k++] = x->kind, d[k++] = x->idx;
+		}
+	ret_doubles(r, d, k);
 	free(d);
 }
 
@@ -362,6 +372,46 @@ static void m_nests(void *self, const trs_val *a, trs_val *r) {
 	ret_json(r, arr);
 }
 
+/* find_life(body, species id, seed) -> [lat_deg, lon_deg] where one of
+ * that kind is now (on its loop), or [] if none was found */
+static void m_find_life(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!h->world || a[0].i < 0 || a[0].i >= h->world->sys.count) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	const trs_body *b = &h->world->sys.bodies[a[0].i];
+	int k = -1;
+	for (int q = 0; q < b->nlife; q++)
+		if (!strcmp(b->life[q].id, a[1].s))
+			k = q;
+	if (k < 0) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	unsigned s = (unsigned)a[2].i * 2654435761u + 1u;
+	int level = trs_life_level(b), max = 2000;
+	trs_life_instance *li = malloc(sizeof(trs_life_instance) * (size_t)max);
+	double out[2];
+	int found = 0;
+	for (int q = 0; q < 20000 && !found; q++) {
+		s = s * 1664525u + 1013904223u;
+		double z = (s >> 8) / 16777216.0 * 2 - 1;
+		s = s * 1664525u + 1013904223u;
+		double an = (s >> 8) / 16777216.0 * 2 * TRS_PI, rr = sqrt(1 - z * z);
+		trs_patch_id p = trs_patch_from_dir(v3(rr * cos(an), rr * sin(an), z), level);
+		trs_v3 c, pos, fwd;
+		if (trs_life_cell(b, p, 1u << k, &c, li, max) > 0) {
+			trs_life_animal_at(&b->life[k], &li[0], c, h->world->t, &pos, &fwd);
+			trs_v3 d = v3_norm(pos);
+			out[0] = asin(d.z) * 180 / TRS_PI, out[1] = atan2(d.y, d.x) * 180 / TRS_PI;
+			found = 1;
+		}
+	}
+	free(li);
+	ret_doubles(r, out, found ? 2 : 0);
+}
+
 #define V TRS_T_VOID
 #define I TRS_T_INT
 #define F TRS_T_FLOAT
@@ -381,5 +431,6 @@ const trs_method_def TRS_SIM_COMBAT_METHODS[] = {
 	{ "things_near", m_things_near, S, 2, { I, F }, { "from", "range" } },
 	{ "nest_craft", m_nest_craft, B, 2, { S, S }, { "craft_id", "text" } },
 	{ "nests", m_nests, S, 1, { I }, { "body" } },
+	{ "find_life", m_find_life, A, 3, { I, S, I }, { "body", "species", "seed" } },
 };
 const int TRS_SIM_COMBAT_METHOD_COUNT = sizeof(TRS_SIM_COMBAT_METHODS) / sizeof(TRS_SIM_COMBAT_METHODS[0]);

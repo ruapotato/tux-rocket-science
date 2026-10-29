@@ -152,6 +152,33 @@ e.throttle = 0
 print(f"down! {ship.fuel:.0f}% fuel left")
 """
 
+const GUARD := """# guard.py -- the ship's lasers keep the ground round it clear
+#
+# Land, run this, and go for a walk (F): whatever lives near the ship and
+# isn't a penguin, the lasers see off while you're out. ship.life lists
+# what is alive near (nearest first); each has a name, a distance (m), a
+# health, and whether it's hostile and whether it's a penguin. Only want
+# the dangerous ones gone? Add  and c.hostile  to the test below.
+reach = 300                    # m round the ship
+lasers = ship.lasers
+if not lasers:
+    print("No lasers aboard: fit a Tern Laser Turret (Utility) and try again")
+else:
+    print(f"On guard with {len(lasers)} laser(s), out to {reach} m")
+    aimed = None
+    while True:
+        near = [c for c in ship.life if not c.penguin and c.distance < reach]
+        if near:
+            if near[0] != aimed:
+                aimed = near[0]
+                print(f"Zapping a {aimed.name}, {aimed.distance:.0f} m off")
+            ship.fire_at(aimed)       # the lasers lock on it, and fire while it's in reach
+        elif aimed:
+            aimed = None
+            ship.cease_fire()
+        sleep(0.5)
+"""
+
 const BLANK := """# my_script.py
 #
 # ship.  (type the dot: it lists what the ship has)   ship.part("...")
@@ -166,5 +193,6 @@ const LIST := [
 	["Hover: hold a height", "hover.py", HOVER],
 	["Co-pilot: warnings while you fly", "watch.py", WATCH],
 	["Suicide burn: land like a booster", "suicide_burn.py", SUICIDE],
+	["Guard: the lasers keep the ground clear", "guard.py", GUARD],
 	["Blank", "my_script.py", BLANK],
 ]

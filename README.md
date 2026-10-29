@@ -163,6 +163,23 @@ nearest first, with its distance. Each star's light tints its worlds' sunlight a
 - the islands and lagoons standing in or out of their seas as the text says;
 - a course along each hop of the thread arriving.
 
+**The wild, the Jaegers and lasers**: the animals near you are alive to you. Shy ones (Kelp's
+grazers, Haven's hornbucks, the puffins) run when a penguin comes near; curious ones (Floe's
+shelf penguins, Selkie's selkies) come over and follow you about; calm ones carry on unless
+hurt; and on the worlds of other stars some hunt: Gloam's dusk crawlers, Haven's fangrunners,
+Saffron's dune stalkers. They charge a penguin on foot and bite, and a penguin can be lost to
+them. On EVA, **E** has a good look at an animal for the catalogue (and a little research).
+By the builders' places on Gloam, Saffron and Cairn the **Jaegers** keep camps, twelve
+kilometres north of each relic: raiders on lift drives that go up when you come near, go for
+any ship of yours within reach, and fire back. The **Tern Laser Turret** (R&D: Lasers; the
+**Warden Lander** carries two) fires at what's under the cursor while you hold the left mouse
+button and locks on with Shift + click. Keeping watch by itself is something you code: a
+penguin on EVA carries a small zapper for its own defence, and from a script, `ship.life` lists what lives near (`.name`, `.distance`, `.hostile`, `.penguin`,
+`.health`), `ship.fire_at(thing)` locks the lasers on it, and **guard.py** (a Script Editor
+template) keeps the ground round a landed ship clear while you walk. A laser's damage is its
+dps for the time its beam is on the target, the batteries pay its kW for the same time, and
+`test-wild`, `test-aliens` and `test-guard` check all of it.
+
 **Biomes**: every world with ground is split into named regions (Floe's Glacier Shelf, the Puffin
 Spires, Frozen Seas, Highlands, Tundra and Polar Caps; Krill's Crater Floors and Rims; Kelp's
 Basins and Meadows...). The status line names the one below you when you're low. Landed and

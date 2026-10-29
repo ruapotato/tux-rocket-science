@@ -117,6 +117,28 @@ trs_gate_status trs_gate_aliens(trs_log *out, const char *data_dir) {
 			ld = trs_craft_def(&raider, i)->laser_dps;
 	const double t0 = 1000.0, h = TRS_PHYSICS_DT;
 
+	/* 0. what the story says: every nest twelve kilometres north of its
+	 * world's relic (a ship at the relic sees them up, but is out of their
+	 * reach), its craft one we have */
+	for (int bj = 0; bj < sys.count; bj++) {
+		const trs_body *bb = &sys.bodies[bj];
+		for (int k = 0; k < bb->nnests; k++) {
+			double best = 1e300;
+			for (int q = 0; q < bb->nrelics; q++)
+				best = fmin(best, acos(fmin(1, v3_dot(bb->nests[k].dir, bb->relics[q].dir))) * bb->radius);
+			int north = bb->nrelics > 0 && bb->nests[k].dir.z > bb->relics[0].dir.z;
+			snprintf(path, sizeof path, "%s/craft/alien/%s.craft.json", data_dir, bb->nests[k].craft);
+			trs_json *cj = trs_json_load_file(path, err, sizeof err);
+			int have = cj != NULL;
+			trs_json_free(cj);
+			int okn = fabs(best - 12000) < 100 && north && have && best > bb->nests[k].detect;
+			failed += !okn;
+			trs_log_printf(out, "%s %s, %s: %.2f km north of its relic (the story: twelve), outside its %.0f km reach; craft %s %s\n",
+					okn ? "ok  " : "FAIL", bb->name, bb->nests[k].name, best / 1000, bb->nests[k].detect / 1000, bb->nests[k].craft,
+					have ? "found" : "MISSING");
+		}
+	}
+
 	trs_world *w = malloc(sizeof(trs_world));
 	trs_world_init(w, &sys, t0);
 	trs_world_set_nest_craft(w, ne->craft, &raider);

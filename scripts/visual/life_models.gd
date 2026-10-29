@@ -420,6 +420,34 @@ static func animal(spec: Dictionary, _size: float) -> Node3D:
 				var lg := _pivot(rig, "Leg%d" % k, Vector3(s * 0.22, 0.5, z))
 				_part(lg, _rod(0.075, 0.5), body, Vector3(0, -0.25, 0))
 				_part(lg, _sphere(0.08), _m(c1.darkened(0.4)), Vector3(0, -0.5, 0.02), Vector3(1, 0.6, 1.3))
+		"stalker":
+			# low and long, long-legged, a big head of teeth and a tail
+			var body := _m(c1)
+			var belly := _m(c2)
+			_part(rig, _sphere(0.32), body, Vector3(0, 0.72, 0), Vector3(0.85, 0.7, 2.0), "Body")
+			_part(rig, _sphere(0.24), belly, Vector3(0, 0.62, 0.05), Vector3(0.8, 0.5, 1.7))
+			for k in 5:
+				_part(rig, BoxMesh.new(), belly, Vector3(0, 0.98, 0.45 - k * 0.22), Vector3(0.05, 0.14, 0.08)).rotation.x = -0.4
+			var neck := _pivot(rig, "Neck", Vector3(0, 0.8, 0.6))
+			_part(neck, _sphere(0.2), body, Vector3(0, 0.02, 0.22), Vector3(0.85, 0.8, 1.5), "Head")
+			var jaw := _pivot(neck, "Jaw", Vector3(0, -0.06, 0.12))
+			_part(jaw, _sphere(0.15), belly, Vector3(0, -0.04, 0.16), Vector3(0.75, 0.4, 1.4))
+			for s in [-1.0, 1.0]:
+				_part(neck, _sphere(0.035), _m(Color(1.0, 0.75, 0.1), 2.0), Vector3(s * 0.12, 0.1, 0.36))
+				for k in 3:
+					var tooth := CylinderMesh.new()
+					tooth.top_radius = 0.0
+					tooth.bottom_radius = 0.018
+					tooth.height = 0.07
+					_part(neck, tooth, _m(Color(0.95, 0.93, 0.85)), Vector3(s * (0.06 + 0.03 * k), -0.07, 0.42 - 0.05 * k)).rotation.x = PI
+			var tail := _pivot(rig, "Tail", Vector3(0, 0.78, -0.62))
+			_part(tail, _rod(0.06, 0.8), body, Vector3(0, 0, -0.38)).rotation.x = PI / 2 - 0.2
+			for k in 4:
+				var z := 0.35 if k < 2 else -0.35
+				var sd := -1.0 if k % 2 == 0 else 1.0
+				var lg := _pivot(rig, "Leg%d" % k, Vector3(sd * 0.22, 0.62, z))
+				_part(lg, _rod(0.07, 0.62), body, Vector3(0, -0.31, 0))
+				_part(lg, _sphere(0.08), _m(c1.darkened(0.5)), Vector3(0, -0.62, 0.05), Vector3(1, 0.5, 1.6))
 		"drifter":
 			var bell := SphereMesh.new()
 			bell.radius = 0.5
@@ -437,8 +465,9 @@ static func animal(spec: Dictionary, _size: float) -> Node3D:
 	return root
 
 
-## Poses a rig at clock t moving at `speed` m/s (0: standing).
-static func pose(root: Node3D, shape: String, t: float, speed: float) -> void:
+## Poses a rig at clock t moving at `speed` m/s (0: standing); angry: it
+## is going for something (jaws open).
+static func pose(root: Node3D, shape: String, t: float, speed: float, angry := false) -> void:
 	var rig := root.get_node_or_null("Rig") as Node3D
 	if rig == null:
 		return
@@ -463,14 +492,29 @@ static func pose(root: Node3D, shape: String, t: float, speed: float) -> void:
 			(rig.get_node("WingR") as Node3D).rotation.z = -flap
 			rig.position.y = sin(t * 13.0 + 1.0) * 0.05
 		"grazer":
-			var w := t * 5.0
-			for k in 6:
+			var w := t * 5.0 * clampf(speed / 0.6, 1.0, 3.0)
+			for k in 8:
 				var lg := rig.get_node_or_null("Leg%d" % k) as Node3D
 				if lg:
 					lg.rotation.x = sin(w + (PI if (k + k / 2) % 2 == 1 else 0.0)) * 0.5 * moving
 			var neck := rig.get_node("Neck") as Node3D
 			neck.rotation.x = lerpf(0.9 + 0.1 * sin(t * 2.0), 0.0, moving)  # head down to graze when it stops
 			rig.position.y = absf(sin(w)) * 0.03 * moving
+		"stalker":
+			# a lope when it walks, a gallop when it runs
+			var run := clampf(speed / 3.0, 0.0, 1.0)
+			var w := t * lerpf(5.0, 11.0, run)
+			for k in 4:
+				var lg := rig.get_node_or_null("Leg%d" % k) as Node3D
+				if lg:
+					var ph := (0.0 if k < 2 else PI) + (0.0 if k % 2 == 0 else lerpf(PI, 0.4, run))
+					lg.rotation.x = sin(w + ph) * lerpf(0.45, 0.9, run) * moving
+			rig.rotation.x = sin(w * 2.0) * 0.05 * run
+			rig.position.y = absf(sin(w)) * lerpf(0.03, 0.12, run) * moving
+			var neck := rig.get_node("Neck") as Node3D
+			neck.rotation.x = lerpf(0.25 + 0.1 * sin(t * 1.3), -0.15, run)
+			(neck.get_node("Jaw") as Node3D).rotation.x = (0.55 + 0.15 * sin(t * 9.0)) if angry else 0.05 * (1.0 + sin(t * 0.6))
+			(rig.get_node("Tail") as Node3D).rotation.y = sin(t * (1.5 + 4.0 * run)) * 0.35
 		"drifter":
 			var p := sin(t * 1.6)
 			var body := rig.get_node("Body") as Node3D

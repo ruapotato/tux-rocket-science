@@ -419,7 +419,9 @@ const HELP := """[b][color=#ff8a2a]FLIGHT CONTROLS[/color][/b]      [color=#6f86
 [b]Y[/b] pick a target (again for the next)   [b]U[/b] undock   SAS [b]TGT[/b] / [b]RV-[/b] / [b]DOCK[/b]: point at it /
    against your speed relative to it / line your port up with its port
 SAS buttons: hold, prograde, retrograde, normal, radial, [b]MNV[/b] (point at the burn)
-[b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in)   [b]O[/b] science
+[b]F[/b] a penguin goes outside (on EVA: WASD walk, Space jump, F climbs back in, [b]E[/b] a good look at an animal)   [b]O[/b] science
+[b]Left mouse[/b] (held) fires the lasers at what's under the cursor (a penguin's zapper on EVA)   [b]Shift + click[/b] locks them on it
+   (to have the ship keep watch by itself, script it: guard.py in the Script Editor's New)
 [b]~[/b] the views: the rocket, the penguins inside (click the computer's screen), the ship's computer, and back
 [b]F2[/b] the ship's computer: its desktop, a terminal (`ship help`), scripts that fly the ship (launch, transfer, land...), and games for the long trips
 [b]Enter[/b] one of the crew walks about inside (habs, spin rings: WASD, Space jumps or pushes off, Enter again back to the controls)   [b]Home[/b] spin hold
@@ -443,8 +445,8 @@ func _build_help() -> void:
 	_help.set_anchors_preset(Control.PRESET_CENTER)
 	_help.offset_left = -330
 	_help.offset_right = 330
-	_help.offset_top = -250
-	_help.offset_bottom = 250
+	_help.offset_top = -280
+	_help.offset_bottom = 280
 	_help.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var t := RichTextLabel.new()
 	t.bbcode_enabled = true

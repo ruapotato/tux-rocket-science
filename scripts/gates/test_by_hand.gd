@@ -247,10 +247,17 @@ func _scene(tree: SceneTree, craft: String, site: String, clock := -1.0) -> Node
 
 ## The pids of scripts still running on the computer.
 static func _scripts(comp: ShipComputer) -> Array:
+	# (the computer's own list of scripts, alive: a process a kill has left
+	# behind in ps, never to run again, is no script still going)
+	var live := {}
+	for row in str(comp.machine.scripts()).split("\n", false):
+		var g := row.split("\t")
+		if g.size() >= 4 and g[1] == "1" and g[3] != "-i":
+			live[g[0]] = true
 	var pids := []
 	for row in str(comp.sh("ps")).split("\n", false):
 		var f := row.strip_edges().split(" ", false)
-		if f.size() >= 6 and f[2] == "running" and f[f.size() - 1] in ["/bin/py", "/bin/sh"] and f[1] == "1":
+		if f.size() >= 6 and f[2] == "running" and f[f.size() - 1] in ["/bin/py", "/bin/sh"] and f[1] == "1" and live.has(f[0]):
 			pids.append(f[0])
 	return pids
 
