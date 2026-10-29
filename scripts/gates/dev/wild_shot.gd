@@ -54,7 +54,7 @@ func run(runner: Node) -> Dictionary:
 	var lon := 0.0
 	if env.call("NEST", "") != "":
 		var n: Dictionary = JSON.parse_string(core.nests(bi))[0]
-		lat = float(n.lat) - rad_to_deg(2500.0 / R)
+		lat = float(n.lat) - rad_to_deg(float(env.call("NEST_KM", "2.5")) * 1000.0 / R)
 		lon = float(n.lon)
 	else:
 		var at: PackedFloat64Array = core.find_life(bi, species, int(env.call("SEED", "1")))
@@ -63,8 +63,19 @@ func run(runner: Node) -> Dictionary:
 		lat = at[0] - rad_to_deg(45.0 / R)
 		lon = at[1]
 	# daylight first, with the lander alone there
+	var pad := s.active
+	var lv: PackedFloat64Array = core.level_spot(bi, lat, lon, 250.0, 0.03)  # (on level ground: a lander tips on a dune's face)
+	lat = lv[0]
+	lon = lv[1]
 	var id: int = core.flight_place_landed(text, bid, lat, lon)
 	s.switch_to(id)
+	core.vessel_remove(pad)
+	await _frames(tree, 3)
+	for b in scene._booms:  # (its view goes up in smoke as it goes: not here)
+		if is_instance_valid(b):
+			b.queue_free()
+	scene._booms.clear()
+	scene._wreck_set = false
 	core.vessel_set_legs(id, true)
 	s.step_ticks(150)  # (standing on its legs)
 	for q in 0 if Sim.look(bid).get("locked", false) else 400:
@@ -84,6 +95,16 @@ func run(runner: Node) -> Dictionary:
 	var shot := 0
 	for f in frames:
 		await tree.process_frame
+		# FOLLOW=1: the camera on a Jaeger raider once one is up
+		if env.call("FOLLOW", "") != "" and f % 30 == 0:
+			for v in JSON.parse_string(core.vessel_list()):
+				if v.get("pilot", false) and not JSON.parse_string(core.telemetry(s.active)).get("alien", false):
+					s.switch_to(int(v.id))
+					for b in scene._booms:
+						if is_instance_valid(b):
+							b.queue_free()
+					scene._booms.clear()
+					break
 		if f % every == every - 1:
 			await RenderingServer.frame_post_draw
 			scene.get_viewport().get_texture().get_image().save_png(DIR + "wild_%02d.png" % shot)
@@ -95,6 +116,23 @@ func run(runner: Node) -> Dictionary:
 			log.append("shot %d at %.1f s: penguin %s health %.0f, %d near (%d hostile), lander firing %d" % [shot, f / 60.0,
 				"alive" if t.get("alive", false) else "LOST", float(t.get("health", 0.0)), near.size(), hostile,
 				int(JSON.parse_string(core.telemetry(id)).get("firing", 0))])
+			if scene._views.has(s.active):
+				var vv = scene._views[s.active]
+				var pp := []
+				for u in vv._parts:
+					var nd: Node3D = vv._parts[u].node
+					pp.append("%s %s vis %s kids %d" % [vv._parts[u].part, str(nd.global_position), nd.is_visible_in_tree(), nd.get_child_count()])
+				log.append("   active view: %s; camera at %s; wreck %s %s" % [", ".join(pp), str(scene._cam.global_position), scene._wreck_set, str(scene._wreck)])
+			for e in s.events:
+				if str(e.kind) in ["part_destroyed", "vessel_created"]:
+					log.append("   event %s vessel %s part %s speed %s" % [e.kind, e.get("vessel"), e.get("part", ""), e.get("speed", "")])
+			s.events.clear()
+			for v in JSON.parse_string(core.vessel_list()):
+				if not v.get("alien", false):
+					log.append("   ours %d %s mode %s situation %s" % [int(v.id), v.name, v.mode, v.situation])
+				if v.get("alien", false):
+					log.append("   alien %d %s parts %d render %d mode %s views %s" % [int(v.id), v.name, int(v.get("parts", 0)),
+						core.vessel_render(int(v.id), s.active).size(), v.mode, scene._views.has(int(v.id))])
 			shot += 1
 	return {"status": "PASS", "log": "\n".join(log)}
 

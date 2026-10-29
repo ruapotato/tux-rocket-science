@@ -104,6 +104,7 @@ func _ready() -> void:
 		# each craft keeps its own throttle and steering mode
 		_throttle = float(session.telemetry().get("throttle", 0.0))
 		_sas_follow = ""
+		_wreck_set = false  # (a live craft to follow again, not where one was lost)
 		_cam_dist = _framing_dist()
 		_refresh_crew())
 	var cs := get_node_or_null("/root/ControlSocket")

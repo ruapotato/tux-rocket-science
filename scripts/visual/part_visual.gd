@@ -349,7 +349,7 @@ static func _antenna(root: Node3D, sh: Dictionary) -> void:
 static func _turret(root: Node3D, sh: Dictionary, alien: bool) -> void:
 	var r: float = sh.get("radius", 0.26)
 	var h: float = sh.get("height", 0.4)
-	var body := mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35) if alien else mat("graphite", GRAPHITE, 0.4, 0.5)
+	var body := mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4) if alien else mat("graphite", GRAPHITE, 0.4, 0.5)
 	var eye := Color(0.3, 1.0, 0.45) if alien else Color(1.0, 0.25, 0.15)
 	var base := CylinderMesh.new()
 	base.top_radius = r * 0.8
@@ -393,7 +393,7 @@ static func _turret(root: Node3D, sh: Dictionary, alien: bool) -> void:
 static func _saucer(root: Node3D, sh: Dictionary) -> void:
 	var r: float = sh.get("radius", 3.0)
 	var h: float = sh.get("height", 1.3)
-	var hull := mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35)
+	var hull := mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4)
 	for s in [-1.0, 1.0]:
 		var lens := SphereMesh.new()
 		lens.radius = r
@@ -401,7 +401,8 @@ static func _saucer(root: Node3D, sh: Dictionary) -> void:
 		lens.is_hemisphere = true
 		lens.radial_segments = 48
 		lens.rings = 8
-		_mesh(root, lens, hull, Transform3D(Basis.IDENTITY.scaled(Vector3(1, s, 1)), Vector3.ZERO))
+		# (the lower half turned over, not mirrored: a mirror turns its faces inside out)
+		_mesh(root, lens, hull, Transform3D(Basis.IDENTITY if s > 0.0 else Basis(Vector3.RIGHT, PI), Vector3.ZERO))
 	var seam := TorusMesh.new()
 	seam.inner_radius = r * 0.97
 	seam.outer_radius = r * 1.02
@@ -438,7 +439,7 @@ static func _lift_ring(root: Node3D, sh: Dictionary) -> void:
 	ring.inner_radius = r * 0.55
 	ring.outer_radius = r
 	ring.rings = 48
-	_mesh(root, ring, mat("jaeger", Color(0.12, 0.13, 0.12), 0.85, 0.35), Transform3D(Basis.IDENTITY.scaled(Vector3(1, h / (r * 0.45), 1)), Vector3.ZERO))
+	_mesh(root, ring, mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4), Transform3D(Basis.IDENTITY.scaled(Vector3(1, h / (r * 0.45), 1)), Vector3.ZERO))
 	var disc := CylinderMesh.new()
 	disc.top_radius = r * 0.6
 	disc.bottom_radius = r * 0.6

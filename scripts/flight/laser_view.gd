@@ -24,10 +24,11 @@ class_name LaserView
 extends Node3D
 
 const LPP := 11
+const SEGS := 6
 const OURS := Color(1.0, 0.28, 0.12)
 const THEIRS := Color(0.3, 1.0, 0.4)
 
-var _beams: Array[MeshInstance3D] = []
+var _segs: Array[MeshInstance3D] = []
 var _flashes: Array[MeshInstance3D] = []
 var _lights: Array[OmniLight3D] = []
 var _mat_ours: StandardMaterial3D
@@ -60,8 +61,8 @@ static func _glow(c: Color) -> StandardMaterial3D:
 	return m
 
 
-func _beam(i: int) -> MeshInstance3D:
-	while _beams.size() <= i:
+func _seg(i: int) -> MeshInstance3D:
+	while _segs.size() <= i:
 		var mi := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
 		cyl.top_radius = 1.0
@@ -72,7 +73,13 @@ func _beam(i: int) -> MeshInstance3D:
 		mi.mesh = cyl
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
-		_beams.append(mi)
+		_segs.append(mi)
+	return _segs[i]
+
+
+## The flash and light at beam i's far end.
+func _beam(i: int) -> void:
+	while _flashes.size() <= i:
 		var fl := MeshInstance3D.new()
 		var sp := SphereMesh.new()
 		sp.radius = 1.0
@@ -89,7 +96,6 @@ func _beam(i: int) -> MeshInstance3D:
 		li.shadow_enabled = false
 		add_child(li)
 		_lights.append(li)
-	return _beams[i]
 
 
 ## A basis whose +Y is unit vector dir.
@@ -108,6 +114,7 @@ func refresh(core: TrsSim, origin: int, views: Dictionary, cam: Vector3, dt: flo
 	var feed: PackedFloat64Array = core.lasers(origin)
 	var n := feed.size() / LPP
 	var shown := 0
+	var segs := 0
 	var hum := 0.0
 	var buzz := 0.0
 	var now := {}
@@ -127,13 +134,21 @@ func refresh(core: TrsSim, origin: int, views: Dictionary, cam: Vector3, dt: flo
 		now[key] = true
 		if not _was_firing.has(key) and at.distance_to(cam) < 600.0:
 			Sfx.play("zap", clampf(1.0 - at.distance_to(cam) / 600.0, 0.2, 1.0))
-		var mi := _beam(shown)
-		var w := 0.035 * (1.0 + 0.25 * sin(_t * 60.0 + k)) * (1.4 if alien else 1.0)
-		var mid := at + dir * length * 0.5
+		# in pieces, each as wide as it must be to show from here (a beam
+		# that reaches a kilometre up is a thread to the eye at the far end)
+		var mat := _mat_theirs if alien else _mat_ours
 		var b := along_y(dir)
-		mi.transform = Transform3D(b.scaled(Vector3(w, length, w)), mid)
-		mi.material_override = _mat_theirs if alien else _mat_ours
-		mi.visible = true
+		var flick := (1.0 + 0.25 * sin(_t * 60.0 + k)) * (1.4 if alien else 1.0)
+		for q in SEGS:
+			var a0 := length * q / SEGS
+			var mid := at + dir * (a0 + length * 0.5 / SEGS)
+			var w := maxf(0.035, mid.distance_to(cam) * 0.0012) * flick
+			var mi := _seg(segs)
+			segs += 1
+			mi.transform = Transform3D(b.scaled(Vector3(w, length / SEGS, w)), mid)
+			mi.material_override = mat
+			mi.visible = true
+		_beam(shown)
 		var end := at + dir * length
 		var fl := _flashes[shown]
 		var fs := 0.25 + 0.15 * sin(_t * 47.0 + k * 3.0)
@@ -150,8 +165,9 @@ func refresh(core: TrsSim, origin: int, views: Dictionary, cam: Vector3, dt: flo
 			buzz = maxf(buzz, near)
 		else:
 			hum = maxf(hum, near)
-	for i in range(shown, _beams.size()):
-		_beams[i].visible = false
+	for i in range(segs, _segs.size()):
+		_segs[i].visible = false
+	for i in range(shown, _flashes.size()):
 		_flashes[i].visible = false
 		_lights[i].visible = false
 	_was_firing = now

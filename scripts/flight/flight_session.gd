@@ -474,8 +474,11 @@ func _manage_ranges() -> void:
 		var d := _distance_to_active(v.id)
 		if d > PHYSICS_RANGE and v.mode == "physics":
 			var tv: Dictionary = JSON.parse_string(core.telemetry(v.id))
-			if tv.landed:
-				core.vessel_set_mode(v.id, "landed")
+			var ours: bool = int(v.get("crew", 0)) > 0 or v.get("eva", false) or v.get("control", false)
+			if tv.landed or (ours and float(tv.get("altitude_terrain", 1e9)) < 30.0 and float(tv.get("surface_speed", 1e9)) < 2.0):
+				core.vessel_set_mode(v.id, "landed")  # (a lander still rocking on its legs, a penguin mid-step: down all the same)
+			elif ours and tv.in_atmosphere:
+				pass  # (a craft of ours flying in the air goes on flying: it is not debris to tidy away)
 			elif tv.in_atmosphere or tv.situation == "suborbital":
 				core.vessel_remove(v.id)
 			else:

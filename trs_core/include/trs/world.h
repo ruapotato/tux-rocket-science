@@ -532,6 +532,9 @@ trs_thing trs_world_ray(const trs_world *w, int body, trs_v3 o, trs_v3 d, double
 int trs_world_set_guard(trs_world *w, int id, int mode);
 int trs_world_lock(trs_world *w, int id, trs_thing th);
 int trs_world_hand_fire(trs_world *w, int id, int on, trs_v3 at);
+/* Something aboard that flies it (a pod, a probe, a penguin, a Jaeger's
+ * hull): a craft, not wreckage. */
+int trs_vessel_alive_craft(const trs_vessel *vs);
 /* Whether a thing is alive and fair game for guard mode `mode` from vessel id. */
 int trs_thing_threat(const trs_world *w, int id, trs_thing th, int mode);
 /* A laser part's beam origin and its mount axis (SOI frame). */

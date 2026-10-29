@@ -186,8 +186,8 @@ static trs_thing prey(const trs_world *w, const trs_vessel *me, trs_v3 home, dou
 	double bd = 1e300;
 	for (int i = 0; i < w->nvessels; i++) {
 		const trs_vessel *o = &w->vessels[i];
-		if (!o->alive || !o->craft || o->is_alien || o->anchored || o->body != me->body)
-			continue;
+		if (!o->alive || !o->craft || o->is_alien || o->anchored || o->body != me->body || !trs_vessel_alive_craft(o))
+			continue; /* (wreckage isn't worth their while) */
 		trs_v3 p;
 		if (o->mode == TRS_MODE_LANDED)
 			p = o->fixed_r;

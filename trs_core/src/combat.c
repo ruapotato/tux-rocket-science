@@ -244,13 +244,26 @@ trs_thing trs_world_ray(const trs_world *w, int body, trs_v3 o, trs_v3 d, double
 	return best;
 }
 
+int trs_vessel_alive_craft(const trs_vessel *vs) {
+	/* someone (or something) aboard to fly it: a pod, a probe, a penguin, a
+	 * Jaeger's hull -- not wreckage */
+	if (!vs->craft)
+		return 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->crew > 0 || d->is_eva || d->alien_pilot || (d->torque > 0 && !d->is_alien))
+			return 1;
+	}
+	return 0;
+}
+
 int trs_thing_threat(const trs_world *w, int id, trs_thing th, int mode) {
 	const trs_vessel *me = &w->vessels[id];
 	if (th.kind == TRS_THING_VESSEL) {
 		if (!vessel_ok(w, th) || th.id == id)
 			return 0;
 		const trs_vessel *o = &w->vessels[th.id];
-		return o->is_alien != me->is_alien && !(me->is_alien && o->anchored); /* (a flag is no threat) */
+		return o->is_alien != me->is_alien && !o->anchored && trs_vessel_alive_craft(o); /* (a flag, wreckage: no threat) */
 	}
 	if (th.kind == TRS_THING_CRITTER) {
 		int i = trs_wild_find(w, th.id);
