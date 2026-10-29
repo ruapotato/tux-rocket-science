@@ -32,6 +32,7 @@ const WHITE := Color(0.93, 0.94, 0.96)
 const ICE := Color(0.55, 0.78, 0.95)
 const ORANGE := Color(1.0, 0.52, 0.12)
 const GRAPHITE := Color(0.16, 0.17, 0.2)
+const JAEGER := Color(0.45, 0.5, 0.46)  # (the Jaegers' hulls: a dull green-grey metal)
 const STEEL := Color(0.55, 0.57, 0.6)
 const YELLOW := Color(0.98, 0.8, 0.15)
 const RED := Color(0.86, 0.2, 0.18)
@@ -349,7 +350,7 @@ static func _antenna(root: Node3D, sh: Dictionary) -> void:
 static func _turret(root: Node3D, sh: Dictionary, alien: bool) -> void:
 	var r: float = sh.get("radius", 0.26)
 	var h: float = sh.get("height", 0.4)
-	var body := mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4) if alien else mat("graphite", GRAPHITE, 0.4, 0.5)
+	var body := mat("jaeger", JAEGER, 0.3, 0.45) if alien else mat("graphite", GRAPHITE, 0.4, 0.5)
 	var eye := Color(0.3, 1.0, 0.45) if alien else Color(1.0, 0.25, 0.15)
 	var base := CylinderMesh.new()
 	base.top_radius = r * 0.8
@@ -393,7 +394,7 @@ static func _turret(root: Node3D, sh: Dictionary, alien: bool) -> void:
 static func _saucer(root: Node3D, sh: Dictionary) -> void:
 	var r: float = sh.get("radius", 3.0)
 	var h: float = sh.get("height", 1.3)
-	var hull := mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4)
+	var hull := mat("jaeger", JAEGER, 0.3, 0.45)
 	for s in [-1.0, 1.0]:
 		var lens := SphereMesh.new()
 		lens.radius = r
@@ -427,7 +428,7 @@ static func _saucer(root: Node3D, sh: Dictionary) -> void:
 	_mesh(root, dome, glass, Transform3D(Basis.IDENTITY, Vector3(0, h * 0.42, 0)))
 	for k in 6:
 		var a := TAU * k / 6.0
-		_mesh(root, BoxMesh.new(), mat("steel", STEEL, 0.75, 0.3), Transform3D(Basis(Vector3.UP, -a).scaled(Vector3(r * 0.5, 0.06, 0.12)),
+		_mesh(root, BoxMesh.new(), mat("steel", STEEL, 0.75, 0.3), Transform3D(Frame.scaled_local(Basis(Vector3.UP, -a), Vector3(r * 0.5, 0.06, 0.12)),
 			Vector3(cos(a), 0, sin(a)) * r * 0.62 + Vector3(0, h * 0.25, 0)))
 
 
@@ -439,7 +440,7 @@ static func _lift_ring(root: Node3D, sh: Dictionary) -> void:
 	ring.inner_radius = r * 0.55
 	ring.outer_radius = r
 	ring.rings = 48
-	_mesh(root, ring, mat("jaeger", Color(0.3, 0.33, 0.31), 0.6, 0.4), Transform3D(Basis.IDENTITY.scaled(Vector3(1, h / (r * 0.45), 1)), Vector3.ZERO))
+	_mesh(root, ring, mat("jaeger", JAEGER, 0.3, 0.45), Transform3D(Basis.IDENTITY.scaled(Vector3(1, h / (r * 0.45), 1)), Vector3.ZERO))
 	var disc := CylinderMesh.new()
 	disc.top_radius = r * 0.6
 	disc.bottom_radius = r * 0.6
@@ -1597,7 +1598,7 @@ static func pose_leg(root: Node3D, d: Dictionary, k: float) -> void:
 	var m := pivot.position + pivot.basis * Vector3(0, -len * 0.6, 0)
 	var brace: MeshInstance3D = root.get_node("Brace")
 	var dir := m - a
-	brace.transform = Transform3D(Basis(Quaternion(Vector3.UP, dir.normalized())).scaled(Vector3(1, dir.length(), 1)), (a + m) * 0.5)
+	brace.transform = Transform3D(Frame.scaled_local(Basis(Quaternion(Vector3.UP, dir.normalized())), Vector3(1, dir.length(), 1)), (a + m) * 0.5)
 	brace.visible = k > 0.05
 
 

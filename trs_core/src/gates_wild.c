@@ -292,6 +292,31 @@ trs_gate_status trs_gate_wild(trs_log *out, const char *data_dir) {
 				bites, L->bite, odd, first - t0, t_lost - t0);
 		done(w);
 	}
+	/* 4b. a ship they leave be: with no penguin out, nothing on it is bitten */
+	{
+		trs_world *w = fresh(&sys, t0);
+		const trs_body *b = &sys.bodies[gloam];
+		int k = kind_of(b, "crawlers");
+		trs_v3 at;
+		int ok = k >= 0 && find_animal(w, gloam, k, 5, &at);
+		int sh = put(w, &ship, gloam, along(b, at, 2.0, 8), 3.0, 1);
+		trs_world_set_focus(w, sh);
+		int charged = 0, bitten = 0, near = 0;
+		for (int s = 0; s < 30 * TRS_PHYSICS_HZ; s++) {
+			trs_world_step_physics(w);
+			for (int i = 0; i < w->wild.n; i++) {
+				charged += w->wild.c[i].kind == k && w->wild.c[i].state == TRS_CRIT_CHARGE;
+				near += w->wild.c[i].kind == k && s == 0;
+			}
+		}
+		for (int i = 0; i < w->vessels[sh].craft->count; i++)
+			bitten += w->vessels[sh].craft->parts[i].damage > 0;
+		ok = ok && near > 0 && !charged && !bitten && w->vessels[sh].alive;
+		failed += !ok;
+		trs_log_printf(out, "%s a ship 8 m from %d dusk crawlers and no penguin out: in 30 s none charges (%d ticks), "
+				"%d of its parts bitten\n", ok ? "ok  " : "FAIL", near, charged, bitten);
+		done(w);
+	}
 	/* 5. a turret on guard sees them off before they reach the penguin */
 	{
 		trs_world *w = fresh(&sys, t0);

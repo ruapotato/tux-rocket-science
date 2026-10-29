@@ -145,7 +145,7 @@ func refresh(core: TrsSim, origin: int, views: Dictionary, cam: Vector3, dt: flo
 			var w := maxf(0.035, mid.distance_to(cam) * 0.0012) * flick
 			var mi := _seg(segs)
 			segs += 1
-			mi.transform = Transform3D(b.scaled(Vector3(w, length / SEGS, w)), mid)
+			mi.transform = Transform3D(Frame.scaled_local(b, Vector3(w, length / SEGS, w)), mid)
 			mi.material_override = mat
 			mi.visible = true
 		_beam(shown)

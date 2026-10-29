@@ -225,7 +225,7 @@ static func _strut(root: Node3D, a: Vector3, b: Vector3, r: float, mat: Material
 	c.radial_segments = 8
 	var d := b - a
 	var mi := _mesh(root, c, mat, (a + b) * 0.5)
-	mi.basis = Basis(Quaternion(Vector3.UP, d.normalized())).scaled(Vector3(1, d.length(), 1))
+	mi.basis = Frame.scaled_local(Basis(Quaternion(Vector3.UP, d.normalized())), Vector3(1, d.length(), 1))
 
 
 ## Site centre in the body-fixed frame, Godot axes.

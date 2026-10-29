@@ -24,7 +24,7 @@ extends Node3D
 const RES := 25
 const MAX_LEVEL := 14
 const SPLIT := 2.6
-const MAX_JOBS := 8   # patches being worked out at once
+const MAX_JOBS := 24  # patches being worked out at once
 
 var core: TrsSim
 var body := -1
@@ -36,6 +36,7 @@ var _edge_list: Array = []
 var _noise := FastNoiseLite.new()
 var _pending: Array = []
 var _want := {}           # the leaves the eye last asked for
+var _order: Array = []    # ... their keys, finest (nearest the eye) first
 var _leaves_q := PackedFloat64Array()
 var _eye_q: Array = [0.0, 0.0, 0.0]
 var _dirty := true
@@ -230,6 +231,10 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void
 			for k in leaves.size() / 4:
 				var o := k * 4
 				_want[_key(int(leaves[o]), int(leaves[o + 1]), int(leaves[o + 2]), int(leaves[o + 3]))] = [leaves[o], leaves[o + 1], leaves[o + 2], leaves[o + 3]]
+			# (built nearest first: after a jump the ground underfoot comes
+			# in before the far hills, not in the quadtree's own order)
+			_order = _want.keys()
+			_order.sort_custom(func(a: int, b: int) -> bool: return float(_want[a][1]) > float(_want[b][1]))
 	var want: Dictionary = _want
 	# missing patches are worked out on pool threads, a few at a time (each
 	# is a millisecond or two of height field), and made into nodes here
@@ -244,7 +249,7 @@ func refresh(eye_fixed: PackedFloat64Array, body_rel: Array, rot: float) -> void
 		if d[0] == _gen and not _patches.has(d[1]):
 			_patches[d[1]] = _node(d[2])
 			_dirty = true
-	for key in want:
+	for key in _order:
 		if _jobs.size() >= MAX_JOBS:
 			break
 		if not _patches.has(key) and not _jobs.has(key):

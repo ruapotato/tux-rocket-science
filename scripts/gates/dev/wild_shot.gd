@@ -20,7 +20,8 @@
 ## beside it, the lander's lasers on GUARD (0..2, default 1), in daylight;
 ## frames saved as wild_<n>.png every EVERY frames for FRAMES frames, from
 ## DIST m off (CAM_YAW, CAM_PITCH). NEST=1: by the body's first Jaeger
-## nest instead, 2.5 km off it. Env SEED picks the herd.
+## nest instead, 2.5 km off it. Env SEED picks the herd. ZAP=1: the
+## penguin zaps the nearest hostile.
 extends RefCounted
 
 const DIR := "user://dev_shots/"
@@ -95,6 +96,15 @@ func run(runner: Node) -> Dictionary:
 	var shot := 0
 	for f in frames:
 		await tree.process_frame
+		# ZAP=1: the penguin keeps its zapper on the nearest hostile (as a
+		# player holding the mouse on it would)
+		if env.call("ZAP", "") != "" and pen >= 0 and f % 6 == 0 and s.active == pen:
+			var best := {}
+			for th in JSON.parse_string(core.things_near(pen, 60)):
+				if th.get("hostile", false) and (best.is_empty() or float(th.distance) < float(best.distance)):
+					best = th
+			if not best.is_empty():
+				core.lock_on(pen, int(best.kind), int(best.id), int(best.serial))
 		# FOLLOW=1: the camera on a Jaeger raider once one is up
 		if env.call("FOLLOW", "") != "" and f % 30 == 0:
 			for v in JSON.parse_string(core.vessel_list()):
@@ -107,6 +117,11 @@ func run(runner: Node) -> Dictionary:
 					break
 		if f % every == every - 1:
 			await RenderingServer.frame_post_draw
+			var tv: TerrainView = scene._terrain
+			var missing := 0
+			for k in tv._want:
+				missing += 0 if tv._patches.has(k) else 1
+			log.append("frame %d: ground %d of %d patches still to build" % [f, missing, tv._want.size()])
 			scene.get_viewport().get_texture().get_image().save_png(DIR + "wild_%02d.png" % shot)
 			var t := s.telemetry()
 			var near: Array = JSON.parse_string(core.things_near(s.active, 200))

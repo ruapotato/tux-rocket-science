@@ -25,8 +25,9 @@
  * within LIVE_R of the focus (the vessel the player is with) are taken up
  * here: undisturbed, they keep to their loops; a shy one runs from anyone
  * near, a curious one trots up to a penguin and stays at its heels, a
- * hostile one goes for the nearest penguin (or ship) and bites, and any of
- * them hurt runs from whoever did it (or, hostile, goes for them). Hurt
+ * hostile one goes for the nearest penguin and bites, and any of them hurt
+ * runs from whoever did it (or, hostile and hurt by a penguin, goes for
+ * them). A ship they leave be: aboard it, a penguin is safe. Hurt
  * enough, one goes down; its herd makes up the loss in DEAD_S. They move at
  * WILD_HZ on the terrain's own height. */
 #include "trs/world.h"
@@ -274,8 +275,9 @@ void trs_critter_hurt(trs_world *w, int i, double hp, trs_thing by) {
 		return;
 	}
 	const trs_life *L = trs_critter_kind(w, c);
-	int vessel = by.kind == TRS_THING_VESSEL && by.id >= 0 && by.id < w->nvessels && w->vessels[by.id].alive;
-	if (L->temper == TRS_TEMPER_HOSTILE && c->hp > 0.25 * L->hp && vessel)
+	int penguin = by.kind == TRS_THING_VESSEL && by.id >= 0 && by.id < w->nvessels && w->vessels[by.id].alive &&
+			trs_vessel_is_eva(&w->vessels[by.id]);
+	if (L->temper == TRS_TEMPER_HOSTILE && c->hp > 0.25 * L->hp && penguin)
 		set_state(w, c, TRS_CRIT_CHARGE, by);
 	else if (c->state != TRS_CRIT_FLEE || c->other.kind == TRS_THING_NONE)
 		set_state(w, c, TRS_CRIT_FLEE, by);
@@ -292,24 +294,6 @@ static int thing_pos(const trs_world *w, const actor *a, int na, trs_thing th, t
 		}
 	(void)w;
 	return 0;
-}
-
-/* the part of vessel id nearest body-fixed point p */
-static int nearest_part(const trs_world *w, int id, trs_v3 p) {
-	const trs_vessel *vs = &w->vessels[id];
-	const trs_body *b = &w->sys.bodies[vs->body];
-	trs_v3 at = trs_body_from_fixed(b, w->t, p);
-	trs_quat q = vs->mode == TRS_MODE_LANDED ? quat_normalize(quat_mul(trs_body_quat(b, w->t), vs->fixed_q)) : vs->q;
-	trs_v3 r = vs->mode == TRS_MODE_LANDED ? trs_body_from_fixed(b, w->t, vs->fixed_r) : vs->r;
-	int best = 0;
-	double bd = 1e300;
-	for (int i = 0; i < vs->craft->count; i++) {
-		trs_v3 pp = v3_add(r, quat_rotate(q, v3_sub(vs->craft->parts[i].pos, vs->cm)));
-		double d = v3_len2(v3_sub(pp, at));
-		if (d < bd)
-			bd = d, best = i;
-	}
-	return best;
 }
 
 static double hashf(int id, int k) {
@@ -395,8 +379,6 @@ static void step(trs_world *w, double dt) {
 			} else if (L->temper == TRS_TEMPER_HOSTILE) {
 				if (pen >= 0 && dp < L->aggro)
 					set_state(w, c, TRS_CRIT_CHARGE, vessel_thing(w, act[pen].id));
-				else if (ship >= 0 && ds < L->aggro * 0.6)
-					set_state(w, c, TRS_CRIT_CHARGE, vessel_thing(w, act[ship].id));
 			}
 		}
 		if (c->state == TRS_CRIT_ROAM) {
@@ -449,8 +431,7 @@ static void step(trs_world *w, double dt) {
 				if (w->t >= c->next_bite) {
 					c->next_bite = w->t + BITE_EVERY;
 					int vid = c->other.id;
-					trs_part_hurt(w, vid, trs_vessel_is_eva(&w->vessels[vid]) ? 0 : nearest_part(w, vid, c->pos), L->bite,
-							TRS_DESTROY_BITTEN);
+					trs_part_hurt(w, vid, 0, L->bite, TRS_DESTROY_BITTEN);
 				}
 			}
 			break;

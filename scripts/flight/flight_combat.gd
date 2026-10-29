@@ -201,7 +201,9 @@ func step(delta: float) -> void:
 				if th.get("after_us", false):
 					who = describe(th)
 					break
-			scene.hud.toast(("%s is hurt%s! %.0f%% left" % [t.get("name", "The penguin"), " by " + who if who != "" else "", t.get("health", 0.0)])
+			var names: Array = Sim.crew_of(_active())
+			scene.hud.toast(("%s is hurt%s! %.0f%% left" % [", ".join(names) if not names.is_empty() else "The penguin",
+				" by " + who if who != "" else "", t.get("health", 0.0)])
 				if t.get("eva", false) else ("Under attack%s! The worst-hit part has %.0f%% left%s" % [" by " + who if who != "" else "",
 				100.0 * (1.0 - hurt), ""]), 3.5)
 	_hurt_seen = hurt

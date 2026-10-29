@@ -61,6 +61,12 @@ static func spin(angle: float) -> Basis:
 	return Basis(Vector3.UP, angle)
 
 
+## Basis b with its own axes stretched by s (b.scaled stretches the world's:
+## a tilted strut or beam comes out the wrong length).
+static func scaled_local(b: Basis, s: Vector3) -> Basis:
+	return Basis(b.x * s.x, b.y * s.y, b.z * s.z)
+
+
 ## Converts a Godot-space vector back to sim axes (for commands).
 static func to_sim(v: Vector3) -> Array:
 	return [v.x, -v.z, v.y]

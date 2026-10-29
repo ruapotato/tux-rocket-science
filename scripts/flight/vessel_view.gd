@@ -406,7 +406,7 @@ func aim_head(uid: int, dir: Vector3) -> void:
 	if head == null or not head.is_inside_tree() or dir.length() < 0.5:
 		return
 	var s := head.global_basis.get_scale()
-	head.global_basis = LaserView.along_y(dir.normalized()).scaled(s)
+	head.global_basis = Frame.scaled_local(LaserView.along_y(dir.normalized()), s)
 
 
 func _update_plume(p: Node3D, thr: float, pressure: float, flicker: float) -> void:

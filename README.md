@@ -168,7 +168,7 @@ grazers, Haven's hornbucks, the puffins) run when a penguin comes near; curious 
 shelf penguins, Selkie's selkies) come over and follow you about; calm ones carry on unless
 hurt; and on the worlds of other stars some hunt: Gloam's dusk crawlers, Haven's fangrunners,
 Saffron's dune stalkers. They charge a penguin on foot and bite, and a penguin can be lost to
-them. On EVA, **E** has a good look at an animal for the catalogue (and a little research).
+them; a ship they leave alone, so aboard is safe. On EVA, **E** has a good look at an animal for the catalogue (and a little research).
 By the builders' places on Gloam, Saffron and Cairn the **Jaegers** keep camps, twelve
 kilometres north of each relic: raiders on lift drives that go up when you come near, go for
 any ship of yours within reach, and fire back. The **Tern Laser Turret** (R&D: Lasers; the

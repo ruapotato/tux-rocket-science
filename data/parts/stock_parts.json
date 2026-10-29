@@ -550,7 +550,7 @@
       "description": "A penguin out of the pod: walks (WASD), jumps (Space), climbs back in from anywhere on the hull (F), and on a jetpack's few kilograms of mono flies about (R, then WASD and Shift / Ctrl). It carries a zapper too: hold the left mouse button on whatever is after it.",
       "mass": 95,
       "hp": 100,
-      "laser": { "range_m": 60, "dps": 20, "kw": 0, "slew_deg_s": 720, "arc_deg": 360 },
+      "laser": { "range_m": 60, "dps": 35, "kw": 0, "slew_deg_s": 720, "arc_deg": 360 },
       "cost": 0,
       "science": ["eva_report", "surface_sample"],
       "crew": 1,
