@@ -1062,9 +1062,10 @@ func _descend(t: Dictionary) -> float:
 
 
 ## Level ground for the legs near where the ship is coming down: the
-## nearest within 250 m tilted less than 14 degrees (or the least tilted).
+## nearest within 250 m tilted less than 6 degrees (or the least tilted:
+## a top-heavy lander can tip on steeper).
 func _pick_spot(t: Dictionary) -> void:
-	var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(t.lat_deg), float(t.lon_deg), 250.0, 0.03)
+	var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(t.lat_deg), float(t.lon_deg), 250.0, 0.006)
 	_a.spot = [sp[0], sp[1]]
 
 

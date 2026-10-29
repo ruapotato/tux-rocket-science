@@ -505,6 +505,72 @@ trs_gate_status trs_gate_wild(trs_log *out, const char *data_dir) {
 				ok ? "ok  " : "FAIL", fired, td->laser_range + 150, td->laser_range, far_fired);
 		done(w);
 	}
+	/* 8. set down and let go (LANDED to PHYSICS, as when the player comes
+	 * near): a lander set on level ground and on a slope, its legs out,
+	 * starts with no foot in the ground, so nothing throws it about */
+	{
+		trs_craft lander;
+		trs_craft_init(&lander, &cat);
+		snprintf(path, sizeof path, "%s/craft/krill_lander.craft.json", data_dir);
+		trs_json *j = trs_json_load_file(path, err, sizeof err);
+		/* (its lander alone: the pod down to the engine its legs stand round,
+		 * the first twelve parts, without the stages that lift it) */
+		trs_json *parts = j ? (trs_json *)trs_json_get(j, "parts") : NULL;
+		if (parts)
+			while (parts->count > 12)
+				trs_json_free(parts->items[--parts->count]);
+		int loaded = parts && trs_craft_from_json(&lander, &cat, j, err, sizeof err);
+		trs_json_free(j);
+		int bs[2] = { kelp, gloam };
+		double want[2] = { 0.0, 6.0 }; /* deg the ground tilts, near enough */
+		for (int q = 0; q < 2 && loaded; q++) {
+			trs_world *w = fresh(&sys, t0);
+			const trs_body *b = &w->sys.bodies[bs[q]];
+			/* a spot tilted as wanted (to half a degree) */
+			unsigned seed = 7;
+			trs_v3 at = v3(1, 0, 0);
+			double tilt0 = -1;
+			for (int k = 0; k < 200000; k++) {
+				double z = frand(&seed) * 2 - 1, an = frand(&seed) * 2 * TRS_PI, rr = sqrt(1 - z * z);
+				trs_v3 d = v3(rr * cos(an), rr * sin(an), z);
+				double tl = acos(fmin(1, v3_dot(trs_terrain_normal(&b->terrain, b->radius, d, 4.0), d))) * 180 / TRS_PI;
+				if (fabs(tl - want[q]) < 0.5) {
+					at = d, tilt0 = tl;
+					break;
+				}
+			}
+			int id = trs_world_launch(w, &lander, bs[q], asin(at.z), atan2(at.y, at.x));
+			trs_vessel *vs = &w->vessels[id];
+			vs->clamped = 0;
+			for (int i = 0; i < vs->craft->count; i++)
+				if (trs_craft_def(vs->craft, i)->is_leg)
+					vs->craft->parts[i].legs_deployed = 1;
+			trs_vessel_refresh(w, id);
+			trs_vessel_reseat(w, id);
+			trs_v3 f0 = vs->fixed_r;
+			trs_vessel_set_mode(w, id, TRS_MODE_PHYSICS);
+			double rising = 0, tilt = 0;
+			for (int s = 0; s < 8 * TRS_PHYSICS_HZ; s++) {
+				trs_world_step_physics(w);
+				const trs_vessel *v = &w->vessels[id];
+				trs_v3 sv = v3_sub(v->v, v3_cross(trs_body_omega(b), v->r));
+				rising = fmax(rising, v3_dot(sv, v3_norm(v->r)));
+				tilt = acos(fmin(1, v3_dot(quat_rotate(v->q, v3(0, 1, 0)), v3_norm(v->r)))) * 180 / TRS_PI;
+			}
+			double moved = v3_len(v3_sub(fixed_of(w, id), f0));
+			int ok = tilt0 >= 0 && w->vessels[id].alive && rising < 0.3 && tilt < tilt0 + 3 && moved < 1.5;
+			failed += !ok;
+			trs_log_printf(out, "%s the Krill lander let go on %s ground tilted %.1f deg: thrown up at most %.3f m/s, "
+					"standing %.1f deg off upright 8 s on, %.2f m from where it was set\n", ok ? "ok  " : "FAIL", b->name, tilt0,
+					rising, tilt, moved);
+			done(w);
+		}
+		if (!loaded) {
+			failed++;
+			trs_log_printf(out, "FAIL cannot load the Krill lander: %s\n", err);
+		}
+		trs_craft_free(&lander);
+	}
 	trs_craft_free(&pc);
 	trs_craft_free(&ship);
 	trs_craft_free(&raider);

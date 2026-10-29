@@ -419,19 +419,38 @@ trs_v3 trs_terrain_normal(const trs_terrain *t, double R, trs_v3 d, double step)
 	return v3_dot(n, d) < 0 ? v3_neg(n) : n;
 }
 
+/* 1 - cos of the worst tilt across a 5 m ring round d: the ground's
+ * height spread over its width */
+static double footprint_tilt(const trs_terrain *t, double R, trs_v3 d) {
+	trs_v3 a = fabs(d.z) < 0.9 ? v3(0, 0, 1) : v3(1, 0, 0);
+	trs_v3 e1 = v3_norm(v3_cross(a, d)), e2 = v3_cross(d, e1);
+	double lo = 1e300, hi = -1e300;
+	for (int k = 0; k < 8; k++) {
+		double th = 2 * TRS_PI * k / 8;
+		trs_v3 q = v3_norm(v3_add(d, v3_add(v3_scale(e1, cos(th) * 5.0 / R), v3_scale(e2, sin(th) * 5.0 / R))));
+		double h = trs_terrain_height(t, R, q);
+		lo = fmin(lo, h), hi = fmax(hi, h);
+	}
+	return 1.0 - cos(atan((hi - lo) / 10.0));
+}
+
 double trs_terrain_level_spot(const trs_terrain *t, double R, trs_v3 dir, double reach, double max_slope,
 		trs_v3 *out, double *slope) {
 	trs_v3 a = fabs(dir.z) < 0.9 ? v3(0, 0, 1) : v3(1, 0, 0);
 	trs_v3 e1 = v3_norm(v3_cross(a, dir)), e2 = v3_cross(dir, e1);
 	double best = 1e9, best_any = 1e9;
 	trs_v3 at = dir, at_any = dir;
-	/* (a lander's legs span a few metres: the tilt over 4 m is what tips it) */
+	/* (a lander's legs span a few metres: the tilt over 4 m is what tips it,
+	 * and a terrace's riser under one foot of a bench that is level
+	 * itself: the heights round a 5 m ring must agree as well) */
 	for (double rr = 0; rr <= reach; rr += 8.0) {
 		int n = rr <= 0 ? 1 : (int)ceil(2 * TRS_PI * rr / 8.0);
 		for (int k = 0; k < n; k++) {
 			double th = 2 * TRS_PI * k / n;
 			trs_v3 d = v3_norm(v3_add(dir, v3_add(v3_scale(e1, cos(th) * rr / R), v3_scale(e2, sin(th) * rr / R))));
 			double s = 1.0 - v3_dot(trs_terrain_normal(t, R, d, 4.0), d);
+			if (s < max_slope)
+				s = fmax(s, footprint_tilt(t, R, d));
 			if (s < best) best = s, at = d;
 			if (s < best_any) best_any = s, at_any = d;
 		}

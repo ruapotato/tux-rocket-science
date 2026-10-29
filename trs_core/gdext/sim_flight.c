@@ -324,6 +324,7 @@ static void m_vessel_set_legs(void *self, const trs_val *a, trs_val *r) {
 		if (trs_craft_def(c, i)->is_leg)
 			c->parts[i].legs_deployed = a[1].b;
 	trs_vessel_refresh(h->world, (int)a[0].i);
+	trs_vessel_reseat(h->world, (int)a[0].i); /* (held on the ground: stood on them) */
 }
 
 /* vessel_deploy_chutes(id) -> how many chutes were armed */

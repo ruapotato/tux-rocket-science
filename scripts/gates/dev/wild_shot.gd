@@ -65,10 +65,16 @@ func run(runner: Node) -> Dictionary:
 		lon = at[1]
 	# daylight first, with the lander alone there
 	var pad := s.active
-	var lv: PackedFloat64Array = core.level_spot(bi, lat, lon, 250.0, 0.03)  # (on level ground: a lander tips on a dune's face)
+	var lv: PackedFloat64Array = core.level_spot(bi, lat, lon, 250.0, 0.006)  # (on level ground: a lander tips on a dune's face)
+	log.append("level spot: slope %.3f, %.0f m from where asked" % [lv[2], lv[3]])
 	lat = lv[0]
 	lon = lv[1]
 	var id: int = core.flight_place_landed(text, bid, lat, lon)
+	var tilt := func(why: String) -> void:
+		var lt: Dictionary = JSON.parse_string(core.telemetry(id))
+		log.append("lander %s: pitch %.1f deg, mode %s, %s, %.2f m up, %.2f m/s" % [why, float(lt.get("pitch_deg", 0)), lt.get("mode", ""),
+			lt.get("situation", ""), float(lt.get("altitude_terrain", 0)), float(lt.get("surface_speed", 0))])
+	tilt.call("placed")
 	s.switch_to(id)
 	core.vessel_remove(pad)
 	await _frames(tree, 3)
@@ -77,15 +83,21 @@ func run(runner: Node) -> Dictionary:
 			b.queue_free()
 	scene._booms.clear()
 	scene._wreck_set = false
-	core.vessel_set_legs(id, true)
+	if env.call("LEGS", "1") == "1":
+		core.vessel_set_legs(id, true)
+	tilt.call("legs out")
 	s.step_ticks(150)  # (standing on its legs)
+	tilt.call("150 ticks on")
 	for q in 0 if Sim.look(bid).get("locked", false) else 400:
 		var sp: PackedFloat64Array = core.subsolar_point(bi)
 		if _angle(sp[0], sp[1], lat, lon) < 60.0:
 			break
 		s.warp_to(s.time() + 1800.0)
 	core.set_guard(id, int(env.call("GUARD", "1")))
-	var pen: int = core.vessel_eva_exit(id, 0)
+	var pen: int = core.vessel_eva_exit(id, 0) if env.call("PEN", "1") == "1" else -1
+	if pen < 0:
+		core.vessel_set_mode(id, "physics")
+	tilt.call("penguin out")
 	if pen >= 0:
 		s.switch_to(pen)
 	scene._cam_yaw = float(env.call("CAM_YAW", "2.6"))
@@ -117,6 +129,7 @@ func run(runner: Node) -> Dictionary:
 					break
 		if f % every == every - 1:
 			await RenderingServer.frame_post_draw
+			tilt.call("at shot %d" % shot)
 			var tv: TerrainView = scene._terrain
 			var missing := 0
 			for k in tv._want:

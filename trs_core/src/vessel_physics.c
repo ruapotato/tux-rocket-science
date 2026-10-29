@@ -1972,12 +1972,20 @@ int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, dou
 	if (id < 0)
 		return id;
 	trs_vessel *vs = &w->vessels[id];
-	double min_y = INFINITY;
-	for (int k = 0; k < vs->ncontact; k++)
-		min_y = fmin(min_y, vs->contact_pt[k].y);
-	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, up) : 0;
+	/* as high as the highest ground under any of its feet asks: on a slope
+	 * the uphill foot touches and the rest stand clear (none starts inside
+	 * the ground, to be thrown out of it when it is let go) */
+	double rise = -INFINITY;
+	for (int k = 0; k < vs->ncontact; k++) {
+		trs_v3 o = v3_sub(vs->contact_pt[k], vs->cm);
+		trs_v3 d = v3_norm(v3_add(up, v3_scale(v3_add(v3_scale(east, o.x), v3_scale(south, o.z)), 1.0 / b->radius)));
+		double hk = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, d) : 0;
+		rise = fmax(rise, hk - o.y);
+	}
+	if (vs->ncontact == 0)
+		rise = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, up) : 0;
 	vs->mode = TRS_MODE_LANDED;
-	vs->fixed_r = v3_scale(up, b->radius + h + (vs->cm.y - min_y) + 0.01);
+	vs->fixed_r = v3_scale(up, b->radius + rise + 0.01);
 	vs->fixed_q = quat_from_basis(east, up, south);
 	vs->clamped = 1;
 	vs->landed = 1;
@@ -1988,6 +1996,23 @@ int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, dou
 	vs->q = quat_normalize(quat_mul(trs_body_quat(b, w->t), vs->fixed_q));
 	vs->w = trs_body_omega(b);
 	return id;
+}
+
+void trs_vessel_reseat(trs_world *w, int id) {
+	trs_vessel *vs = &w->vessels[id];
+	const trs_body *b = &w->sys.bodies[vs->body];
+	if (vs->mode != TRS_MODE_LANDED || vs->anchored || vs->ncontact == 0 || !b->terrain.enabled)
+		return;
+	trs_v3 up = v3_norm(vs->fixed_r);
+	double need = -INFINITY; /* m the deepest foot is under the ground (< 0: over it) */
+	for (int k = 0; k < vs->ncontact; k++) {
+		trs_v3 p = v3_add(vs->fixed_r, quat_rotate(vs->fixed_q, v3_sub(vs->contact_pt[k], vs->cm)));
+		double ground = b->radius + trs_terrain_height(&b->terrain, b->radius, v3_norm(p));
+		need = fmax(need, ground - v3_dot(p, up));
+	}
+	vs->fixed_r = v3_madd(vs->fixed_r, up, need + 0.01);
+	vs->r = trs_body_from_fixed(b, w->t, vs->fixed_r);
+	vs->v = v3_cross(trs_body_omega(b), vs->r);
 }
 
 /* The runway: RUNWAY_EAST m east of the pad along the flat shelf. A craft

@@ -369,6 +369,9 @@ int trs_world_add_craft(trs_world *w, const trs_craft *c, int body, trs_v3 r, tr
 /* Places a craft on a body's surface at lat/lon (radians), nose up, held by
  * launch clamps until its first stage fires. Returns the vessel id. */
 int trs_world_launch(trs_world *w, const trs_craft *c, int body, double lat, double lon);
+/* A LANDED vessel (not anchored) raised or lowered so its lowest foot is on
+ * the ground under it, as after its legs go out or in: none inside it. */
+void trs_vessel_reseat(trs_world *w, int id);
 void trs_world_push_event(trs_world *w, trs_world_event ev);
 /* Body-frame attitude quaternion (rotation of the body since epoch). */
 trs_quat trs_body_quat(const trs_body *b, double t);

@@ -51,7 +51,7 @@ func _set_down(scene: Node3D, body: String, species: String, seed := 1) -> int:
 	var text := WildShot.lander_only(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "warden_lander.craft.json"))
 	var pad := s.active
 	# (on level ground near there: a lander tips over on a dune's face)
-	var lv: PackedFloat64Array = core.level_spot(bi, at[0] - rad_to_deg(45.0 / R), at[1], 60.0, 0.03)
+	var lv: PackedFloat64Array = core.level_spot(bi, at[0] - rad_to_deg(45.0 / R), at[1], 60.0, 0.006)
 	var id := core.flight_place_landed(text, body, lv[0], lv[1])
 	s.switch_to(id)
 	core.vessel_remove(pad)
