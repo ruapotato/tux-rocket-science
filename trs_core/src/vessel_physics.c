@@ -104,7 +104,7 @@ static void build_contacts(trs_vessel *vs) {
 		vs->bound_radius = fmax(vs->bound_radius, v3_len(v3_sub(vs->contact_pt[k], vs->cm)));
 }
 
-#define SHADE 0.08     /* of the heating that reaches a part in a wider one's shadow */
+#define SHADE 0.03     /* of the heating that reaches a part in a wider one's shadow (a blunt body's afterbody sees a few percent) */
 #define SHADE_COS 0.94 /* the flow within ~20 degrees of the axis: the shadow falls on it */
 
 void trs_vessel_refresh(trs_world *w, int id) {

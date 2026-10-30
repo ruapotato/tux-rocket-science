@@ -63,6 +63,7 @@ var _a := {}                # the program's own working state
 var _cool := 0.0
 var _aim := Vector3.ZERO     # where the program last had the nose pointed (zero: anywhere)
 var _flat_t := 0.0          # s it has wanted to turn with nothing to turn the ship
+var _shield_held := false   # the stage burning ran dry, and the next would drop a heat shield
 var _last_t := -1.0
 var _bodies := {}           # body index -> body_info
 var said: Array[String] = [] # what the programs have to tell the console, newest last
@@ -96,6 +97,7 @@ func start(scene: Node, words: PackedStringArray, t: Dictionary) -> void:
 	_ascent = null
 	_aim = Vector3.ZERO
 	_flat_t = 0.0
+	_shield_held = false
 	_last_t = float(t.get("t", 0.0))
 	_scene._sas_follow = ""
 	ShipComputer.engines_follow(_s)  # a program flies the ship's throttle: every engine follows it
@@ -232,6 +234,16 @@ func step(scene: Node, t: Dictionary) -> void:
 	var dt := maxf(now - _last_t, 0.0)
 	_last_t = now
 	_cool -= dt
+	# the stage under a heat shield spent, and the lander's engine above it
+	# not to be fired: nothing can make this burn (except the land program,
+	# which drops the shield through the air)
+	if _shield_held and float(t.get("thrust_max", 0.0)) <= 0.0 and name != "land":
+		var o: Dictionary = t.get("orbit", {})
+		if name == "capture" and o.get("ap_alt") != null:
+			_done("in orbit of %s, %s (the stage under the heat shield is spent)" % [_body(t).get("name", "?"), _orbit_text(t)])
+		else:
+			_fail("the stage under the heat shield is spent: the lander's engine can't fire with the shield still under it")
+		return
 	# nothing to turn the ship with: a wait to point the way would be for ever
 	if _aim != Vector3.ZERO and not _aligned(t, _aim, 10.0) and not t.get("powered", true) and float(t.get("ec_capacity", 0.0)) > 0.0 \
 			and float(t.get("thrust", 0.0)) <= 0.0 and not (t.get("rcs", false) and float(t.get("mono", 0.0)) > 0.0):
@@ -352,6 +364,9 @@ func _autostage(t: Dictionary) -> bool:
 		return false
 	if FlightPrograms.fires_into_shield(_s.core, _s.active, int(t.next_stage)):
 		return false  # (its jet would burn through what holds the shield: the land program drops that first)
+	if FlightPrograms.shield_press(_s.core, _s.active, int(t.next_stage), false) and not _a.get("no_air_path", false):
+		_shield_held = float(t.get("thrust_max", 0.0)) <= 0.0
+		return false  # (the heat shield goes when the land program says, through the air: never as a spent stage)
 	_scene._stage()
 	_cool = STAGE_COOL
 	return true
@@ -1072,9 +1087,15 @@ func _begin_capture(w: PackedStringArray, t: Dictionary) -> String:
 	if o.get("t_to_pe") == null:
 		return "no periapsis ahead to capture at"
 	_a.want_ap = float(w[1]) if w.size() > 1 and w[1].is_valid_float() else float(o.get("pe_alt", 0.0)) + 25000.0
+	# the low point in the air (or skimming the ground): up out of it first,
+	# a sideways push while still far out, before the braking at it
+	var b := _body(t)
+	var atm := float(b.get("atmosphere_height", 0.0))
+	_a.safe_pe = atm + 30000.0 if atm > 0.0 else maxf(15000.0, float(b.radius) * 0.03)
+	_a.want_ap = maxf(_a.want_ap, float(_a.safe_pe) + 1000.0)
 	if _a.want_ap < float(o.get("pe_alt", 0.0)):
 		_a.want_ap = float(o.pe_alt) + 1000.0
-	phase = "warp"
+	phase = "lift" if float(o.get("pe_alt", 0.0)) < float(_a.safe_pe) - 15000.0 else "warp"
 	note = "into orbit of %s" % _body(t).get("name", "?")
 	return ""
 
@@ -1083,6 +1104,43 @@ func _capture(t: Dictionary) -> void:
 	var o: Dictionary = t.get("orbit", {})
 	var b := _body(t)
 	match phase:
+		"raise":
+			var ttap = o.get("t_to_ap")
+			if ttap != null and float(ttap) > LEAD + 10.0 and not _a.get("raising", false):
+				_thr(0.0)
+				_sas("prograde")
+				_warp_until(float(t.t) + float(ttap) - LEAD)
+				return
+			if ttap != null and float(ttap) > 15.0 and not _a.get("raising", false):
+				_thr(0.0)
+				_sas("prograde")
+				return
+			_a.raising = true
+			var atm2 := float(b.get("atmosphere_height", 0.0))
+			if float(o.get("pe_alt", 0.0)) >= atm2 + 20000.0 or float(t.get("thrust_max", 0.0)) <= 0.0 and _shield_held:
+				_thr(0.0)
+				_done("in orbit of %s, %s" % [b.name, _orbit_text(t)])
+				return
+			if _dry(t):
+				_fail("out of propellant raising the low point out of the air: %s" % _orbit_text(t))
+				return
+			_autostage(t)
+			var dpro := dir_of(t, "prograde")
+			_sas("prograde")
+			_thr(clampf((atm2 + 20000.0 - float(o.get("pe_alt", 0.0))) / 20000.0, 0.05, 1.0) if _aligned(t, dpro, 5.0) else 0.0)
+		"lift":
+			if float(o.get("pe_alt", 0.0)) >= float(_a.safe_pe):
+				_thr(0.0)
+				_say("the low point raised out of harm's way: %s" % km(float(o.pe_alt)))
+				phase = "warp"
+				return
+			if _dry(t):
+				_fail("out of propellant raising the low point: %s" % _orbit_text(t))
+				return
+			_autostage(t)
+			var d := dir_of(t, "radial_out")
+			_point(d)
+			_thr(clampf((float(_a.safe_pe) - float(o.get("pe_alt", 0.0))) / 20000.0, 0.05, 1.0) if _aligned(t, d, 5.0) else 0.0)
 		"warp":
 			var mu := float(b.mu)
 			var rp := float(o.pe_alt) + float(b.radius)
@@ -1103,6 +1161,13 @@ func _capture(t: Dictionary) -> void:
 		"burn":
 			_sas("retrograde")
 			if o.get("ap_alt") != null and float(o.ap_alt) <= float(_a.want_ap):
+				_thr(0.0)
+				var atm := float(b.get("atmosphere_height", 0.0))
+				if atm > 0.0 and float(o.get("pe_alt", 0.0)) < atm + 10000.0:
+					# (a long burn round the low point drags it down: up out of
+					# the air again, at the high point)
+					phase = "raise"
+					return
 				_done("in orbit of %s, %s" % [b.name, _orbit_text(t)])
 				return
 			if _dry(t):
@@ -1164,16 +1229,21 @@ func _descend(t: Dictionary) -> float:
 		var off := _spot_offset(t)
 		var d := off.length()
 		if d > 1.0:
-			v_want = off / d * minf(minf(d * 0.25, 15.0), 1.0 + agl * 0.1)
+			# (none at all the last few metres: the legs go down still)
+			v_want = off / d * minf(minf(d * 0.25, 15.0), 1.0 + agl * 0.1) * clampf((feet - 2.0) / 10.0, 0.0, 1.0)
 		if d > 12.0:
 			vt = maxf(vt, -maxf(agl - 25.0, 0.0) * 0.25)
+	# still sliding across that low: hang there till it's off (a tall
+	# ship set down sliding tips over)
+	if feet < 10.0 and vh.length() > 0.6:
+		vt = maxf(vt, -0.3)
 	var a_up := g + 1.2 * (vt - vs)
 	var stop := vs * vs / (2.0 * maxf(feet - 0.5, 0.2))
 	if vs < 0.0 and stop > brake:
 		# (falling faster than the profile can stop by the ground: never
 		# less than what does; on a heavy world the profile alone lags)
 		a_up = maxf(a_up, g + stop * 1.05)
-	var a_h := (v_want - vh) * 0.6
+	var a_h := (v_want - vh) * (1.5 if feet < 10.0 else 0.6)
 	var tilt := maxf(a_up, 0.0) * tan(deg_to_rad(35.0))
 	if a_h.length() > tilt:
 		a_h = a_h.normalized() * tilt
@@ -1212,6 +1282,8 @@ func _land(t: Dictionary) -> void:
 	match phase:
 		"round":
 			_land_round(t)
+		"oval":
+			_land_oval(t)
 		"trim":
 			_land_trim(t)
 		"fix":
@@ -1250,6 +1322,9 @@ func _land(t: Dictionary) -> void:
 				return
 			if _dry(t):
 				_fail("out of propellant coming down: %s" % _orbit_text(t))
+				return
+			if float(t.get("thrust_max", 0.0)) <= 0.0 and FlightPrograms.shield_press(_s.core, _s.active, int(t.get("next_stage", -1)), false):
+				_fail("the stage under the heat shield ran dry before the burn down was done (%s): the lander's own engine can't fire with the shield still under it" % _orbit_text(t))
 				return
 			_autostage(t)
 			_thr(1.0 if _aligned(t, down, 8.0) else 0.0)
@@ -1377,8 +1452,12 @@ func _begin_land_at(t: Dictionary) -> String:
 	# through it slowly on the engine (no fire, no guessing at the air)
 	_a.air_top = _a.atm
 	var v_orb := sqrt(float(b.mu) / (float(b.radius) + maxf(float(t.altitude), 0.0)))
-	if _a.atm > 0.0 and float(t.get("dv_total", 0.0)) > v_orb * 1.5 + 3000.0 and _finish_accel(t) > float(_a.g) * 1.5:
+	var dv_have := float(t.get("dv_total", 0.0))
+	if _a.atm > 0.0 and _finish_accel(t) > float(_a.g) * 1.5 and (dv_have > v_orb * 1.5 + 3000.0 \
+			or _a.atm < 60000.0 and dv_have > v_orb * 1.3 + 1500.0):
+		# (and thin air like Narwhal's barely slows a heavy lander anyway)
 		_a.atm = 0.0
+		_a.no_air_path = true
 	_a.bi = int(t.body_index)
 	_a.R = float(b.radius)
 	_a.mu = float(b.mu)
@@ -1388,7 +1467,12 @@ func _begin_land_at(t: Dictionary) -> String:
 	_a.target = true
 	var o: Dictionary = t.get("orbit", {})
 	var orbiting: bool = o.get("ap_alt") != null and float(o.get("pe_alt", -1.0)) > maxf(_a.atm, 0.0) and not t.get("landed", false)
-	if orbiting:
+	if orbiting and _a.atm > 0.0 and float(o.get("ecc", 0.0)) > 0.3:
+		# a long oval over air: down from its high point (a small burn
+		# there drops the low point into the air), the revolution chosen
+		# by trying each on a copy of the world, trimmed on the long fall
+		phase = "oval"
+	elif orbiting:
 		# (round first: the timing of the way down is laid on a circle)
 		phase = "round" if float(o.get("ecc", 0.0)) > 0.003 else "aim"
 	elif _a.atm > 0.0 and t.get("in_atmosphere", false) and float(t.surface_speed) > 400.0:
@@ -1485,6 +1569,89 @@ func _ground_dist(t: Dictionary) -> float:
 	var a := Vector3(cos(la1) * cos(lo1), cos(la1) * sin(lo1), sin(la1))
 	var b := Vector3(cos(la2) * cos(lo2), cos(la2) * sin(lo2), sin(la2))
 	return a.angle_to(b) * float(_a.R)
+
+
+## "oval": down from the high point of a long orbit over air. On copies of
+## the world, the burn down made at each of the next high points: the one
+## that comes down nearest the place is flown, then trimmed on the way.
+func _land_oval(t: Dictionary) -> void:
+	var o: Dictionary = t.get("orbit", {})
+	if not _a.has("oval_at"):
+		var period := float(o.get("period", 0.0))
+		var ttap = o.get("t_to_ap")
+		if period <= 0.0 or ttap == null:
+			phase = "round"
+			return
+		var best := INF
+		var best_k := -1
+		var n := clampi(int(3.0 * 86400.0 / period), 1, 12)
+		for k in n:
+			var at := float(t.t) + float(ttap) + period * k
+			var ct := _oval_down(at)
+			if ct.is_empty():
+				continue
+			var miss := _miss(ct).length()
+			if miss < best:
+				best = miss
+				best_k = k
+		if best_k < 0:
+			_fail("can't work out a way down by %s from this orbit: no way down from its high point comes down" % _a.tname)
+			return
+		_a.oval_at = float(t.t) + float(ttap) + period * best_k
+		_say("down from the high point %s from now: the run comes down %s from %s, to be trimmed on the way" % [span(float(_a.oval_at) - float(t.t)), km(best), _a.tname])
+	var wait := float(_a.oval_at) - float(t.t)
+	_sas("retrograde")
+	if wait > 2.0 * LEAD:
+		_thr(0.0)
+		_warp_until(float(t.t) + wait - LEAD)
+		return
+	if wait > 0.3:
+		_thr(0.0)
+		return
+	phase = "deorbit"
+
+
+## On a copy of the world: warp to `at`, burn retrograde until the low point
+## is deep in the air, fall to the hand-over; its telemetry there, or {}.
+func _oval_down(at: float) -> Dictionary:
+	var c := _world_copy()
+	if c == null:
+		return {}
+	var id := _s.active
+	var before := float(JSON.parse_string(c.telemetry(id)).t)
+	c.warp(maxf(at - before, 0.0), id)
+	c.vessel_set_mode(id, "physics")
+	c.vessel_set_sas(id, "retrograde", PackedFloat64Array())
+	var ct: Dictionary = {}
+	var burning := true
+	for sec in 60000:
+		ct = JSON.parse_string(c.telemetry(id))
+		if not ct.get("alive", false):
+			return {}
+		if burning:
+			if float(ct.get("thrust_max", 0.0)) <= 0.0 and int(ct.get("next_stage", -1)) >= 0 \
+					and not FlightPrograms.shield_press(c, id, int(ct.get("next_stage", -1)), false):
+				c.vessel_stage(id)
+			var aligned := v3(ct.nose).angle_to(-v3(ct.velocity)) < deg_to_rad(8.0)
+			c.vessel_set_throttle(id, 1.0 if aligned else 0.0)
+			if float(ct.get("orbit", {}).get("pe_alt", 1e12)) < _a.atm * 0.4:
+				c.vessel_set_throttle(id, 0.0)
+				burning = false
+			c.step_physics(5)
+			continue
+		if ct.get("landed", false) or _handover(ct):
+			return ct
+		if not ct.get("in_atmosphere", false):
+			var t0 := float(ct.t)
+			c.warp(600.0, id)
+			if float(JSON.parse_string(c.telemetry(id)).t) <= t0 + 1e-3:
+				c.step_physics(50)
+			continue
+		c.vessel_set_sas(id, "retrograde" if float(ct.surface_speed) > 500.0 else "surface_retrograde", PackedFloat64Array())
+		if FlightPrograms.shield_press(c, id, int(ct.get("next_stage", -1)), true):
+			c.vessel_stage(id)
+		c.step_physics(50)
+	return {}
 
 
 ## "round": an oval orbit made a circle at its high point first.
@@ -1826,6 +1993,7 @@ func _land_trim(t: Dictionary) -> void:
 		_a.trim_dv = Vector3.ZERO
 		var p0 := _coast_down(Vector3.ZERO)
 		if p0.is_empty():
+			_say("on the way down: the run on a copy of the world never came down (no trim)")
 			phase = "entry"
 			return
 		var m0 := _miss(p0)
@@ -1850,8 +2018,11 @@ func _land_trim(t: Dictionary) -> void:
 		var ka := (-m0.x * jb.y + m0.y * jb.x) / det
 		var kb := (-ja.x * m0.y + ja.y * m0.x) / det
 		var dv := pro * ka + nrm * kb
-		if dv.length() > 120.0:
-			dv = dv.normalized() * 120.0
+		# (far up the fall a little moves it a long way, and it's worth more)
+		var ttp = t.get("orbit", {}).get("t_to_pe")
+		var cap := 300.0 if ttp != null and float(ttp) > 1800.0 else 120.0
+		if dv.length() > cap:
+			dv = dv.normalized() * cap
 		_a.trim_dv = dv
 		_a.trim_start = float(t.get("dv_expended", 0.0))
 		_say("on the way down: coming down %s from %s; a %.1f m/s trim" % [km(m0.length()), _a.tname, dv.length()])
@@ -1863,6 +2034,10 @@ func _land_trim(t: Dictionary) -> void:
 		_a.trims = int(_a.get("trims", 0)) + 1
 		if _a.trims < 3 and float(t.get("thrust_max", 0.0)) > 0.0 and not t.get("in_atmosphere", false):
 			_a.erase("trim_dv")
+			# (a long way to fall yet: the next look from half way there)
+			var ttp = t.get("orbit", {}).get("t_to_pe")
+			if ttp != null and float(ttp) > 1800.0:
+				_warp_until(float(t.t) + float(ttp) * 0.5)
 		else:
 			phase = "entry"
 		return
@@ -2049,6 +2224,19 @@ func _land_home(t: Dictionary) -> void:
 		phase = "descent"
 		_say("over the place: %s from %s, coming straight down" % [km(d), _a.tname])
 		return
+	# the straight run in knows nothing of the hills on the way: low over
+	# the ground under it, up first (the height comes before the distance)
+	var floor_h := clampf(d * 0.03, 30.0, 600.0)
+	if agl < floor_h and d > AT_PLACE * 2.0:
+		var a_up_min := g_eff + 1.5 * ((floor_h - agl) * 0.3 - vs)
+		var a_up_now := a_cmd.dot(up)
+		if a_up_now < a_up_min:
+			a_cmd += up * (a_up_min - a_up_now)
+		if a_cmd.length() > accel:
+			var a_v := up * minf(a_cmd.dot(up), accel)
+			var a_h2 := a_cmd - up * a_cmd.dot(up)
+			var room2 := sqrt(maxf(accel * accel - a_v.length_squared(), 0.0))
+			a_cmd = a_v + (a_h2.normalized() * minf(a_h2.length(), room2) if a_h2.length() > 0.01 else Vector3.ZERO)
 	note = "%s from %s, there in %s" % [km(d), _a.tname, span(T) if T > 0.0 else "?"]
 	_point(a_cmd)
 	# (full push only once pointing the way: thrust the wrong way costs)
@@ -2149,11 +2337,12 @@ func _begin_drive(w: PackedStringArray, t: Dictionary) -> String:
 ## Ship and target in the galaxy's axes: [where the target is from the
 ## ship, the ship's velocity against the target's].
 func _drive_rel(t: Dictionary) -> Array:
-	var bs: PackedFloat64Array = _s.core.body_state(int(t.body_index))
-	var ts: PackedFloat64Array = _s.core.body_state(int(_a.to))
-	var sp := Vector3(bs[0], bs[1], bs[2]) + v3(t.position)
-	var sv := Vector3(bs[3], bs[4], bs[5]) + v3(t.velocity)
-	return [Vector3(ts[0], ts[1], ts[2]) - sp, sv - Vector3(ts[3], ts[4], ts[5])]
+	# (from the star, not the galaxy: round another star galactic
+	# coordinates are light-years long, and too coarse to fly by)
+	var br: PackedFloat64Array = _s.core.body_rel(_s.active, int(_a.to))
+	if br.size() < 6:
+		return [Vector3.ZERO, Vector3.ZERO]
+	return [Vector3(br[0], br[1], br[2]), -Vector3(br[3], br[4], br[5])]
 
 
 ## The drive pushing `a` (m/s2, the SOI axes), the engines quiet, for dt s
@@ -2174,6 +2363,11 @@ func _drive_push(a: Vector3, dt: float) -> void:
 
 
 func _drive(t: Dictionary) -> void:
+	if t.get("interstellar", false):
+		# (out past the heliopause the drive pushes 100 g: not this program's)
+		_s.core.vessel_set_drive(_s.active, 0.0)
+		_fail("out past %s's heliopause: too fast in to stop by %s" % [t.get("star_name", "the star"), _a.to_name])
+		return
 	var amax := minf(float(t.get("drive_max", 0.0)), DRIVE_G)
 	if amax <= 0.0:
 		_fail("the drive has stopped")

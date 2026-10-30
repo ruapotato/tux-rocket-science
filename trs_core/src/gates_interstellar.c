@@ -189,6 +189,16 @@ trs_gate_status trs_gate_interstellar(trs_log *out, const char *data_dir) {
 				"stops %.3e of the way off at %.2f m/s\n", ok ? "ok  " : "FAIL", amax / 9.80665, d / TRS_LIGHT_YEAR, ship_t / 86400, tau / 86400,
 				(w->t - t0) / TRS_YEAR, t / TRS_YEAR, peak / TRS_C, vp / TRS_C, fabs(gone - d) / d, v3_len(vs->v));
 
+		/* 4b. the drive cut, a day warped: no push left over */
+		{
+			double v0 = v3_len(vs->v);
+			trs_world_warp_ship(w, id, 86400);
+			double dv = fabs(v3_len(vs->v) - v0);
+			ok = dv < 1e-6;
+			failed += !ok;
+			trs_log_printf(out, "%s the drive cut, a day warped by the ship: speed changes %.2e m/s (want none)\n", ok ? "ok  " : "FAIL", dv);
+		}
+
 		/* 5. through the world save */
 		trs_json *j = trs_world_to_json(w);
 		char *text = trs_json_write(j);
@@ -221,11 +231,15 @@ trs_gate_status trs_gate_interstellar(trs_log *out, const char *data_dir) {
 		trs_world_free(w);
 	}
 	/* 7. a course to Lantern, flown by warping in big steps of ship time:
-	 *    from rest, and from 0.1 c along the way */
-	for (int k = 0; k < 2; k++) {
+	 *    from rest, from 0.1 c along the way, and from 727 km/s 30 degrees
+	 *    off it (the drive shoved the ship out of Austra's pull at a slant:
+	 *    the sideways part comes off first, or it drifts on past) */
+	for (int k = 0; k < 3; k++) {
 		trs_world_init(w, &sys, 0);
 		trs_v3 start = v3_scale(to_l, A->soi * 1.01);
-		int id = trs_world_add_craft(w, &c, austra, start, v3_scale(to_l, k ? 0.1 * TRS_C / sqrt(1 - 0.01) * sqrt(1 - 0.01) : 0), quat_identity());
+		trs_v3 side = v3_norm(v3_cross(to_l, fabs(to_l.z) < 0.9 ? v3(0, 0, 1) : v3(1, 0, 0)));
+		trs_v3 v0 = k == 0 ? v3(0, 0, 0) : k == 1 ? v3_scale(to_l, 0.1 * TRS_C) : v3_add(v3_scale(to_l, 727e3 * cos(M_PI / 6)), v3_scale(side, 727e3 * sin(M_PI / 6)));
+		int id = trs_world_add_craft(w, &c, austra, start, v0, quat_identity());
 		trs_world_step_physics(w);
 		trs_vessel *vs = &w->vessels[id];
 		double t0 = w->t, lag0 = vs->tau_lag, tau = 0, t = 0;
@@ -242,7 +256,7 @@ trs_gate_status trs_gate_interstellar(trs_log *out, const char *data_dir) {
 			 fabs(ship_t - tau) < 1e-6 * tau && fabs(home - t) < 1e-6 * t;
 		failed += !ok;
 		trs_log_printf(out, "%s course to Lantern from %s, in %d warps of 11.6 ship days: %.3f ship days (planned %.3f), %.5f home years (planned %.5f); "
-				"stops %.0f km from the aim point at %.4f m/s\n", ok ? "ok  " : "FAIL", k ? "0.1 c" : "rest", steps, ship_t / 86400, tau / 86400,
+				"stops %.0f km from the aim point at %.4f m/s\n", ok ? "ok  " : "FAIL", k == 0 ? "rest" : k == 1 ? "0.1 c" : "727 km/s 30 deg off the line", steps, ship_t / 86400, tau / 86400,
 				home / TRS_YEAR, t / TRS_YEAR, off / 1000, v3_len(vs->v));
 		trs_world_free(w);
 	}

@@ -30,6 +30,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int trs_gate_load_catalog(trs_log *out, const char *data_dir, trs_part_catalog *cat);
 
@@ -180,6 +181,58 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 				pd->eva_jump, g, top - h0, want, air);
 		trs_world_free(w);
 		free(w);
+	}
+	/* 3b. out of a pod high on a tall stack standing on the ground: with no
+	 *     ladder the penguin drops from the hatch; with one aboard it climbs
+	 *     down it and stands at the foot of the craft */
+	{
+		double impact[2] = { 0, 0 }, start[2] = { 0, 0 };
+		int lost[2] = { 0, 0 }, stood[2] = { 0, 0 };
+		for (int lad = 0; lad < 2; lad++) {
+			trs_craft tall;
+			trs_craft_init(&tall, &cat);
+			int ti = trs_catalog_find(&cat, "tank_l"), pi = trs_catalog_find(&cat, "pod_1");
+			double th = cat.defs[ti].height, ph = cat.defs[pi].height;
+			trs_craft_add(&tall, ti, -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+			trs_craft_add(&tall, ti, 0, "bottom", "top", v3(0, th, 0), quat_identity(), -1, 0);
+			int pod = trs_craft_add(&tall, pi, 1, "bottom", "top", v3(0, th * 1.5 + ph * 0.5, 0), quat_identity(), -1, 0);
+			if (lad)
+				trs_craft_add(&tall, trs_catalog_find(&cat, "ladder"), 0, "", "", v3(0, 0, cat.defs[ti].radius + 0.05), quat_identity(), -1, 0);
+			trs_world *w = malloc(sizeof(trs_world));
+			trs_world_init(w, &sys, 0);
+			int tid = stand(w, &tall, floe, th * 0.5, 0.05);
+			/* (placed by its centre of mass: up by that over the bottom tank's middle) */
+			trs_vessel *tv = &w->vessels[tid];
+			tv->r = v3_add(tv->r, v3_scale(v3_norm(tv->r), tv->cm.y));
+			tv->sas = TRS_SAS_STABILITY;
+			run(w, 3);
+			const trs_body *F = &sys.bodies[floe];
+			int eid = trs_world_eva_exit(w, tid, pod, pen);
+			trs_vessel *ev = &w->vessels[eid];
+			start[lad] = v3_len(ev->r) - F->radius - trs_body_terrain_at(F, w->t, ev->r) - pd->height * 0.5;
+			for (int k = 0; k < 4 * TRS_PHYSICS_HZ; k++) {
+				double vin = -v3_dot(v3_sub(ev->v, v3_cross(trs_body_omega(F), ev->r)), v3_norm(ev->r));
+				trs_world_step_physics(w);
+				ev = &w->vessels[eid];
+				for (int e = 0; e < w->nevents; e++)
+					lost[lad] += w->events[e].kind == TRS_WEV_PART_DESTROYED && !strcmp(w->events[e].part, "eva_penguin");
+				w->nevents = 0;
+				double feet = v3_len(ev->r) - F->radius - trs_body_terrain_at(F, w->t, ev->r) - pd->height * 0.5;
+				if (feet < 0.1 && impact[lad] == 0)
+					impact[lad] = fmax(vin, 1e-6);
+				if (!ev->alive)
+					break;
+			}
+			stood[lad] = ev->alive && ev->contacts > 0 && tilt_deg(ev) < 10;
+			trs_world_free(w);
+			free(w);
+			trs_craft_free(&tall);
+		}
+		int ok = start[0] > 5 && impact[0] > 9 && start[1] < 0.1 && impact[1] < 1 && !lost[1] && stood[1];
+		failed += !ok;
+		trs_log_printf(out, "%s out of a pod %.1f m up a standing stack: no ladder, it drops and meets the ground at %.1f m/s (%s); with a ladder it climbs down "
+				"(feet %.2f m up as it steps off, %.2f m/s at the ground), standing %s\n", ok ? "ok  " : "FAIL", start[0], impact[0],
+				lost[0] ? "lost" : "survives", start[1], impact[1], stood[1] ? "upright" : "NOT upright");
 	}
 	/* 3. out of a pod on the ground, within reach of its hatch, then away */
 	{

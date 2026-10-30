@@ -1016,7 +1016,7 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 				ok ? "ok  " : "FAIL", tank_id, rise[0], cone_id, rise[1], rise[2]);
 	}
 	/* 6. A wider part's shadow: legs on a tank's side, diving bottom-first
-	 *    at 2.5 km/s, warm at 8% of the rate with the XL heat shield (on an
+	 *    at 2.5 km/s, warm at 3% of the rate with the XL heat shield (on an
 	 *    adapter) below the tank as without it; the air 40 degrees off the
 	 *    axis, the shadow falls elsewhere and they warm as in the open. */
 	{
@@ -1050,7 +1050,7 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 				trs_craft_free(&c);
 			}
 		double along = rise[1][0] / fmax(rise[0][0], 1e-9), off = rise[1][1] / fmax(rise[0][1], 1e-9);
-		int ok = fabs(along - 0.08) < 0.005 && fabs(off - 1) < 0.01 && rise[0][0] > 1;
+		int ok = fabs(along - 0.03) < 0.003 && fabs(off - 1) < 0.01 && rise[0][0] > 1;
 		failed += !ok;
 		trs_log_printf(log, "%s legs on a tank's side, 2 s bottom-first at 2.5 km/s from 50 km: +%.2f K in the open, +%.3f K over the XL heat shield (%.3f of it); "
 				"40 deg off the axis +%.2f K and +%.2f K (%.3f)\n", ok ? "ok  " : "FAIL", rise[0][0], rise[1][0], along, rise[0][1], rise[1][1], off);

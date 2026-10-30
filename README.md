@@ -136,8 +136,8 @@ world it starts at, flat out and braking on time, into a circular orbit low enou
 Scanner (Floe's orbit to Narwhal's in under two days of game time). `ship drive 0.5` sets the drive
 alone; the throttle keys move it with the engines.
 Out there the throttle runs it, warp runs on the ship's clock (and eases off as you brake), and
-the **COURSE** panel flies you to a star: flat out, turning round exactly halfway, stopping just
-short of its heliopause. Austra to Lantern at 100 g takes 43 days of ship time while Floe's
+the **COURSE** panel flies you to a star: first pushing off any speed across the line to it,
+then flat out, turning round exactly halfway, stopping just short of its heliopause. Austra to Lantern at 100 g takes 43 days of ship time while Floe's
 calendar runs on 4.22 years; at 100000x warp that is under a minute of real time. The HUD shows
 the speed as a fraction of light, gamma, the ship and home clocks, each star's distance and
 closing speed, and the distance and ship time it would take to stop. The sky shows what a ship
@@ -236,7 +236,7 @@ repeat of the same result is worth half the last. Everything is in `data/career/
 to the view, up to 1.6 m/s, as far as friction lets the feet push), **Space** jumps (2.2 m/s off
 the ground: knee height on Floe, a couple of metres on Krill), and **R** arms the jetpack: then
 WASD and **Shift / Ctrl** push it about on a few kilograms of mono. Walk up to a pod with a free
-seat (or a **Waddle Ladder** on its craft: the penguin climbs it to the hatch) and **F** climbs
+seat (or a **Waddle Ladder** on its craft: the penguin climbs it to the hatch, and down it to the ground when it steps out of a landed craft) and **F** climbs
 back in. The Hopper and the Krill Lander carry ladders; fit one to any rocket whose pod stands
 out of reach of the ground.
 **G** plants a PASA flag where the penguin stands (it stays there for good). A penguin on EVA is a vessel of its own: it can be left on Krill, switched to with **[ ]**,
@@ -387,7 +387,7 @@ comes down through a tree.
 Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
 of it, and keeps the tank behind it cool. It also cuts the drag. Parts on a craft's sides (legs,
 panels, a scanner) sit in the shadow of a wider part stacked ahead of them on its axis while the
-air comes along that axis: 8% of the heating reaches them. The **Toastmaster XL Heat Shield**
+air comes along that axis: 3% of the heating reaches them. The **Toastmaster XL Heat Shield**
 (2.5 m, Landing Elsewhere) under a lander, on an adapter and a decoupler below its engine, keeps
 its legs in that shadow through thick air like Kelp's (`land near` drops it when the air has done
 its work; an engine fired into it would burn through what holds it).

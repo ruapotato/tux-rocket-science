@@ -424,9 +424,8 @@ func advance(real_dt: float) -> void:
 			if cap < warp_index:
 				set_warp("rails", cap)
 				events.append({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
-				if cap <= 0:
-					return
-			core.warp_ship(active, real_dt * RAILS_WARP[warp_index])
+			# (eased right off, this frame still runs, at 1x)
+			core.warp_ship(active, real_dt * (RAILS_WARP[warp_index] if warp_index > 0 else 1.0))
 			_collect_events()
 			_telemetry_tick = -1
 			if t.has("course") and not telemetry().has("course"):

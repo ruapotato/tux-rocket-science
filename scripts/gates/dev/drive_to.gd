@@ -42,7 +42,13 @@ func run(runner: Node) -> Dictionary:
 	scene.hud.hide_help()
 	var s: FlightSession = scene.session
 	var pad := s.active
-	var id: int = s.core.flight_spawn_orbit(text, env.call("FROM", "floe"), 200000.0, 0.0)
+	var id: int = -1
+	if env.call("FROM", "floe") == "lantern":
+		# just inside Lantern's heliopause, falling in at 50 km/s (as a
+		# course ends and the drift in starts)
+		id = s.core.flight_spawn_state(text, "lantern", PackedFloat64Array([2.99e10, 0, 0, -50000.0, 0, 0]))
+	else:
+		id = s.core.flight_spawn_orbit(text, env.call("FROM", "floe"), 200000.0, 0.0)
 	s.switch_to(id)
 	s.core.vessel_remove(pad)
 	for i in 3:
@@ -61,7 +67,8 @@ func run(runner: Node) -> Dictionary:
 			last = p.phase
 			said_t = s.time()
 			var t := s.telemetry()
-			log.append("T+%9.0f %s | %s (%s, drive %.2f g, %.0f fps)" % [s.time() - t0, p.phase, p.note, t.get("body", ""), float(t.get("drive_accel", 0)) / 9.80665, Engine.get_frames_per_second()])
+			log.append("T+%9.0f %s | %s (%s, drive %.2f g, %.0f fps, %.2f Gm from the star, interstellar %s)" % [s.time() - t0, p.phase, p.note, t.get("body", ""), float(t.get("drive_accel", 0)) / 9.80665, Engine.get_frames_per_second(),
+				Vector3(t.position[0], t.position[1], t.position[2]).length() / 1e9 if str(t.get("body", "")) == "lantern" else -1.0, t.get("interstellar", false)])
 	var t := s.telemetry()
 	for line in comp.log:
 		log.append("    computer: " + str(line))

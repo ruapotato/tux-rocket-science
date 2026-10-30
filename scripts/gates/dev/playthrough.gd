@@ -213,9 +213,14 @@ func probe_frame() -> void:
 ## to its end. Returns its last note.
 func program(words: String, max_s := 4.0e6) -> String:
 	var comp: ShipComputer = scene.computer
+	var seen := comp.log_count
 	comp.programs.start(scene, words.split(" "), tel())
 	var p := comp.programs
 	var ok := await until(func(): return not p.running(), max_s)
+	# (what it said on the way, as the computer's log has it)
+	var n := mini(comp.log_count - seen, comp.log.size())
+	for line in comp.log.slice(comp.log.size() - n):
+		say("   computer: " + str(line))
 	var how := "%s %s: %s" % [words, p.status, p.note]
 	say("program " + how + ("" if ok else " (still going when given up on)"))
 	return p.status
@@ -238,7 +243,8 @@ func launch(craft: String, site := "pad") -> bool:
 	await frames(5)
 	scene.hud.hide_help()
 	s = scene.session
-	s.sim_event.connect(_on_event)
+	if not s.sim_event.is_connected(_on_event):
+		s.sim_event.connect(_on_event)
 	say("launched %s from the %s (%s; PASA has %s)" % [tel().get("name", "?"), site, Career.money(cost), Career.money(Career.funds)])
 	return true
 
@@ -421,7 +427,7 @@ func toward_vessel(id: int) -> Vector2:
 # ---- the craft, as a player would build them in the hangar --------------------
 
 ## Each design and the world it's for.
-const DESIGNS := {"hearth_diver": "kelp", "star_skua": "haven"}
+const DESIGNS := {"hearth_diver": "kelp", "hearth_yard": "kelp", "hearth_yard_capture": "kelp", "star_skua": "haven"}
 
 
 static func held(id: String) -> Dictionary:
@@ -431,7 +437,7 @@ static func held(id: String) -> Dictionary:
 static func design(name: String) -> CraftModel:
 	var m := CraftModel.new()
 	match name:
-		"hearth_diver", "hearth_diver_lander", "hearth_diver_transfer":
+		"hearth_diver", "hearth_diver_lander", "hearth_diver_transfer", "hearth_yard", "hearth_yard_capture":
 			# a lander for the thick air and the weight of Kelp: down on the
 			# Skua-sized lifter engine, with a scanner to chart the Hearth
 			m.place_root(held("pod_1"))
@@ -457,15 +463,51 @@ static func design(name: String) -> CraftModel:
 				m.auto_stage()
 				m.craft_name = "Hearth Diver"
 				return m
-			# the stage that takes it from Floe's orbit to Kelp's
+			if name.begins_with("hearth_yard"):
+				# built in the Orbital Yard, round Floe already: a stage under
+				# the shield that can make the whole capture into a low orbit
+				# round Kelp and the burn down (a lifter: quick about it), and
+				# one above for the way there
+				var dy := m.attach_stack(held("decoupler_xl"), shield, "bottom")[0]
+				var ty := m.attach_stack(held("tank_xl"), dy, "bottom")[0]
+				var ey := m.attach_stack(held("engine_lifter"), ty, "bottom")[0]
+				if name == "hearth_yard_capture":
+					m.auto_stage()
+					m.craft_name = "Hearth Diver"
+					return m
+				var dz := m.attach_stack(held("decoupler_stack"), ey, "bottom")[0]
+				var az := m.attach_stack(held("adapter_21"), dz, "bottom")[0]
+				var tz := m.attach_stack(held("tank_xl"), az, "bottom")[0]
+				var tz2 := m.attach_stack(held("tank_xl"), tz, "bottom")[0]
+				var mz := m.attach_stack(held("mount_tri"), tz2, "bottom")[0]
+				for nd in ["bottom", "bottom_2", "bottom_3"]:
+					m.attach_stack(held("engine_vac"), mz, nd)
+				m.auto_stage()
+				m.craft_name = "Hearth Diver"
+				return m
+			# a stage under the shield for the capture round Kelp and the burn
+			# down (the lander's engine can't fire with the shield under it)
 			var d1 := m.attach_stack(held("decoupler_xl"), shield, "bottom")[0]
-			var t1 := m.attach_stack(held("tank_xm"), d1, "bottom")[0]
-			var ev := m.attach_stack(held("engine_vac"), t1, "bottom")[0]
+			var tc := m.attach_stack(held("tank_xm"), d1, "bottom")[0]
+			var ec := m.attach_stack(held("engine_vac"), tc, "bottom")[0]
 			if name == "hearth_diver_transfer":
 				m.auto_stage()
 				m.craft_name = "Hearth Diver"
 				return m
-			# and the one off the pad: a wide core, two lifters strapped on
+			# the stage that takes it from Floe's orbit on its way to Kelp
+			var d0 := m.attach_stack(held("decoupler_stack"), ec, "bottom")[0]
+			var ad0 := m.attach_stack(held("adapter_21"), d0, "bottom")[0]
+			var t1 := m.attach_stack(held("tank_xl"), ad0, "bottom")[0]
+			# (three vacuum engines: one is too weak to round the orbit off
+			# with all that, and a lifter's poorer exhaust costs the margin)
+			var mt := m.attach_stack(held("mount_tri"), t1, "bottom")[0]
+			var ev := -1
+			for nd in ["bottom", "bottom_2", "bottom_3"]:
+				var e := m.attach_stack(held("engine_vac"), mt, nd)
+				if not e.is_empty() and ev < 0:
+					ev = e[0]
+			# and the one off the pad: a wide core, lifters strapped on (each
+			# pass of the loop gives the pair its symmetry twins: four in all)
 			var d2 := m.attach_stack(held("decoupler_stack"), ev, "bottom")[0]
 			var ad := m.attach_stack(held("adapter_21"), d2, "bottom")[0]
 			var x1 := m.attach_stack(held("tank_xl"), ad, "bottom")[0]
@@ -497,14 +539,19 @@ static func design(name: String) -> CraftModel:
 			var t := m.attach_stack(tank, 0, "bottom")[0]
 			var core := m.attach_stack(held("hearth_core"), t, "bottom")[0]
 			var drive := m.attach_stack(held("stillwater_drive"), core, "bottom")[0]
-			m.attach_stack(held("hearth_torch"), drive, "bottom")
+			var torch := m.attach_stack(held("hearth_torch"), drive, "bottom")[0]
 			var wing := held("wing")
 			wing.parts[0]["size"] = [1.0, 1.2, 1.3]
 			m.attach_surface(wing, t, PI / 2, -0.8, CraftModel.MIRROR)
-			m.attach_surface(held("landing_leg"), drive, PI / 4, -1.0, 4)
+			# (on the torch's housing: the feet reach below its bell, and
+			# wide: the ship stands tall)
+			m.attach_surface(held("landing_leg"), torch, PI / 4, 0.4, 4)
 			m.attach_surface(held("signal_scanner"), 0, 0.0, 0.0, 1)
 			m.attach_surface(held("laser_turret"), core, PI / 4, 0.0, 2)
-			m.attach_surface(held("ladder"), t, 0.0, 0.0, 1)
+			# (low on the ship, by the legs: from the ground a penguin must
+			# reach it to climb in; but its foot above theirs, or the ship
+			# lands on the ladder and goes over)
+			m.attach_surface(held("ladder"), torch, 0.0, 0.6, 1)
 			m.auto_stage()
 			m.craft_name = "Star Skua"
 	return m
@@ -838,24 +885,28 @@ func eva_walkabout(flag: bool, relic := "") -> void:
 ## hears the Warm Tone, down by the Hearth on its engine through the thick
 ## air, and a penguin up to it. (One way: Kelp keeps the lander.)
 func ch_hearth() -> void:
-	await relic_trip("hearth_diver", "kelp", "kelp_hearth", "hearth", 250000.0)
+	await relic_trip("hearth_yard", "kelp", "kelp_hearth", "hearth", 250000.0)
 
 
 ## Narwhal's Keel, the same way.
 func ch_keel() -> void:
-	await relic_trip("hearth_diver", "narwhal", "narwhal_keel", "keel", 150000.0)
+	await relic_trip("hearth_yard", "narwhal", "narwhal_keel", "keel", 150000.0)
 
 
+## Out to a relic and down by it. Built in the Orbital Yard (round Floe
+## already: a lander for thick air, with a stage for a full capture under
+## its heat shield, is too big to lift from the pad and still get there).
 func relic_trip(craft: String, body: String, relic: String, word: String, park: float) -> void:
-	unlock(["heavy", "staging", "power", "listening", "landing"])
+	unlock(["heavy", "staging", "power", "listening", "landing", "habitation", "yard"])
 	var m := design(craft)
-	if not await launch(m.save_text()):
+	if not Career.site_unlocked("orbit"):
+		stuck = "no Orbital Yard (research %.0f)" % Career.research
+		return
+	if not await launch(m.save_text(), "orbit"):
 		stuck = "the %s won't launch" % m.craft_name
 		return
 	var before := Career.done.duplicate()
 	var go := """# out to %s
-countdown(3)
-launch(80000)
 transfer("%s")
 warp_to("%s")
 capture(%d)
@@ -868,10 +919,11 @@ print("round %s:", round(get("periapsis") / 1000), "x", round(get("apoapsis") / 
 	if str(t.get("body", "")) != body or t.get("orbit", {}).get("ap_alt") == null:
 		stuck = "out.py didn't get into orbit round %s" % body
 		return
-	var heard := relic in Career.heard or await until(func(): return relic in Career.heard, float(t.orbit.period) * 4.0, 4.0, 3)
-	say("%s heard: %s; missions %s" % [relic, heard, news(before)])
+	var t_listen := s.time()
+	var heard := relic in Career.heard or await until(func(): return relic in Career.heard, float(t.orbit.period) * 40.0, 4.0, 4)
+	say("%s heard: %s, after %s round %s; missions %s" % [relic, heard, FlightPrograms.span(s.time() - t_listen), body, news(before)])
 	if not heard:
-		stuck = "four times round %s and the scanner never heard %s" % [body, relic]
+		stuck = "forty times round %s and the scanner never heard %s" % [body, relic]
 		return
 	if not await land_by(word, relic):
 		return
@@ -929,8 +981,25 @@ func star_hop(key: String) -> void:
 	if t.get("landed", false):
 		var r := await script_run("/root/scripts/up.py", "launch()\n", 3000)
 		say("up from %s: %s" % [t.body, " / ".join(r.said.slice(-2))])
-	# out past this star's heliopause on the drive, under warp
+	# out of this world's pull first (straight at the star could be straight
+	# into the world), along the orbit on the drive
 	var core: TrsSim = s.core
+	var star_here := int(tel().get("star", -1))
+	if int(tel().body_index) != star_here:
+		core.vessel_set_sas(s.active, "prograde", PackedFloat64Array())
+		await until(func(): return Frame.vec_arr(tel().nose).angle_to(Frame.vec_arr(tel().velocity)) < deg_to_rad(5.0), 120)
+		core.vessel_set_drive(s.active, 1.0)
+		var from_body := int(tel().body_index)
+		var free := await until(func():
+			var tt := tel()
+			if not tt.get("alive", false):
+				return true
+			# (a moon in the way: straight out from it, not along round it)
+			core.vessel_set_sas(s.active, "prograde" if int(tt.body_index) == from_body else "radial_out", PackedFloat64Array())
+			return int(tt.body_index) == star_here, 1.0e6, 1.0, 5)
+		core.vessel_set_drive(s.active, 0.0)
+		say("out of %s's pull on the drive: %s" % [t.get("body", "?"), free])
+	# out past this star's heliopause on the drive, under warp
 	var si := core.body_find(star)
 	var sg: Array = JSON.parse_string(core.body_info(si)).galactic
 	var to := func() -> Vector3:
@@ -939,9 +1008,9 @@ func star_hop(key: String) -> void:
 	var aim: Vector3 = to.call()
 	core.vessel_set_sas(s.active, "target", PackedFloat64Array([aim.x, aim.y, aim.z]))
 	await until(func(): return Frame.vec_arr(tel().nose).angle_to(aim) < deg_to_rad(3.0), 120)
-	scene.computer.sh("ship drive 1")
+	core.vessel_set_drive(s.active, 1.0)
 	var out := await until(func(): return tel().get("interstellar", false), 1.0e7, 1.0, 7)
-	scene.computer.sh("ship drive 0")
+	core.vessel_set_drive(s.active, 0.0)
 	say("out past %s's heliopause: %s (%.0f km/s)" % [tel().get("star_name", "?"), out, Frame.vec_arr(tel().get("velocity_galactic", [0, 0, 0])).length() / 1000.0])
 	if not out:
 		stuck = "the drive didn't take the ship out past the heliopause"
@@ -965,22 +1034,35 @@ func star_hop(key: String) -> void:
 	aim = to.call()
 	core.vessel_set_sas(s.active, "target", PackedFloat64Array([aim.x, aim.y, aim.z]))
 	await until(func(): return Frame.vec_arr(tel().nose).angle_to(aim) < deg_to_rad(3.0), 120)
-	scene.computer.sh("ship drive 1")
-	await until(func(): return Frame.vec_arr(tel().get("velocity_galactic", [0, 0, 0])).length() > 300000.0 or not tel().get("interstellar", false), 3000)
-	scene.computer.sh("ship drive 0")
+	core.vessel_set_drive(s.active, 1.0)
+	# (no faster than the drive can take off again inside: 1 g there; at
+	# 100 g out here that is under a minute of push)
+	var push_t := s.time()
+	await until(func(): return float(tel().get("proper_speed", 0.0)) > 50000.0 or not tel().get("interstellar", false) or s.time() - push_t > 60.0, 120, 1.0)
+	core.vessel_set_drive(s.active, 0.0)
+	say("pushed in: %.1f km/s toward %s" % [float(tel().get("proper_speed", 0.0)) / 1000.0, star])
 	var inside := await until(func(): return not tel().get("interstellar", false), 1.0e8, 1.0, 7)
-	say("in through %s's heliopause: %s; missions %s" % [star, inside, news(before)])
+	say("in through %s's heliopause: %s, %.2f Gm out at %.1f km/s; missions %s" % [star, inside, Frame.vec_arr(tel().position).length() / 1e9,
+		Frame.vec_arr(tel().velocity).length() / 1000.0, news(before)])
 	if not inside:
 		stuck = "never drifted in through %s's heliopause" % star
 		return
+	# (a little way in before the drive goes on: on the line itself, any
+	# push outward is out again, where the drive pushes 100 g)
+	var hp: float = float(JSON.parse_string(core.body_info(si)).soi)
+	var deep := await until(func(): return Frame.vec_arr(tel().position).length() < hp * 0.95, 1.0e8, 1.0, 7)
+	t = tel()
+	say("a way in (%s): %.2f Gm from %s (heliopause %.1f Gm), %.1f km/s against it, %s, interstellar %s" % [deep, Frame.vec_arr(t.position).length() / 1e9,
+		t.get("body", "?"), hp / 1e9, Frame.vec_arr(t.velocity).length() / 1000.0, t.get("situation", ""), t.get("interstellar", false)])
 	if await program("drive_to " + world, 1.0e8) != "done":
 		stuck = "drive_to %s didn't get there" % world
 		return
 	t = tel()
-	var heard := relic in Career.heard or await until(func(): return relic in Career.heard, float(t.orbit.period) * 4.0, 4.0, 3)
-	say("%s heard: %s; missions %s" % [relic, heard, news(before)])
+	var t_listen := s.time()
+	var heard := relic in Career.heard or await until(func(): return relic in Career.heard, float(t.orbit.period) * 40.0, 4.0, 4)
+	say("%s heard: %s, after %s round %s; missions %s" % [relic, heard, FlightPrograms.span(s.time() - t_listen), world, news(before)])
 	if not heard:
-		stuck = "four times round %s and never heard %s" % [world, relic]
+		stuck = "forty times round %s and never heard %s" % [world, relic]
 		return
 	if not await land_by(word, relic):
 		return
@@ -1004,7 +1086,8 @@ func resume_flight() -> void:
 	await frames(5)
 	scene.hud.hide_help()
 	s = scene.session
-	s.sim_event.connect(_on_event)
+	if not s.sim_event.is_connected(_on_event):
+		s.sim_event.connect(_on_event)
 	say("back aboard %s: %s over %s" % [tel().get("name", "?"), tel().get("situation", ""), tel().get("body", "")])
 
 

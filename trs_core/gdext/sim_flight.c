@@ -1705,6 +1705,32 @@ static void m_trajectory_points(void *self, const trs_val *a, trs_val *r) {
 	free(d);
 }
 
+/* body_rel(id, body) -> [x, y, z, vx, vy, vz]: where `body` is from the
+ * vessel and how fast it moves against it (sim axes), both taken from
+ * their star (never through galactic coordinates: round another star they
+ * are light-years long); empty if the body is round another star */
+static void m_body_rel(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	if (!ok_vessel(h, a[0].i) || !ok_body(h, a[1].i)) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	trs_world *w = h->world;
+	const trs_vessel *vs = &w->vessels[a[0].i];
+	int star = w->sys.bodies[vs->body].star;
+	if (w->sys.bodies[a[1].i].star != star) {
+		ret_doubles(r, NULL, 0);
+		return;
+	}
+	trs_v3 rv, vv, bo, bvo, bp, bv;
+	trs_vessel_state(w, (int)a[0].i, &rv, &vv);
+	trs_body_state_from(&w->sys, vs->body, star, w->t, &bo, &bvo);
+	trs_body_state_from(&w->sys, (int)a[1].i, star, w->t, &bp, &bv);
+	trs_v3 d = v3_sub(bp, v3_add(bo, rv)), dv = v3_sub(bv, v3_add(bvo, vv));
+	double out[6] = { d.x, d.y, d.z, dv.x, dv.y, dv.z };
+	ret_doubles(r, out, 6);
+}
+
 /* node_vector(id, nodes, index) -> [x,y,z] SOI-frame delta-v of node `index`
  * on the predicted trajectory (for steering a burn). */
 static void m_node_vector(void *self, const trs_val *a, trs_val *r) {
@@ -1935,6 +1961,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "closest_approach", m_closest_approach, S, 4, { I, I, A, F }, { "id", "target", "nodes", "horizon" } },
 	{ "trajectory_points", m_trajectory_points, A, 5, { I, A, I, F, I }, { "id", "nodes", "max_patches", "horizon", "samples" } },
 	{ "node_vector", m_node_vector, A, 3, { I, A, I }, { "id", "nodes", "index" } },
+	{ "body_rel", m_body_rel, A, 2, { I, I }, { "id", "body" } },
 	{ "burn_time", m_burn_time, F, 2, { I, F }, { "id", "dv" } },
 	{ "level_spot", m_level_spot, A, 5, { I, F, F, F, F }, { "body", "lat_deg", "lon_deg", "reach", "max_slope" } },
 	{ "flight_place_landed", m_flight_place_landed, I, 4, { S, S, F, F }, { "craft", "body", "lat_deg", "lon_deg" } },

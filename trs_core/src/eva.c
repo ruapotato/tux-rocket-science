@@ -92,6 +92,16 @@ int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def) {
 	trs_v3 r = v3_add(r0, arm), v = v3_add(v0, v3_cross(om, arm));
 	const trs_body *b = &w->sys.bodies[vs->body];
 	double above = v3_len(r) - b->radius - trs_body_terrain_at(b, w->t, r);
+	/* a craft standing on the ground with a ladder: the penguin climbs down
+	 * it to the ground (out of a tall lander's hatch it would fall) */
+	int ladder = 0;
+	for (int i = 0; i < c->count; i++)
+		ladder |= trs_craft_def(c, i)->is_ladder;
+	if (ladder && (vs->landed || vs->mode == TRS_MODE_LANDED) && above > pd->height * 0.5 + 0.3) {
+		r = v3_scale(r, (v3_len(r) - above + pd->height * 0.5 + 0.02) / v3_len(r));
+		v = v3_cross(trs_body_omega(b), r);
+		above = pd->height * 0.5 + 0.02;
+	}
 	trs_v3 up = above < EVA_NEAR_GROUND ? v3_norm(r) : quat_rotate(q, v3(0, 1, 0));
 	if (above < EVA_NEAR_GROUND) {
 		/* feet no lower than the ground under it */

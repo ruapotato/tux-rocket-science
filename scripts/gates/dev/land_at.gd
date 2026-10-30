@@ -50,7 +50,28 @@ func run(runner: Node) -> Dictionary:
 	scene.hud.hide_help()
 	var s: FlightSession = scene.session
 	var pad := s.active
+	if env.call("NOLADDER", "") != "":
+		var c: Dictionary = JSON.parse_string(text)
+		var keep := []
+		for pp in c.parts:
+			if str(pp.part) != "ladder":
+				keep.append(pp)
+		c.parts = keep
+		text = JSON.stringify(c)
 	var id: int = -1
+	if env.call("STAND", "") != "":
+		# set down standing at LAT, LON (the place it'd land), then watched
+		# with nothing running: does it stay up?
+		id = s.core.flight_place_landed(text, body, float(env.call("LAT", "32")), float(env.call("LON", "16")))
+		s.switch_to(id)
+		s.core.vessel_remove(pad)
+		for k in 500:
+			s.step_ticks(1)
+			if k % 25 == 0:
+				var tt := s.telemetry()
+				log.append("    T+%.1f pitch %.1f, contacts %s, landed %s, clearance %.2f, %.2f m/s" % [k / 50.0, float(tt.pitch_deg), tt.get("contacts"), tt.landed, float(tt.get("clearance", -1)), float(tt.surface_speed)])
+			await tree.process_frame
+		return {"status": "PASS", "log": "\n".join(log)}
 	if env.call("PE", "") != "":
 		# at the top of an ALT x PE orbit (m up), INC degrees
 		var bi_: int = s.core.body_find(body)
@@ -112,10 +133,15 @@ func run(runner: Node) -> Dictionary:
 		var tl := s.telemetry()
 		if p.phase == "descent" and OS.get_environment("FEET") != "" and int(s.time()) % 5 == 0:
 			log.append("    descent: agl %.1f clearance %.1f vs %.1f thr %.2f contacts %s" % [float(tl.altitude_terrain), float(tl.get("clearance", -1)), float(tl.vertical_speed), float(tl.throttle), tl.get("contacts")])
-		if p.phase == "descent" and float(tl.get("clearance", 99)) < 3.0 and not has_meta("td%d" % int(float(tl.clearance) * 4)):
-			set_meta("td%d" % int(float(tl.clearance) * 4), true)
-			log.append("    near the ground: feet %.2f m up, falling %.2f m/s, %.1f m/s across, throttle %.2f, impact so far %.1f, contacts %s, landed %s" % [float(tl.clearance), -float(tl.vertical_speed),
-				float(tl.horizontal_speed), float(tl.throttle), float(tl.get("max_impact", 0)), tl.get("contacts"), tl.landed])
+		if p.phase == "descent" and float(tl.get("clearance", 99)) < 3.0 and not has_meta("td%d" % absi(int(float(tl.clearance) * 4))):
+			set_meta("td%d" % absi(int(float(tl.clearance) * 4)), true)
+			var upv := Vector3(tl.up[0], tl.up[1], tl.up[2])
+			var svv := Vector3(tl.surface_velocity[0], tl.surface_velocity[1], tl.surface_velocity[2])
+			log.append("    near the ground: feet %.2f m up, falling %.2f m/s, %.1f m/s across (%.2f by the program's sum), pitch %.1f, throttle %.2f, impact so far %.1f, contacts %s, landed %s, slope %s" % [float(tl.clearance), -float(tl.vertical_speed),
+				float(tl.horizontal_speed), (svv - upv * float(tl.vertical_speed)).length(), float(tl.pitch_deg), float(tl.throttle), float(tl.get("max_impact", 0)), tl.get("contacts"), tl.landed, str(tl.get("slope_deg", "?"))])
+		if p.phase == "settle" and not has_meta("st%d" % int(s.time() * 2)):
+			set_meta("st%d" % int(s.time() * 2), true)
+			log.append("    settle: pitch %.1f, contacts %s, %.2f m/s, landed %s" % [float(tl.pitch_deg), tl.get("contacts"), float(tl.surface_speed), tl.landed])
 		if p.phase in ["descent", "settle"] and int(s.time()) % 2 == 0 and OS.get_environment("ENG") != "":
 			for ps in JSON.parse_string(s.core.vessel_part_states(s.active)):
 				if str(ps.kind) in ["engine", "leg"]:
@@ -134,6 +160,26 @@ func run(runner: Node) -> Dictionary:
 			log.append("    said: " + line)
 		p.said.clear()
 		await tree.process_frame
+	if env.call("EVA", "") != "" and p.status == "done":
+		# a penguin out, and what becomes of it
+		var lander := s.active
+		var tc := s.telemetry()
+		var ladder := false
+		for pp in JSON.parse_string(s.core.vessel_parts(lander)):
+			ladder = ladder or str(pp.part) == "ladder"
+		var pen: int = s.core.vessel_eva_exit(lander, 0)
+		s.switch_to(pen)
+		var te := s.telemetry()
+		log.append("    out: ladder aboard %s, craft pitch %.0f, penguin %.2f m up (clearance %.2f), %s" % [ladder, float(tc.pitch_deg), float(te.get("altitude_terrain", -1)), float(te.get("clearance", -1)), te.get("situation", "")])
+		for k in 150:
+			s.step_ticks(1)
+			for e in s.events:
+				if str(e.kind) == "part_destroyed":
+					log.append("    T+%.2f destroyed %s on vessel %s (%s)" % [k / 50.0, e.get("part", ""), e.get("vessel", ""), str(e)])
+			s.events.clear()
+			te = s.telemetry()
+			if k % 25 == 0:
+				log.append("    T+%.1f penguin alive %s, %.2f m up, %.2f m/s down, contacts %s" % [k / 50.0, te.get("alive", false), float(te.get("altitude_terrain", -1)), -float(te.get("vertical_speed", 0)), te.get("contacts")])
 	for line in comp.log:
 		log.append("    computer: " + str(line))
 	var t := s.telemetry()
@@ -147,6 +193,8 @@ func run(runner: Node) -> Dictionary:
 	var R: float = JSON.parse_string(s.core.body_info(bi)).radius
 	var a := Vector3(cos(deg_to_rad(t.lat_deg)) * cos(deg_to_rad(t.lon_deg)), cos(deg_to_rad(t.lat_deg)) * sin(deg_to_rad(t.lon_deg)), sin(deg_to_rad(t.lat_deg)))
 	var b := Vector3(cos(deg_to_rad(rl.lat_deg)) * cos(deg_to_rad(rl.lon_deg)), cos(deg_to_rad(rl.lat_deg)) * sin(deg_to_rad(rl.lon_deg)), sin(deg_to_rad(rl.lat_deg)))
+	var lv: PackedFloat64Array = s.core.level_spot(bi, float(t.lat_deg), float(t.lon_deg), 1.0, 1.0)
+	log.append("ground there: slope %.4f (%.1f deg)" % [lv[2], rad_to_deg(atan(lv[2]))])
 	log.append("ended %s: %s; %s, %.0f m from %s, alive %s, %.0f m/s left, %.0f s" % [p.status, p.note, t.get("situation", ""),
 		a.angle_to(b) * R, rl.get("name", "?"), t.get("alive", false), float(t.get("dv_total", 0)), s.time() - t0])
 	return {"status": "PASS" if p.status == "done" else "FAIL", "log": "\n".join(log)}

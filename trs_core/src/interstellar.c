@@ -52,6 +52,8 @@ int trs_world_set_drive(trs_world *w, int id, double throttle) {
 		for (int i = 0; i < vs->craft->count; i++)
 			n += trs_craft_def(vs->craft, i)->drive_accel > 0;
 	vs->drive = n ? fmin(1, fmax(0, throttle)) : 0;
+	if (vs->drive <= 0)
+		vs->drive_accel = 0;
 	return n;
 }
 
@@ -115,10 +117,54 @@ static trs_v3 drive_push(trs_world *w, trs_vessel *vs, double dt) {
 }
 
 /* on a course: nose along the line (then against it), drive flat out */
+/* A course is flown along one line: any speed across it comes off first
+ * (the trim), pushing straight against it, or the ship would drift on past
+ * the star. Across that line, above TRIM_ON m/s starts a trim; it runs
+ * down to TRIM_OFF. */
+#define TRIM_ON 1e-3
+#define TRIM_OFF 1e-7
+
+static trs_v3 across(trs_v3 u, trs_v3 dir) {
+	return v3_sub(u, v3_scale(dir, v3_dot(u, dir)));
+}
+
+/* the trim, run on s at proper acceleration a: the proper time it took */
+static double trim_run(trs_rel_state *s, trs_v3 dir, double a) {
+	double used = 0;
+	if (v3_len(across(s->u, dir)) <= TRIM_ON)
+		return 0;
+	for (int guard = 0; guard < 200; guard++) {
+		trs_v3 p = across(s->u, dir);
+		double pl = v3_len(p);
+		if (pl <= TRIM_OFF)
+			break;
+		trs_rel_advance_tau(s, v3_scale(p, -a / pl), pl / a);
+		used += pl / a;
+	}
+	return used;
+}
+
+/* the rest of the course from s (no speed across the line): rapidity
+ * along it e0 up to e1, then down to rest, 1.05 heliopauses short */
+static void course_plan(const trs_body *st, trs_v3 dir, double a, const trs_rel_state *s, double *acc, double *dec, double *t) {
+	double c = TRS_C, d = v3_dot(v3_sub(st->galactic, s->x), dir) - 1.05 * st->soi;
+	double e0 = asinh(v3_dot(s->u, dir) / c);
+	double e1 = acosh(fmax(1.0, 0.5 * (fmax(0, d) * a / (c * c) + cosh(e0) + 1.0)));
+	*acc = c / a * (e1 - e0);
+	*dec = c / a * e1;
+	if (t)
+		*t = c / a * (sinh(e1) - sinh(e0)) + c / a * sinh(e1);
+}
+
+static int trimming(const trs_vessel *vs) {
+	return vs->course && v3_len(across(vs->u, vs->course_dir)) > TRIM_ON;
+}
+
 static void course_steer(trs_vessel *vs) {
 	if (!vs->course)
 		return;
-	trs_v3 d = vs->course_acc > 0 ? vs->course_dir : v3_neg(vs->course_dir);
+	trs_v3 p = across(vs->u, vs->course_dir);
+	trs_v3 d = trimming(vs) ? v3_neg(v3_norm(p)) : vs->course_acc > 0 ? vs->course_dir : v3_neg(vs->course_dir);
 	vs->q = quat_normalize(quat_from_to(v3(0, 1, 0), d));
 	vs->w = v3(0, 0, 0);
 	vs->drive = 1.0;
@@ -149,10 +195,55 @@ static double course_next(const trs_vessel *vs) {
 	return vs->course_acc > 0 ? vs->course_acc : vs->course_dec;
 }
 
+/* the trim, flown: at most dt of home time, on until the speed across
+ * the line is gone; then the rest of the course planned from there.
+ * Returns the home time it took. */
+static double trim_fly(trs_world *w, trs_vessel *vs, double dt) {
+	double used = 0;
+	for (int guard = 0; guard < 200 && dt - used > 1e-9 * dt; guard++) {
+		trs_v3 p = across(vs->u, vs->course_dir);
+		double pl = v3_len(p), g = trs_rel_gamma(vs->u);
+		if (pl <= TRIM_OFF)
+			break;
+		vs->q = quat_normalize(quat_from_to(v3(0, 1, 0), v3_neg(v3_scale(p, 1.0 / pl))));
+		trs_v3 a = drive_push(w, vs, fmin(dt - used, g * pl / trs_vessel_drive_max(vs, NULL)));
+		double al = v3_len(a);
+		if (al <= 0) { /* no power for it: drifting on */
+			trs_rel_state s = { vs->r, vs->u, 0, 0 };
+			trs_rel_advance_t(&s, a, dt - used);
+			vs->r = s.x;
+			vs->tau_lag += s.t - s.tau;
+			return dt;
+		}
+		trs_rel_state s = { vs->r, vs->u, 0, 0 };
+		trs_rel_advance_tau(&s, a, pl / al);
+		if (s.t > dt - used) { /* out of time first */
+			s = (trs_rel_state){ vs->r, vs->u, 0, 0 };
+			trs_rel_advance_t(&s, a, dt - used);
+		}
+		vs->r = s.x;
+		vs->u = s.u;
+		vs->v = trs_rel_velocity(s.u);
+		vs->tau_lag += s.t - s.tau;
+		used += s.t;
+	}
+	if (v3_len(across(vs->u, vs->course_dir)) <= TRIM_ON) {
+		trs_rel_state here = { v3_add(vs->r, w->sys.bodies[vs->body].galactic), vs->u, 0, 0 };
+		course_plan(&w->sys.bodies[vs->course - 1], vs->course_dir, trs_vessel_drive_max(vs, NULL), &here, &vs->course_acc, &vs->course_dec, NULL);
+	}
+	return used;
+}
+
 void trs_interstellar_advance(trs_world *w, trs_vessel *vs, double dt) {
 	double left = dt;
-	for (int guard = 0; guard < 8 && left > 0; guard++) {
+	for (int guard = 0; guard < 400 && left > 0; guard++) {
 		course_steer(vs);
+		if (trimming(vs)) {
+			left -= trim_fly(w, vs, left);
+			if (left < 1e-9 * dt)
+				break;
+			continue;
+		}
 		trs_v3 a = vs->craft ? drive_push(w, vs, left) : v3(0, 0, 0);
 		trs_rel_state s = { vs->r, vs->u, 0, 0 };
 		trs_rel_state keep = s;
@@ -192,18 +283,19 @@ int trs_world_set_course(trs_world *w, int id, int star, double *tau, double *t)
 	double d = v3_len(v3_sub(st->galactic, here)) - 1.05 * st->soi;
 	if (d <= 0)
 		return 0;
-	/* 1D along the line: from rapidity e0 up to e1, then down to rest */
-	double c = TRS_C, e0 = asinh(v3_dot(vs->u, dir) / c);
-	double e1 = acosh(fmax(1.0, 0.5 * (d * a / (c * c) + cosh(e0) + 1.0)));
+	/* the trim first (on a copy), then 1D along the line to rest */
+	trs_rel_state s = { here, vs->u, 0, 0 };
+	double trim = trim_run(&s, dir, a), acc, dec, tl;
+	course_plan(st, dir, a, &s, &acc, &dec, &tl);
 	vs->course = star + 1;
 	vs->course_dir = dir;
-	vs->course_acc = c / a * (e1 - e0);
-	vs->course_dec = c / a * e1;
+	vs->course_acc = acc;
+	vs->course_dec = dec;
 	vs->drive = 1.0;
 	if (tau)
-		*tau = vs->course_acc + vs->course_dec;
+		*tau = trim + acc + dec;
 	if (t)
-		*t = c / a * (sinh(e1) - sinh(e0)) + c / a * sinh(e1);
+		*t = s.t + tl;
 	return 1;
 }
 
@@ -224,7 +316,9 @@ double trs_world_warp_ship(trs_world *w, int id, double dtau) {
 		}
 		course_steer(vs);
 		/* the home time this much of the ship's clock takes, flown on a copy */
-		double push = vs->drive_accel > 0 ? vs->drive_accel : trs_vessel_drive_max(vs, NULL) * vs->drive;
+		/* (the last push measured, which counts the power: but nothing once
+		 * the drive is off, or a ship cut back to coast went on at full) */
+		double push = vs->drive <= 0 ? 0 : vs->drive_accel > 0 ? vs->drive_accel : trs_vessel_drive_max(vs, NULL) * vs->drive;
 		trs_v3 a = v3_scale(quat_rotate(vs->q, v3(0, 1, 0)), push);
 		trs_rel_state s = { vs->r, vs->u, 0, 0 };
 		trs_rel_advance_tau(&s, a, step);
