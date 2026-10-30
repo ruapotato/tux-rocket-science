@@ -52,6 +52,7 @@ var heard: Array = []         # relic ids a Signal Scanner has heard (their plac
 var sighted: Array = []       # "body/landmark" ids seen (close enough to see from)
 var catalogued: Array = []    # "body/species" ids a penguin has had a good look at (E, on EVA)
 var downed := 0               # Jaeger raiders brought down
+var flags: Array = []         # bodies a PASA flag stands on
 var _home_ids: Array = []     # the home system's bodies
 var _over := ""               # the landmark below the ship now
 const LANDMARK_RESEARCH := 4.0  # what seeing one for the first time teaches
@@ -65,8 +66,12 @@ var _body_names := {}
 var _biome_names := {}  # body id -> {biome id: name}
 
 
-## A flag went up on `body`: missions that want one there are done.
+## A flag went up on `body`: missions that want one there are done (and
+## the ones that come on offer later count it too).
 func flag_planted(body: String) -> void:
+	if not body in flags:
+		flags.append(body)
+		save()
 	for m in active_missions():
 		if m.goal.kind == "flag" and m.goal.body == body:
 			complete(m)
@@ -107,6 +112,7 @@ func load_from(file: String, new_mode := "sandbox") -> void:
 	sighted = d.get("sighted", [])
 	catalogued = d.get("catalogued", [])
 	downed = int(d.get("downed", 0))
+	flags = d.get("flags", [])
 	refresh_surveys()
 	changed.emit()
 
@@ -122,7 +128,7 @@ func save() -> void:
 func state() -> Dictionary:
 	return {"version": 1, "mode": mode, "funds": funds, "research": research, "unlocked": unlocked, "done": done,
 		"credited": credited, "aboard": aboard, "visited": visited, "surveys": surveys, "surveys_done": surveys_done, "heard": heard,
-		"sighted": sighted, "catalogued": catalogued, "downed": downed}
+		"sighted": sighted, "catalogued": catalogued, "downed": downed, "flags": flags}
 
 
 ## Puts the program back as `s` (a revert undoes the flight's results).
@@ -141,6 +147,7 @@ func restore(s: Dictionary) -> void:
 	sighted = s.get("sighted", []).duplicate()
 	catalogued = s.get("catalogued", []).duplicate()
 	downed = int(s.get("downed", 0))
+	flags = s.get("flags", []).duplicate()
 	save()
 	changed.emit()
 
@@ -745,6 +752,8 @@ func check(t: Dictionary, serial: int, extra := {}) -> void:
 					hit = float(t.t) - _hover_t0 >= float(g.get("seconds", 20.0))
 				else:
 					_hover_t0 = -1.0
+			"flag":
+				hit = g.body in flags  # (planted before this came on offer)
 			"altitude":
 				hit = t.body == g.body and float(t.altitude) >= float(g.value)
 			"space":

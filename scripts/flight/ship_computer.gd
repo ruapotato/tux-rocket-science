@@ -64,12 +64,13 @@ const VERBS := [
 	["window", "w", "PROGRAM: warps to where the burn to that body starts, pointing prograde"],
 	["warp", "w", "PROGRAM: time warp: seconds, apoapsis, periapsis, soi, node, or a body"],
 	["capture", "n?", "PROGRAM: brakes at the periapsis into orbit (to this apoapsis, m)"],
-	["land", "", "PROGRAM: down onto the ground below, on the engines (or the chutes)"],
+	["land", "t?", "PROGRAM: down onto the ground below (or: land <lat> <lon>, land near <relic or landmark>)"],
 	["hover", "nn?", "PROGRAM: holds a height above the ground (m), for seconds"],
 	["node", "", "PROGRAM: flies the next maneuver node on the map"],
+	["drive_to", "wn?", "PROGRAM: on the Stillwater Drive to a world of this star, into orbit round it (height, m)"],
 ]
 
-const PROGRAMS := ["launch", "circularize", "burn", "transfer", "window", "warp", "capture", "land", "hover", "node"]
+const PROGRAMS := ["launch", "circularize", "burn", "transfer", "window", "warp", "capture", "land", "hover", "node", "drive_to"]
 
 static var _shared: ShipComputer  # the game's one computer
 

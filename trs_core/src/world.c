@@ -57,12 +57,15 @@ static void vessel_release(trs_vessel *vs) {
 	free(vs->face_bottom);
 	free(vs->wake_top);
 	free(vs->wake_bottom);
+	free(vs->shade_top);
+	free(vs->shade_bottom);
 	free(vs->contact_pt);
 	free(vs->contact_part);
 	free(vs->contact_leg);
 	vs->craft = NULL;
 	vs->face_top = vs->face_bottom = NULL;
 	vs->wake_top = vs->wake_bottom = NULL;
+	vs->shade_top = vs->shade_bottom = NULL;
 	vs->contact_pt = NULL;
 	vs->contact_part = NULL;
 	vs->contact_leg = NULL;
@@ -439,9 +442,121 @@ void trs_world_step_physics(trs_world *w) {
 
 /* ---- rails warp -------------------------------------------------------- */
 
+/* ---- the Stillwater Drive through warp --------------------------------- */
+
+/* Inside a star's heliopause the drive pushes a ship on rails as it does in
+ * physics (at most 1 g, never past 1% of light speed through the star's
+ * frame, from the craft's power), along the attitude held: the path is no
+ * conic while it pushes, so it is stepped (RK4, the SOI body's pull and the
+ * push) and the conic kept osculating, its events looked for step by step.
+ * The same limits as system_drive in vessel_physics.c. */
+#define DRIVE_WARP_G 1.0
+#define DRIVE_WARP_BETA 0.01
+#define DRIVE_WARP_STEP 600.0 /* s: the longest step of a pushed path (shorter near a body: see below) */
+
+int trs_vessel_drive_warps(const trs_vessel *vs) {
+	return vs->alive && vs->craft && vs->drive > 0 && trs_vessel_drive_max(vs, NULL) > 0;
+}
+
+/* where the held attitude has the nose, the ship at r, v (SOI frame) */
+static trs_v3 drive_nose(const trs_world *w, const trs_vessel *vs, trs_v3 r, trs_v3 v) {
+	const trs_body *b = &w->sys.bodies[vs->body];
+	trs_v3 h = v3_cross(r, v), rel = v3_sub(v, v3_cross(trs_body_omega(b), r));
+	switch (vs->sas) {
+	case TRS_SAS_PROGRADE: return v3_norm(v);
+	case TRS_SAS_RETROGRADE: return v3_neg(v3_norm(v));
+	case TRS_SAS_NORMAL: return v3_norm(h);
+	case TRS_SAS_ANTINORMAL: return v3_neg(v3_norm(h));
+	case TRS_SAS_RADIAL_OUT: return v3_norm(v3_cross(v3_norm(v), v3_norm(h)));
+	case TRS_SAS_RADIAL_IN: return v3_neg(v3_norm(v3_cross(v3_norm(v), v3_norm(h))));
+	case TRS_SAS_SURF_PROGRADE: return v3_norm(rel);
+	case TRS_SAS_SURF_RETROGRADE: return v3_neg(v3_norm(rel));
+	case TRS_SAS_TARGET:
+		if (v3_len2(vs->sas_target) > 0.5)
+			return v3_norm(vs->sas_target);
+		break;
+	case TRS_SAS_UPRIGHT: return v3_norm(r);
+	default: break;
+	}
+	return quat_rotate(vs->q, v3(0, 1, 0));
+}
+
+static void drive_deriv(double mu, trs_v3 a, trs_v3 r, trs_v3 v, trs_v3 *dr, trs_v3 *dv) {
+	double rl2 = v3_len2(r), rl = sqrt(rl2);
+	*dr = v;
+	*dv = v3_madd(a, r, -mu / (rl2 * rl));
+}
+
+/* t_start..t_end of a pushed path; an event that ends it early (air or
+ * ground, with stop_at_low) comes back, or NONE */
+static trs_event drive_rails(trs_world *w, trs_vessel *vs, double t_start, double t_end, int stop_at_low) {
+	trs_event none = { TRS_EV_NONE, t_end, vs->body };
+	double kw, amax = trs_vessel_drive_max(vs, &kw), keep = w->t, t = t_start;
+	for (int guard = 0; guard < 2000000 && t < t_end - 1e-9; guard++) {
+		const trs_body *b = &w->sys.bodies[vs->body];
+		trs_v3 r, v;
+		trs_orbit_state_at(&vs->orbit, t, &r, &v);
+		double rl = v3_len(r), vl = fmax(v3_len(v), 1.0);
+		double h = fmin(fmin(t_end - t, DRIVE_WARP_STEP), fmin(0.01 * rl / vl, 0.02 * sqrt(rl * rl * rl / b->mu)));
+		h = fmax(h, fmin(1e-3, t_end - t));
+		/* an event on the osculating path inside this step: up to it */
+		trs_event ev = trs_next_event(&w->sys, vs->body, &vs->orbit, t, t + h);
+		if (ev.kind != TRS_EV_NONE)
+			h = fmax(ev.t - t, 0);
+		/* the push now: as much of it as the power pays for */
+		w->t = t;
+		int lit;
+		double want = fmin(amax * vs->drive, DRIVE_WARP_G * 9.80665), need = kw * want / amax;
+		double have = trs_vessel_solar(w, vs, &lit) + trs_craft_ec(vs->craft, NULL) / fmax(h, 1e-3);
+		double f = need > 0 ? fmin(1, fmax(0, have / need)) : 1;
+		trs_v3 nose = drive_nose(w, vs, r, v);
+		vs->q = quat_normalize(quat_mul(quat_from_to(quat_rotate(vs->q, v3(0, 1, 0)), nose), vs->q));
+		trs_v3 a = v3_scale(nose, want * f), br, bv;
+		trs_body_state_abs(&w->sys, vs->body, t, &br, &bv);
+		trs_v3 vstar = v3_add(bv, v);
+		double vsl = v3_len(vstar);
+		if (vsl > DRIVE_WARP_BETA * 299792458.0) {
+			trs_v3 n = v3_scale(vstar, 1.0 / vsl);
+			double along = v3_dot(a, n);
+			if (along > 0)
+				a = v3_madd(a, n, -along);
+		}
+		trs_craft_ec_add(vs->craft, -need * f * h); /* (warp_power adds what comes in and the usual draw) */
+		vs->drive_accel = v3_len(a);
+		trs_v3 k1r, k1v, k2r, k2v, k3r, k3v, k4r, k4v;
+		drive_deriv(b->mu, a, r, v, &k1r, &k1v);
+		drive_deriv(b->mu, a, v3_madd(r, k1r, 0.5 * h), v3_madd(v, k1v, 0.5 * h), &k2r, &k2v);
+		drive_deriv(b->mu, a, v3_madd(r, k2r, 0.5 * h), v3_madd(v, k2v, 0.5 * h), &k3r, &k3v);
+		drive_deriv(b->mu, a, v3_madd(r, k3r, h), v3_madd(v, k3v, h), &k4r, &k4v);
+		r = v3_madd(r, v3_add(v3_add(k1r, v3_scale(k2r, 2)), v3_add(v3_scale(k3r, 2), k4r)), h / 6.0);
+		v = v3_madd(v, v3_add(v3_add(k1v, v3_scale(k2v, 2)), v3_add(v3_scale(k3v, 2), k4v)), h / 6.0);
+		t += h;
+		if (ev.kind == TRS_EV_ATMOSPHERE || ev.kind == TRS_EV_SURFACE) {
+			trs_orbit_from_state(&vs->orbit, b->mu, r, v, t);
+			if (stop_at_low) {
+				w->t = keep;
+				ev.t = t;
+				return ev;
+			}
+			continue;
+		}
+		if (ev.kind == TRS_EV_SOI_EXIT || ev.kind == TRS_EV_SOI_ENTER) {
+			trs_rebase_state(&w->sys, vs->body, ev.body, t, &r, &v);
+			vs->body = ev.body;
+			vs->soi_changes++;
+			trs_world_push_event(w, (trs_world_event){ TRS_WEV_SOI_CHANGE, t, (int)(vs - w->vessels), ev.body, -1, "", 0 });
+		}
+		trs_orbit_from_state(&vs->orbit, w->sys.bodies[vs->body].mu, r, v, t);
+	}
+	w->t = keep;
+	return none;
+}
+
 /* Advances one rails vessel to t_end through its SOI transitions. Returns
  * the first atmosphere/surface event if `stop_at_low`, else NONE. */
 static trs_event advance_rails(trs_world *w, trs_vessel *vs, double t_start, double t_end, int stop_at_low) {
+	if (trs_vessel_drive_warps(vs))
+		return drive_rails(w, vs, t_start, t_end, stop_at_low);
 	double t = t_start;
 	trs_event none = { TRS_EV_NONE, t_end, vs->body };
 	for (int guard = 0; guard < 64; guard++) {

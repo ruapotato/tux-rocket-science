@@ -104,6 +104,9 @@ static void build_contacts(trs_vessel *vs) {
 		vs->bound_radius = fmax(vs->bound_radius, v3_len(v3_sub(vs->contact_pt[k], vs->cm)));
 }
 
+#define SHADE 0.08     /* of the heating that reaches a part in a wider one's shadow */
+#define SHADE_COS 0.94 /* the flow within ~20 degrees of the axis: the shadow falls on it */
+
 void trs_vessel_refresh(trs_world *w, int id) {
 	(void)w;
 	trs_vessel *vs = &w->vessels[id];
@@ -114,11 +117,15 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	free(vs->face_bottom);
 	free(vs->wake_top);
 	free(vs->wake_bottom);
+	free(vs->shade_top);
+	free(vs->shade_bottom);
 	int n = c->count ? c->count : 1;
 	vs->face_top = malloc(sizeof(double) * (size_t)n);
 	vs->face_bottom = malloc(sizeof(double) * (size_t)n);
 	vs->wake_top = malloc(sizeof(double) * (size_t)n);
 	vs->wake_bottom = malloc(sizeof(double) * (size_t)n);
+	vs->shade_top = malloc(sizeof(double) * (size_t)n);
+	vs->shade_bottom = malloc(sizeof(double) * (size_t)n);
 	trs_fuel_net_free(&vs->fuel);
 	trs_fuel_net_build(&vs->fuel, c);
 	/* what is stacked on each end of each part: the area it covers there,
@@ -152,6 +159,29 @@ void trs_vessel_refresh(trs_world *w, int id) {
 	free(cover_bottom);
 	free(wide_top);
 	free(wide_bottom);
+	/* a part on another's side sits in the shadow of a wider part stacked
+	 * on the craft's axis ahead of it (a heat shield under a lander's
+	 * legs): flying that end first, little of the hot flow reaches it */
+	for (int i = 0; i < c->count; i++) {
+		vs->shade_top[i] = vs->shade_bottom[i] = 1;
+		const trs_part *pi = &c->parts[i];
+		if (pi->parent < 0 || pi->node[0])
+			continue; /* (stacked: the faces and the wake above have it) */
+		const trs_part_def *d = trs_craft_def(c, i);
+		double reach = hypot(pi->pos.x, pi->pos.z) + fmax(d->radius, fmax(d->radius_top, d->radius_bottom));
+		for (int k = 0; k < c->count; k++) {
+			const trs_part *pk = &c->parts[k];
+			const trs_part_def *dk = trs_craft_def(c, k);
+			if (k == i || (pk->node[0] == 0 && pk->parent >= 0) || hypot(pk->pos.x, pk->pos.z) > 0.05 || fabs(part_axis(pk).y) < 0.99)
+				continue; /* (only parts stacked on the craft's own axis cast it) */
+			if (fmax(dk->radius, fmax(dk->radius_top, dk->radius_bottom)) < reach)
+				continue;
+			if (pk->pos.y - dk->height * 0.5 >= pi->pos.y)
+				vs->shade_top[i] = SHADE;
+			if (pk->pos.y + dk->height * 0.5 <= pi->pos.y)
+				vs->shade_bottom[i] = SHADE;
+		}
+	}
 	trs_craft_mass_props(c, &vs->mass, &vs->cm, &vs->inertia);
 	build_contacts(vs);
 	vs->is_alien = 0, vs->nlasers = 0;
@@ -1095,6 +1125,9 @@ static void heat(const trs_world *w, trs_vessel *vs, double h) {
 			double exposed = (cs > 0 ? vs->face_top[i] : vs->face_bottom[i]) / fmax(d->area_axial, 1e-6);
 			double wake = cs > 0 ? vs->wake_top[i] : vs->wake_bottom[i];
 			double f = fmax(clampd(exposed, 0, 1) * fabs(cs) * trs_lead_slant(d, cs), (0.05 + 0.4 * sqrt(fmax(0, 1 - cs * cs))) * wake);
+			/* in a wider part's shadow while the flow comes along the axis */
+			double ca = dl.y, shade = ca > 0 ? vs->shade_top[i] : vs->shade_bottom[i];
+			f *= 1 + (shade - 1) * clampd((fabs(ca) - SHADE_COS) / (1 - SHADE_COS), 0, 1);
 			double hc = 2 * CP_AIR * SG_K * sqrt(rho / fmax(d->radius, 0.05)) * sp;
 			q += f * hc * (t_rec - p->temp);
 		}

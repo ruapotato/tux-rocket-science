@@ -129,6 +129,12 @@ relativity: its proper velocity, its own clock and the home calendar are all tra
 (`test-relativity`, `test-interstellar`). The alien **Stillwater Drive** pulls every atom of the ship
 alike, so nobody aboard feels it (the G meter reads 0): 100 g out between the stars, at most 1 g
 and never past 1% of light speed inside a star's heliopause. It needs a **Hearth Core** (45 MW).
+Inside a heliopause it pushes through time warp too (the path stepped, gravity and push, the same
+as in physics to a centimetre over ten minutes: `test-interstellar`), and the program
+`drive_to("haven")` (`ship drive_to haven`) flies it to a world of that star: out of the pull of the
+world it starts at, flat out and braking on time, into a circular orbit low enough for a Signal
+Scanner (Floe's orbit to Narwhal's in under two days of game time). `ship drive 0.5` sets the drive
+alone; the throttle keys move it with the engines.
 Out there the throttle runs it, warp runs on the ship's clock (and eases off as you brake), and
 the **COURSE** panel flies you to a star: flat out, turning round exactly halfway, stopping just
 short of its heliopause. Austra to Lantern at 100 g takes 43 days of ship time while Floe's
@@ -168,7 +174,8 @@ grazers, Haven's hornbucks, the puffins) run when a penguin comes near; curious 
 shelf penguins, Selkie's selkies) come over and follow you about; calm ones carry on unless
 hurt; and on the worlds of other stars some hunt: Gloam's dusk crawlers, Haven's fangrunners,
 Saffron's dune stalkers. They charge a penguin on foot and bite, and a penguin can be lost to
-them; a ship they leave alone, so aboard is safe. On EVA, **E** has a good look at an animal for the catalogue (and a little research).
+them; a ship they leave alone, so aboard is safe. On EVA, **E** has a good look at an animal for the catalogue (and a little research): within 8 m,
+or a bird flying overhead from right under it.
 By the builders' places on Gloam, Saffron and Cairn the **Jaegers** keep camps, twelve
 kilometres north of each relic: raiders on lift drives that go up when you come near, go for
 any ship of yours within reach, and fire back. The **Tern Laser Turret** (R&D: Lasers; the
@@ -345,7 +352,20 @@ The **Guidance Computer** (R&D in a career, always in the sandbox) also flies wh
 **programs**, a frame at a time, through the same controls the keys use: `launch(80000)`,
 `circularize()`, `transfer("krill")`, `warp_to("krill")`, `capture(30000)`, `land()`, `hover(30,
 10)` and `node()`. They're `ship` commands too (`ship land`); any flying key takes the controls
-back; and one that fails stops the script and says why.
+back; and one that fails stops the script and says why. `hover(1100, 5)` climbs to 1100 m and
+holds it 5 s (the seconds count from there). `transfer("floe")` from a moon's orbit comes home: the
+burn leaves the moon backwards along its orbit, low through Floe's air. `land("chime")`,
+`land(-10, -24)` (`ship land near chime`, `ship land -10 -24`) come down by a place: a relic the
+scanner has charted (50 m off it, then walk) or a landmark, or a latitude and longitude. The orbit
+is first made round, then turned to pass over the place on the pass that will come down (the world
+turns under it meanwhile); without air the low point is put over it and the ship brakes in;
+through air a copy of the world flies the way down first (the burn, the fall, the air carrying the
+ship with it as the world turns) to time the burn and trim it on the way, and the last kilometres
+are flown on the engine by powered-descent guidance. A lander that keeps a heat shield under its
+engine drops whatever hangs below the shield as it meets the air, opens its chute when the air has
+slowed it, lets the shield fall away below, cuts the chute and lands on the engine; a ship with the
+propellant to stop above the air (the Hearth Torch's kind) just stops above it and comes down
+slowly. A program that can't turn the ship (batteries flat, no RCS) gives up and says so.
 
 `/root/examples` has scripts that work: `to_orbit.py` (the pad to orbit by your own logic),
 `krill_by_hand.py` (`when_to_leave`, a `what_if` search for the course fix, a capture and a
@@ -354,7 +374,8 @@ landing written out), `orbit.py`, `krill.py` (the programs, pad to Krill's surfa
 long coast, it has its games: 2048, snake, worms, mines, solitaire, a falling-sand box and more.
 
 **Life on the ground**: Floe's tundra and snowfields grow groves of frost pines and crowberry,
-wild penguin colonies waddle about the Glacier Shelf by the pad, seals lie on the frozen seas and
+wild penguin colonies waddle about the Glacier Shelf by the pad (a short walk off it: animals keep
+off the pad and the runway, not the flat round them), seals lie on the frozen seas and
 puffins wheel over the Puffin Spires; Kelp has meadows of grass and glowing puffballs under
 frond trees, six-legged grazers and drifting jellies in the air; Haven, round Lantern, has
 broadleaf woods, flowers and herds of hornbucks under flocks of birds; Narwhal's brine flats are
@@ -364,7 +385,12 @@ comes down through a tree.
 
 **Nose cones**: a flat tank top meets the air head-on and takes the full heating. A **Beak
 Nosecone** (or the **Big Beak** for the wide tanks) meets it at a slant, takes less than half
-of it, and keeps the tank behind it cool. It also cuts the drag.
+of it, and keeps the tank behind it cool. It also cuts the drag. Parts on a craft's sides (legs,
+panels, a scanner) sit in the shadow of a wider part stacked ahead of them on its axis while the
+air comes along that axis: 8% of the heating reaches them. The **Toastmaster XL Heat Shield**
+(2.5 m, Landing Elsewhere) under a lander, on an adapter and a decoupler below its engine, keeps
+its legs in that shadow through thick air like Kelp's (`land near` drops it when the air has done
+its work; an engine fired into it would burn through what holds it).
 
 The flight screen's **STAGES** panel lists every SPACE press still to come, next first: what it
 lights, drops or opens, and the Δv, burn time and TWR of the burn it starts.

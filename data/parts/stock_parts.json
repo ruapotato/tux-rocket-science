@@ -372,6 +372,23 @@
       "surface_attach": false
     },
     {
+      "id": "heat_shield_xl",
+      "name": "Toastmaster XL Heat Shield",
+      "category": "utility",
+      "description": "The big dish, 2.5 m across: under a lander (on an adapter and a decoupler) it takes the fire for everything in its shadow, legs and panels and all, and drops away once the air has slowed the lander enough to fly the rest on its engine.",
+      "mass": 650,
+      "cost": 1600,
+      "crash_tolerance": 12,
+      "thermal": { "max_temp": 3000, "skin_heat": 15000, "emissivity": 0.9 },
+      "aero": { "cd_top": 0.8, "cd_bottom": 1.2, "cd_side": 0.9 },
+      "shape": { "type": "shield", "radius": 1.32, "height": 0.25 },
+      "nodes": [
+        { "name": "top", "pos": [0, 0.125, 0], "dir": [0, 1, 0], "radius": 1.25 },
+        { "name": "bottom", "pos": [0, -0.125, 0], "dir": [0, -1, 0], "radius": 1.25 }
+      ],
+      "surface_attach": false
+    },
+    {
       "id": "fin",
       "name": "Flipper Fin",
       "category": "aero",

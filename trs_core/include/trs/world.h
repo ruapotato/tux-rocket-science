@@ -288,6 +288,8 @@ typedef struct {
 	trs_fuel_net fuel;
 	double *face_top, *face_bottom; /* exposed axial area per part */
 	double *wake_top, *wake_bottom; /* side-heating factor with the flow from that end (1 = in the open) */
+	double *shade_top, *shade_bottom; /* a surface-mounted part in the shadow of a wider stacked part ahead,
+	                                   * the craft flying top (nose) or bottom first: its heating x this */
 	int ncontact;
 	trs_v3 *contact_pt;  /* vessel-local contact points */
 	int *contact_part;
@@ -437,6 +439,9 @@ void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt);
 int trs_world_set_drive(trs_world *w, int id, double throttle);
 /* The drive's full push (m/s2) and power (kW) for the whole vessel. */
 double trs_vessel_drive_max(const trs_vessel *vs, double *kw);
+/* the Stillwater Drive is running on this ship: its path through warp is
+ * pushed (world.c), not a conic */
+int trs_vessel_drive_warps(const trs_vessel *vs);
 /* Warps the world on by `dtau` of vessel id's own clock (it must be
  * between the stars): everything else moves by the home time that takes.
  * Stops early when its course arrives. Returns the home time that passed. */

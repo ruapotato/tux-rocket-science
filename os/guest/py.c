@@ -618,7 +618,7 @@ static VmStatus n_exit(VM *v, Value *a, int n, Value *out)
  *     until_orbit_crosses("krill")
  *     warp_to("krill")
  *     capture(30000)
- *     land()
+ *     land()                 (or land("chime"), land(-10, -24): down by it)
  *
  * Every one of them is a `ship` command (launch() is do("launch 80000")),
  * and the waiting is the only thing added: the game flies the program frame
@@ -1017,6 +1017,7 @@ PROGRAM(n_capture, "capture")
 PROGRAM(n_land, "land")
 PROGRAM(n_node, "node")
 PROGRAM(n_hover, "hover")
+PROGRAM(n_drive_to, "drive_to")
 
 /* burn_until("prograde", "apoapsis", ">", 2000000) */
 static VmStatus n_burn_until(VM *v, Value *a, int n, Value *out)
@@ -3673,9 +3674,10 @@ static const Native NATIVES[] = {
     { "wait_for_window", 1, 1, n_window   },
     { "warp_to",      1, 1, n_warp_to     },
     { "capture",      0, 1, n_capture     },
-    { "land",         0, 0, n_land        },
+    { "land",         0, 2, n_land        },
     { "hover",        1, 2, n_hover       },
     { "node",         0, 0, n_node        },
+    { "drive_to",     1, 2, n_drive_to    },
     /* and the quick ones */
     { "throttle",  1, 1, n_throttle_pct },
     { "stage",     0, 0, n_stage     },

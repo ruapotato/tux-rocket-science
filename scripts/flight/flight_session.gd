@@ -147,9 +147,12 @@ func time() -> float:
 var throttle_set := 0.0  # the last throttle asked for
 
 func set_throttle(x: float) -> void:
+	# a Stillwater Drive aboard follows the throttle as it moves (the flight
+	# sets the throttle every frame: `ship drive` sets the drive alone)
+	if x != throttle_set:
+		core.vessel_set_drive(active, x)
 	throttle_set = x
 	core.vessel_set_throttle(active, x)
-	core.vessel_set_drive(active, x)  # a Stillwater Drive aboard follows the throttle
 	_telemetry_tick = -1
 
 
@@ -356,8 +359,6 @@ func rails_refusal() -> String:
 		return "no vessel"
 	if t.get("interstellar", false):
 		return ""  # out here the drive burns through warp, by the ship's clock
-	if float(t.get("drive_accel", 0.0)) > 0.0:
-		return "cannot warp while the drive pushes inside a star's heliopause"
 	if t.landed and t.get("thrust", 0.0) <= 0.0:
 		return ""
 	if t.get("thrust", 0.0) > 0.0:
@@ -432,7 +433,8 @@ func advance(real_dt: float) -> void:
 				set_warp("rails", 0)
 				events.append({"kind": "arrived", "body": t.course_name, "t": time()})
 			return
-		if (t.get("thrust", 0.0) > 0.0 or float(t.get("drive", 0.0)) > 0.0 and float(t.get("drive_max", 0.0)) > 0.0) and not t.landed:
+		# (the Stillwater Drive pushes through warp: its path is stepped)
+		if t.get("thrust", 0.0) > 0.0 and not t.landed:
 			set_warp("rails", 0)
 			events.append({"kind": "warp_stopped", "reason": "engines firing", "t": time()})
 			return
@@ -543,7 +545,10 @@ func warp_to(t_target: float) -> String:
 	var stopped := ""
 	# a path that meets the ground (or the air) first: stop well short of it
 	# (a craft resting on the ground is going nowhere)
-	for p in [] if telemetry().get("landed", false) else trajectory([], 8, maxf(t_target - time(), 1.0)):
+	# (a path the Stillwater Drive pushes is no conic: the core stops it at the air or the ground itself)
+	var t0 := telemetry()
+	var pushed: bool = float(t0.get("drive", 0.0)) > 0.0 and float(t0.get("drive_max", 0.0)) > 0.0
+	for p in [] if t0.get("landed", false) or pushed else trajectory([], 8, maxf(t_target - time(), 1.0)):
 		if p.end in ["surface", "atmosphere"] and float(p.t_end) < t_target:
 			t_target = maxf(time(), float(p.t_end) - WARP_TO_LEAD)
 			stopped = "%s ahead" % ("the ground" if p.end == "surface" else "the atmosphere")

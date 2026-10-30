@@ -326,6 +326,20 @@ static void m_vessel_state(void *self, const trs_val *a, trs_val *r) {
 	ret_arr(r, d, 8);
 }
 
+/* vessel_nudge(id, dv[3]): its velocity changed by dv (m/s, SOI frame) on
+ * the spot, no burn: for working out a path on a copy of the world */
+static void m_vessel_nudge(void *self, const trs_val *a, trs_val *r) {
+	(void)r;
+	trs_sim_handle *h = H(self);
+	if (!vessel_ok(h, a[0].i) || a[1].arr.n < 3)
+		return;
+	trs_world *w = h->world;
+	trs_vessel *vs = &w->vessels[a[0].i];
+	trs_v3 rr, vv, dv = v3(a[1].arr.data[0], a[1].arr.data[1], a[1].arr.data[2]);
+	trs_vessel_state(w, (int)a[0].i, &rr, &vv);
+	trs_vessel_set_state(w, (int)a[0].i, vs->body, rr, v3_add(vv, dv));
+}
+
 static trs_json *orbit_json(const trs_system *sys, int body, const trs_orbit *o, double t) {
 	const trs_body *b = &sys->bodies[body];
 	trs_json *j = trs_json_new(TRS_JSON_OBJECT);
@@ -468,6 +482,7 @@ const trs_method_def TRS_SIM_WORLD_METHODS[] = {
 	{ "vessel_add", m_vessel_add, I, 2, { I, A }, { "body", "state" } },
 	{ "vessel_remove", m_vessel_remove, V, 1, { I }, { "id" } },
 	{ "vessel_state", m_vessel_state, A, 1, { I }, { "id" } },
+	{ "vessel_nudge", m_vessel_nudge, V, 2, { I, A }, { "id", "dv" } },
 	{ "vessel_orbit", m_vessel_orbit, S, 1, { I }, { "id" } },
 	{ "vessel_set_rails", m_vessel_set_rails, V, 2, { I, B }, { "id", "rails" } },
 	{ "step_physics", m_step_physics, V, 1, { I }, { "ticks" } },

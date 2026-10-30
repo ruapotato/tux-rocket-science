@@ -71,9 +71,10 @@ const CALLS := [
 	["until_orbit_crosses", "(\"krill\")", "PROGRAM: burns prograde until the path meets it"],
 	["warp_to", "(\"apoapsis\")", "PROGRAM: time warp: seconds, apoapsis, periapsis, soi, node, or a body"],
 	["capture", "(apoapsis)", "PROGRAM: brakes into orbit at the bottom"],
-	["land", "()", "PROGRAM: down onto the ground below"],
+	["land", "(place?)", "PROGRAM: down onto the ground below, or by a place: land(\"chime\"), land(-10, -24)"],
 	["hover", "(height, seconds)", "PROGRAM: holds a height above the ground"],
 	["node", "()", "PROGRAM: flies the map's maneuver node"],
+	["drive_to", "(\"haven\")", "PROGRAM: on the Stillwater Drive to a world of this star, into orbit round it"],
 	["abort", "()", "stops the program running and closes the throttle"],
 	# -- the language
 	["print", "(...)", "to the console"],

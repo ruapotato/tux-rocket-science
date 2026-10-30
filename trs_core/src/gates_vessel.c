@@ -1015,6 +1015,46 @@ trs_gate_status trs_gate_heating(trs_log *log, const char *data_dir) {
 		trs_log_printf(log, "%s 5 s nose-first at 2 km/s from 30 km: bare %s top +%.0f K; under a %s the cone +%.0f K, the tank +%.0f K\n",
 				ok ? "ok  " : "FAIL", tank_id, rise[0], cone_id, rise[1], rise[2]);
 	}
+	/* 6. A wider part's shadow: legs on a tank's side, diving bottom-first
+	 *    at 2.5 km/s, warm at 8% of the rate with the XL heat shield (on an
+	 *    adapter) below the tank as without it; the air 40 degrees off the
+	 *    axis, the shadow falls elsewhere and they warm as in the open. */
+	{
+		double rise[2][2]; /* [shield][tilted] leg temperature rise */
+		for (int shield = 0; shield < 2; shield++)
+			for (int tilt = 0; tilt < 2; tilt++) {
+				trs_craft c;
+				trs_craft_init(&c, &cat);
+				int tank = trs_craft_add(&c, trs_catalog_find(&cat, "tank_l"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+				int leg = trs_catalog_find(&cat, "landing_leg");
+				for (int k = 0; k < 4; k++) {
+					double a = TRS_PI / 4 + k * TRS_PI / 2;
+					trs_craft_add(&c, leg, tank, "", "", v3(0.7 * cos(a), -1.4, 0.7 * sin(a)), quat_identity(), -1, 0);
+				}
+				if (shield)
+					stack_below(&c, &cat, stack_below(&c, &cat, tank, "adapter_21", -1), "heat_shield_xl", -1);
+				trs_world *w = malloc(sizeof(trs_world));
+				trs_world_init(w, &sys, 0);
+				int id = drop_at(w, &c, floe, 50000, 2500);
+				trs_vessel *vs = &w->vessels[id];
+				vs->sas = TRS_SAS_OFF;
+				trs_quat q = quat_from_to(v3(0, 1, 0), tilt ? v3_norm(v3(cos(40 * TRS_PI / 180), sin(40 * TRS_PI / 180), 0)) : v3(1, 0, 0));
+				for (int s = 0; s < 50 * 2; s++) {
+					vs->q = q; /* held: the flow along the axis, or 40 degrees off it */
+					vs->w = v3(0, 0, 0);
+					trs_world_step_physics(w);
+				}
+				rise[shield][tilt] = vs->craft->parts[1].temp - TRS_T_AMBIENT;
+				trs_world_free(w);
+				free(w);
+				trs_craft_free(&c);
+			}
+		double along = rise[1][0] / fmax(rise[0][0], 1e-9), off = rise[1][1] / fmax(rise[0][1], 1e-9);
+		int ok = fabs(along - 0.08) < 0.005 && fabs(off - 1) < 0.01 && rise[0][0] > 1;
+		failed += !ok;
+		trs_log_printf(log, "%s legs on a tank's side, 2 s bottom-first at 2.5 km/s from 50 km: +%.2f K in the open, +%.3f K over the XL heat shield (%.3f of it); "
+				"40 deg off the axis +%.2f K and +%.2f K (%.3f)\n", ok ? "ok  " : "FAIL", rise[0][0], rise[1][0], along, rise[0][1], rise[1][1], off);
+	}
 	trs_catalog_free(&cat);
 	return failed ? TRS_GATE_FAIL : TRS_GATE_PASS;
 }

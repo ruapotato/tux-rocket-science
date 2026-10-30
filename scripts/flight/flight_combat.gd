@@ -30,6 +30,7 @@ extends Control
 const PICK_RANGE := 3000.0
 const NEAR := 300.0           # m: threats this near are marked
 const LOOK_REACH := 8.0       # m: E looks at an animal this near
+const LOOK_UP := 60.0         # m: or at a bird this high, from under it
 
 var scene: Node
 var _firing := false
@@ -135,11 +136,12 @@ func describe(info: Dictionary) -> String:
 	return str(info.get("name", "a ship"))
 
 
-## E on EVA: a good look at the animal nearest. True if there was one.
+## E on EVA: a good look at the animal nearest (or at a bird overhead,
+## right under it). True if there was one.
 func look() -> bool:
-	var near: Array = JSON.parse_string(_core().things_near(_active(), LOOK_REACH))
+	var near: Array = JSON.parse_string(_core().things_near(_active(), LOOK_REACH + LOOK_UP))
 	for th in near:
-		if str(th.get("what", "")) != "animal":
+		if str(th.get("what", "")) != "animal" or not FlightCombat.in_view(th):
 			continue
 		var body := str(scene.session.telemetry().get("body", ""))
 		var k: Dictionary = Sim.life_kind(body, str(th.species))
@@ -153,6 +155,15 @@ func look() -> bool:
 		Sfx.play("chime" if r > 0.0 else "click")
 		return true
 	return false
+
+
+## Near enough for a good look: within LOOK_REACH, or a bird no higher
+## than LOOK_UP with the penguin within LOOK_REACH of right under it.
+static func in_view(th: Dictionary) -> bool:
+	var d := float(th.get("distance", INF))
+	var above := float(th.get("above", 0.0))
+	var flat := sqrt(maxf(d * d - above * above, 0.0))
+	return d <= LOOK_REACH or (flat <= LOOK_REACH and absf(above) <= LOOK_UP)
 
 
 func _fauna(body: String) -> int:

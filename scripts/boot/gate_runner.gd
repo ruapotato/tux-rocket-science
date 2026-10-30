@@ -78,6 +78,7 @@ func _arm_watchdog() -> void:
 	var t := Timer.new()
 	t.process_mode = Node.PROCESS_MODE_ALWAYS
 	t.one_shot = true
+	t.ignore_time_scale = true  # (a dev run that speeds the flight up is no faster in real seconds)
 	t.wait_time = limit
 	t.timeout.connect(func():
 		printerr("gate runner watchdog: no result after %.0f s, failing" % limit)

@@ -21,7 +21,8 @@
 /* test-interstellar: a ship coasting out past Austra's heliopause goes
  * between the stars, its proper velocity the gamma v of the speed it had;
  * inside a star's heliopause the Stillwater Drive pushes at most 1 g and
- * not past 1% of light speed, unfelt; out between the stars it flies
+ * not past 1% of light speed, unfelt, and on rails (time warp) just as in
+ * physics; out between the stars it flies
  * Austra to Lantern at 100 g, turning halfway, and stops where the closed
  * form puts it on both clocks, warped by its own clock as the game does;
  * the world save keeps it; and nudged on it crosses Lantern's heliopause
@@ -123,6 +124,37 @@ trs_gate_status trs_gate_interstellar(trs_log *out, const char *data_dir) {
 		failed += !ok;
 		trs_log_printf(out, "%s inside the heliopause, full drive for 1 s: +%.6f m/s along the nose (1 g = 9.80665), felt %.2e m/s2; at 1.01%% of c: +%.2e m/s\n",
 				ok ? "ok  " : "FAIL", v3_dot(dv, nose), felt, extra);
+		trs_world_free(w);
+	}
+	/* 3b. the same push through warp: on rails the drive's path is
+	 * stepped, and comes out where ten minutes of physics put it */
+	{
+		const trs_body *F = &sys.bodies[floe];
+		trs_v3 fr, fv;
+		trs_body_state_abs(&sys, floe, 0, &fr, &fv);
+		trs_v3 r = v3_add(fr, v3(0, 0, F->soi * 3));
+		trs_quat q = quat_from_to(v3(0, 1, 0), v3_norm(v3(1, 1, 0)));
+		trs_v3 rp, vp, rr, vr;
+		trs_world_init(w, &sys, 0);
+		int a = trs_world_add_craft(w, &c, austra, r, fv, q);
+		trs_world_set_drive(w, a, 1.0);
+		for (int k = 0; k < 600 * TRS_PHYSICS_HZ; k++)
+			trs_world_step_physics(w);
+		rp = w->vessels[a].r, vp = w->vessels[a].v;
+		trs_world_free(w);
+		trs_world_init(w, &sys, 0);
+		int b = trs_world_add_craft(w, &c, austra, r, fv, q);
+		trs_world_set_drive(w, b, 1.0);
+		trs_vessel_set_mode(w, b, TRS_MODE_RAILS);
+		trs_event ev;
+		trs_world_warp(w, 600, b, &ev);
+		trs_vessel_state(w, b, &rr, &vr);
+		trs_v3 moved = v3_sub(rp, r);
+		double dr = v3_len(v3_sub(rr, rp)), dvv = v3_len(v3_sub(vr, vp));
+		int ok = dr < 50 && dvv < 0.05 && v3_len(moved) > 1.5e6;
+		failed += !ok;
+		trs_log_printf(out, "%s full drive for 10 min on rails (warp) against in physics: %.0f km on, %.2f m and %.4f m/s apart\n",
+				ok ? "ok  " : "FAIL", v3_len(moved) / 1000, dr, dvv);
 		trs_world_free(w);
 	}
 	/* 4. Austra to Lantern at 100 g, warped by the ship's clock */

@@ -21,7 +21,7 @@
     { "id": "control", "name": "Fine Control", "cost": 30, "requires": ["orbits"],
       "parts": ["rcs_block", "mono_tank", "mono_radial", "probe_core"] },
     { "id": "landing", "name": "Landing Elsewhere", "cost": 35, "requires": ["orbits"],
-      "parts": ["landing_leg", "snow_lab"] },
+      "parts": ["landing_leg", "snow_lab", "heat_shield_xl"] },
     { "id": "heavy", "name": "Heavy Lifting", "cost": 45, "requires": ["staging"],
       "parts": ["tank_xm", "tank_xl", "decoupler_xl", "adapter_21", "mount_tri", "engine_big", "pod_3", "nosecone_xl"] },
     { "id": "flight", "name": "Wings and Wheels", "cost": 25, "requires": ["rocketry"],

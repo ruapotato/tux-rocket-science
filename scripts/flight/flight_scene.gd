@@ -569,7 +569,7 @@ func _key(k: InputEventKey) -> void:
 			_eva_key()
 		KEY_E:
 			if session.telemetry().get("eva", false) and not combat.look():
-				hud.toast("Nothing alive near enough to look at (E, within %.0f m)" % FlightCombat.LOOK_REACH, 2.0)
+				hud.toast("Nothing alive near enough to look at (E, within %.0f m, or right under a bird)" % FlightCombat.LOOK_REACH, 2.0)
 		KEY_B:
 			_toggle_brakes()
 		KEY_O:

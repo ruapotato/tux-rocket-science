@@ -23,8 +23,9 @@
  * and each cell's plants and herds follow from a hash of the cell alone,
  * so they are the same every visit, from any distance, whoever asks. A
  * cell holds density x its true area of candidates per kind, each kept
- * only where that kind can live (biome, slope, height), and well clear of
- * the launch site and the relics. Everything stands on the terrain's own
+ * only where that kind can live (biome, slope, height), and clear of the
+ * launch site (plants of all its flat, animals of the pad and runway) and
+ * the relics. Everything stands on the terrain's own
  * height. It is scenery: nothing here touches the physics. */
 #include "trs/system.h"
 #include "trs/terrain.h"
@@ -35,6 +36,13 @@
 
 #define CELL_M 400.0      /* target cell size along the surface */
 #define SITE_CLEAR 300.0  /* m of bare ground round the launch site, past its flat */
+/* animals roam the flat too (a penguin out on the pad meets them a short
+ * walk off), but keep off the pad itself and the runway: a strip east of
+ * the pad from 380 m to 1500 m (scripts/flight/launch_site.gd) */
+#define PAD_CLEAR 500.0
+#define RUNWAY_FROM 380.0
+#define RUNWAY_TO 1500.0
+#define RUNWAY_CLEAR 120.0  /* m either side of its middle */
 #define RELIC_CLEAR 80.0  /* m round a relic */
 
 static uint64_t mix(uint64_t x) {
@@ -94,6 +102,20 @@ double trs_life_cell_area(const trs_body *b, trs_patch_id p) {
 	return (tri_area(a, c, d) + tri_area(a, d, e)) * b->radius * b->radius;
 }
 
+/* Is direction d too near the launch site for kind L? */
+static int by_site(const trs_body *b, const trs_life *L, trs_v3 d) {
+	double m = acos(fmin(1, v3_dot(d, b->terrain.site_dir))) * b->radius;
+	if (!L->fauna)
+		return m < b->terrain.site_radius + SITE_CLEAR;
+	if (m < PAD_CLEAR)
+		return 1;
+	trs_v3 up = b->terrain.site_dir, e = v3_cross(v3(0, 0, 1), up);
+	e = v3_len2(e) < 1e-20 ? v3(0, 1, 0) : v3_norm(e);
+	trs_v3 n = v3_cross(up, e);
+	double x = v3_dot(d, e) * b->radius, y = v3_dot(d, n) * b->radius;
+	return v3_dot(d, up) > 0 && x > RUNWAY_FROM - RUNWAY_CLEAR && x < RUNWAY_TO + RUNWAY_CLEAR && fabs(y) < RUNWAY_CLEAR;
+}
+
 /* Can kind L live at direction d? (n: the ground's normal there) */
 int trs_life_fits(const trs_body *b, const trs_life *L, trs_v3 d, trs_v3 *n) {
 	double h = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, d) : 0;
@@ -104,7 +126,7 @@ int trs_life_fits(const trs_body *b, const trs_life *L, trs_v3 d, trs_v3 *n) {
 		if (bi < 0 || !(L->biomes & (1u << bi)))
 			return 0;
 	}
-	if (b->terrain.has_site && acos(fmin(1, v3_dot(d, b->terrain.site_dir))) * b->radius < b->terrain.site_radius + SITE_CLEAR)
+	if (b->terrain.has_site && by_site(b, L, d))
 		return 0;
 	for (int k = 0; k < b->nrelics; k++)
 		if (acos(fmin(1, v3_dot(d, b->relics[k].dir))) * b->radius < RELIC_CLEAR)

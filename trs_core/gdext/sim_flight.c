@@ -437,6 +437,19 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 	trs_json_set(j, "situation", trs_json_new_str(situation(w, id, &o)));
 	trs_json_set(j, "altitude", trs_json_new_num(rl - b->radius));
 	trs_json_set(j, "altitude_terrain", trs_json_new_num(rl - b->radius - terrain));
+	/* the craft's lowest point that meets the ground (a foot, an engine
+	 * bell) over the ground under it: what a landing has left to fall */
+	{
+		double clear = rl - b->radius - terrain;
+		if (vs->mode == TRS_MODE_PHYSICS && vs->ncontact > 0) {
+			clear = INFINITY;
+			for (int k = 0; k < vs->ncontact; k++) {
+				trs_v3 pk = v3_add(pos, quat_rotate(vs->q, v3_sub(vs->contact_pt[k], vs->cm)));
+				clear = fmin(clear, v3_len(pk) - b->radius - trs_body_terrain_at(b, w->t, pk));
+			}
+		}
+		trs_json_set(j, "clearance", trs_json_new_num(clear));
+	}
 	trs_json_set(j, "terrain_height", trs_json_new_num(terrain));
 	{
 		double ore_cap, ore = trs_craft_ore(vs->craft, &ore_cap);
@@ -1700,8 +1713,16 @@ static void m_node_vector(void *self, const trs_val *a, trs_val *r) {
 	if (ok_vessel(h, a[0].i)) {
 		trs_node nodes[32];
 		int nn = read_nodes(&a[1], nodes, 32);
+		/* the path only as far as the node (a node already behind the ship
+		 * is on no path: once a burn has run past its time it never meets
+		 * one, and looked a billion seconds ahead for it, every frame) */
+		double dt = a[2].i >= 0 && a[2].i < nn ? nodes[a[2].i].t - h->world->t : -1;
+		if (dt < 0) {
+			ret_doubles(r, out, 3);
+			return;
+		}
 		trs_patch patches[32];
-		int n = vessel_trajectory(h, (int)a[0].i, &a[1], 32, 1e9, patches);
+		int n = vessel_trajectory(h, (int)a[0].i, &a[1], 32, dt + 1.0, patches);
 		for (int k = 0; k + 1 < n; k++)
 			if (patches[k].end == TRS_PATCH_END_NODE && patches[k + 1].node == a[2].i && a[2].i < nn) {
 				trs_v3 v = trs_node_vector(&patches[k].orbit, &nodes[a[2].i]);
