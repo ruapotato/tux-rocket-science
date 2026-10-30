@@ -1027,8 +1027,18 @@ func star_hop(key: String) -> void:
 	var t := tel()
 	if on_ground.call():
 		await refuel()
-		var r := await script_run("/root/scripts/up.py", "launch()\n", 3000)
-		say("up from %s: %s" % [t.body, " / ".join(r.said.slice(-2))])
+		var r := {}
+		for attempt in 2:
+			await until(on_ground, 30.0)
+			var tb := tel()
+			r = await script_run("/root/scripts/up.py", "launch()\n", 3000)
+			say("up from %s: %s (before it: %s, landed %s, contacts %s, %.2f m/s)" % [t.body, " / ".join(r.said.slice(-2)), tb.get("situation", "?"), tb.get("landed"),
+				tb.get("contacts"), float(tb.get("surface_speed", 0))])
+			if not on_ground.call():
+				break
+		if on_ground.call():
+			stuck = "couldn't launch from %s (%s)" % [t.body, tel().get("situation", "?")]
+			return
 	# out of this world's pull first (straight at the star could be straight
 	# into the world), along the orbit on the drive
 	var core: TrsSim = s.core

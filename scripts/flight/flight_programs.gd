@@ -427,9 +427,10 @@ func _orbit_text(t: Dictionary) -> String:
 
 func _begin_launch(w: PackedStringArray, t: Dictionary) -> String:
 	# (a ship on its legs is on the ground, if they bounce it a hair off it now and then)
-	var resting: bool = int(t.get("contacts", 0)) > 0 and float(t.get("surface_speed", 99.0)) < 2.0
+	var resting: bool = (int(t.get("contacts", 0)) > 0 or float(t.get("altitude_terrain", 1e9)) < 30.0) and float(t.get("surface_speed", 99.0)) < 5.0
 	if not (t.get("landed", false) or resting or str(t.situation) in ["prelaunch", "landed", "splashed"]):
-		return "launch is from the ground (the ship is %s)" % t.situation
+		return "launch is from the ground (the ship is %s, %.0f m up at %.1f m/s, %d contacts)" % [t.situation, float(t.get("altitude_terrain", -1.0)),
+			float(t.get("surface_speed", -1.0)), int(t.get("contacts", -1))]
 	var b := _body(t)
 	var atm := float(b.get("atmosphere_height", 0.0))
 	var ap := float(w[1]) if w.size() > 1 else (maxf(80000.0, atm + 10000.0) if atm > 0.0 else maxf(15000.0, float(b.radius) * 0.1))

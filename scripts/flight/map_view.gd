@@ -279,7 +279,9 @@ func refresh() -> void:
 		var rr: float = float(_bodies[i].info.radius) * SCALE * 1.03
 		if _cam.position.distance_to(c) < rr:
 			_cam.position = c + (_cam.position - c).normalized() * rr
-	if _cam.position.distance_to(_target) > 1e-6:
+	# (look_at's "same point" is relative to the size of the numbers: far
+	# out between the stars, points metres apart count as one)
+	if _cam.position.distance_to(_target) > 1e-4 * maxf(1.0, maxf(_cam.position.length(), _target.length())):
 		_cam.look_at(_target, Vector3.UP if absf((_target - _cam.position).normalized().y) < 0.99 else Vector3.RIGHT)
 	var star := _here_star()
 	for i in _bodies.size():

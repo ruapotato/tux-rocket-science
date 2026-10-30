@@ -201,6 +201,24 @@ func run(runner: Node) -> Dictionary:
 			log.append("    said: " + line)
 		p.said.clear()
 		await tree.process_frame
+	if env.call("REFUEL", "") != "" and p.status == "done":
+		# mining under warp a while, then out of it: how the ship comes back
+		comp.sh("ship mining on")
+		var tw := s.time()
+		while s.time() - tw < 7200.0:
+			if not (s.warp_kind == "rails" and s.warp_index >= 5):
+				s.set_warp("rails", 5)
+			s.advance(1.0 / 60.0)
+			await tree.process_frame
+		s.set_warp("physics", 0)
+		comp.sh("ship mining off")
+		for k in 150:
+			s.step_ticks(1)
+			if k % 10 == 0:
+				var tr := s.telemetry()
+				log.append("    after the warp T+%.1f: %s, landed %s, contacts %s, agl %.2f, clearance %.2f, vs %.2f, %.2f m/s, liquid %.0f, mode %s" % [k / 50.0, tr.get("situation"), tr.landed,
+					tr.get("contacts"), float(tr.altitude_terrain), float(tr.get("clearance", -1)), float(tr.vertical_speed), float(tr.surface_speed), float(tr.get("liquid", 0)), tr.get("mode", "?")])
+			await tree.process_frame
 	if env.call("EVA", "") != "" and p.status == "done":
 		# a penguin out, and what becomes of it
 		var lander := s.active

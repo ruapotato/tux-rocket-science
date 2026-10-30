@@ -2385,6 +2385,7 @@ func _update_audio(t: Dictionary) -> void:
 ## Godot refuses those with an error each frame; the view stays as it was.
 static func _look(n: Node3D, target: Vector3, up: Vector3) -> void:
 	var dir := target - n.global_position
-	if dir.length() < 1e-4 or up.length() < 1e-6 or absf(dir.normalized().dot(up.normalized())) > 0.9999:
+	var size := maxf(1.0, maxf(target.length(), n.global_position.length()))
+	if dir.length() < 1e-4 * size or up.length() < 1e-6 or absf(dir.normalized().dot(up.normalized())) > 0.9999:
 		return
 	n.look_at(target, up)
