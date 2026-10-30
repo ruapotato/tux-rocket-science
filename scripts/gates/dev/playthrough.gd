@@ -223,6 +223,12 @@ func program(words: String, max_s := 4.0e6) -> String:
 		say("   computer: " + str(line))
 	var how := "%s %s: %s" % [words, p.status, p.note]
 	say("program " + how + ("" if ok else " (still going when given up on)"))
+	if p.status == "failed":
+		var t := tel()
+		say("   the ship then: %s, %.1f km up, %.0f m/s, thrust max %.0f kN, %.0f m/s left, %.0f kg liquid, engine power %s of %s kW, ec %.0f/%.0f (gen %.0f, use %.0f), next stage %d, starved %s, parts %d, heat %s %.2f" % [
+			t.get("situation", "?"), float(t.get("altitude", 0)) / 1000.0, float(t.get("surface_speed", 0)), float(t.get("thrust_max", 0)) / 1000.0, float(t.get("dv_total", 0)),
+			float(t.get("liquid", 0)), str(t.get("engine_power", "-")), str(t.get("engine_kw", "-")), float(t.get("ec", 0)), float(t.get("ec_capacity", 0)), float(t.get("ec_gen", 0)), float(t.get("ec_use", 0)), int(t.get("next_stage", -9)), str(t.get("starved", [])),
+			int(t.get("parts", 0)), t.get("heat_part", ""), float(t.get("heat_frac", 0))])
 	return p.status
 
 
@@ -254,7 +260,7 @@ func _on_event(e: Dictionary) -> void:
 	if str(e.get("kind", "")) == "part_destroyed":
 		var t := tel()
 		say("   lost: %s (%s, %.0f m up, %.1f m/s, %s)" % [e.get("part", "?"), t.get("situation", ""), float(t.get("altitude_terrain", 0)),
-			float(t.get("surface_speed", 0)), "vessel %s" % e.get("vessel", "?")])
+			float(t.get("surface_speed", 0)), "vessel %s: %s" % [e.get("vessel", "?"), str(e)]])
 
 
 func _leave_scene() -> void:
@@ -393,7 +399,15 @@ func board(craft: int) -> bool:
 			side = 1.2 if side == 0.0 else 0.0
 			stuck_t = s.time()
 			last = INF
-		scene._cam_yaw = atan2(d.x, d.y) + side
+		var go := d
+		if d.length() < 2.5:
+			# (close by and still out of reach: round it, a step out from
+			# its middle, till the ladder or a hatch is at hand; under a
+			# tall lander's middle neither is)
+			var radial := -d.normalized() if d.length() > 0.05 else Vector2(1, 0)
+			var tangent := Vector2(-radial.y, radial.x)
+			go = tangent + radial * (1.7 - d.length())
+		scene._cam_yaw = atan2(go.x, go.y) + (side if d.length() >= 2.5 else 0.0)
 		hold(KEY_W, true)
 		Engine.time_scale = 4.0
 		await tree.process_frame
@@ -543,15 +557,19 @@ static func design(name: String) -> CraftModel:
 			var wing := held("wing")
 			wing.parts[0]["size"] = [1.0, 1.2, 1.3]
 			m.attach_surface(wing, t, PI / 2, -0.8, CraftModel.MIRROR)
-			# (on the torch's housing: the feet reach below its bell, and
-			# wide: the ship stands tall)
-			m.attach_surface(held("landing_leg"), torch, PI / 4, 0.4, 4)
+			# (low on the torch's housing: the feet a metre below its bell,
+			# or on a dune's slope the bell's rim is what it stands on and
+			# it goes over like a pencil on its point; wide: the ship
+			# stands tall; twelve, as fewer springs give
+			# under a ship this heavy and tall (its middle 7 m over the
+			# feet) and let a lean on a dune's face grow till it goes over)
+			m.attach_surface(held("landing_leg"), torch, PI / 12, -0.6, 12)
 			m.attach_surface(held("signal_scanner"), 0, 0.0, 0.0, 1)
 			m.attach_surface(held("laser_turret"), core, PI / 4, 0.0, 2)
 			# (low on the ship, by the legs: from the ground a penguin must
 			# reach it to climb in; but its foot above theirs, or the ship
 			# lands on the ladder and goes over)
-			m.attach_surface(held("ladder"), torch, 0.0, 0.6, 1)
+			m.attach_surface(held("ladder"), torch, 0.0, -0.3, 1)
 			m.auto_stage()
 			m.craft_name = "Star Skua"
 	return m
@@ -1098,7 +1116,12 @@ func land_by(word: String, relic: String) -> bool:
 	await frames(3)
 	for attempt in 3:
 		if await program("land near " + word, 1.0e6) == "done":
-			return true
+			# (down, but on its side or far off counts as gone wrong too)
+			var off := float(Career.relic_in(tel(), relic).get("surface_distance", 1e9))
+			var upright: bool = not scene.computer.programs.note.contains("NOT upright")
+			if upright and off < 500.0 and tel().get("alive", false):
+				return true
+			say("   down %.0f m from %s, %s" % [off, relic, "upright" if upright else "on its side"])
 		say("   the landing by %s went wrong (try %d): back to the quicksave" % [relic, attempt + 1])
 		await key(KEY_F9)
 		await frames(10)

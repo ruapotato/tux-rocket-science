@@ -1967,8 +1967,9 @@ func _render(delta: float) -> void:
 		var T := float(JSON.parse_string(core.body_info(sun_star)).get("temperature", 5800.0))
 		_sun.light_color = ScaledSpace._bb_color(T).lerp(Color.WHITE, 0.45) if T != 5800.0 else Color.WHITE
 		_scaled.set_sun_color(ScaledSpace._bb_color(T).lerp(Color.WHITE, 0.3) if T != 5800.0 else Color.WHITE)
-	_sun.look_at(-sun_dir * 1000.0, up if absf(sun_dir.dot(up)) < 0.99 else north)
 	_sun.position = Vector3.ZERO
+	if sun_dir.length() > 0.5:  # (no star's direction to be had: the light stays as it was)
+		_sun.look_at(-sun_dir * 1000.0, up if absf(sun_dir.dot(up)) < 0.99 else north)
 	var bi := int(t.body_index)
 	_terrain.set_body(bi)
 	if bi != _sky_body:

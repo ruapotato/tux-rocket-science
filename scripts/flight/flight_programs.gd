@@ -217,7 +217,21 @@ func _done(what: String) -> void:
 
 
 func _fail(what: String) -> void:
+	# (dry with propellant still aboard: the engines are what's gone)
+	if what.begins_with("out of propellant") and not _t_now.is_empty() and float(_t_now.get("liquid", 0.0)) > 1.0 \
+			and float(_t_now.get("thrust_max", 0.0)) <= 0.0 and _engines_left(_t_now) == 0:
+		what = "no engine left" + what.substr(len("out of propellant"))
 	_end("failed", what)
+
+
+var _t_now := {}  # this frame's telemetry
+
+
+func _engines_left(_t: Dictionary) -> int:
+	var n := 0
+	for ps in JSON.parse_string(_s.core.vessel_part_states(_s.active)):
+		n += 1 if str(ps.get("kind", "")) == "engine" else 0
+	return n
 
 
 # ---- each frame ---------------------------------------------------------------
@@ -227,6 +241,7 @@ func step(scene: Node, t: Dictionary) -> void:
 		return
 	_scene = scene
 	_s = scene.session
+	_t_now = t
 	if not t.get("alive", false):
 		_fail("the ship was lost")
 		return
@@ -1235,8 +1250,16 @@ func _descend(t: Dictionary) -> float:
 			vt = maxf(vt, -maxf(agl - 25.0, 0.0) * 0.25)
 	# still sliding across that low: hang there till it's off (a tall
 	# ship set down sliding tips over)
+	# (not too fast down the last tens of metres, and slow while still
+	# sliding: what's left across is taken off by leaning, and near the
+	# ground a lean is what tips a tall ship)
+	vt = maxf(vt, -(1.0 + feet * 0.25))
+	if feet < 30.0 and vh.length() > 1.0:
+		vt = maxf(vt, -1.0)
 	if feet < 10.0 and vh.length() > 0.6:
 		vt = maxf(vt, -0.3)
+	if feet < 4.0 and vh.length() > 0.4:
+		vt = maxf(vt, 0.3)  # (and up a little, till it is still, before the legs meet the ground)
 	var a_up := g + 1.2 * (vt - vs)
 	var stop := vs * vs / (2.0 * maxf(feet - 0.5, 0.2))
 	if vs < 0.0 and stop > brake:
@@ -1244,7 +1267,8 @@ func _descend(t: Dictionary) -> float:
 		# less than what does; on a heavy world the profile alone lags)
 		a_up = maxf(a_up, g + stop * 1.05)
 	var a_h := (v_want - vh) * (1.5 if feet < 10.0 else 0.6)
-	var tilt := maxf(a_up, 0.0) * tan(deg_to_rad(35.0))
+	# (and the last of the way upright: the legs meet the ground together)
+	var tilt := maxf(a_up, 0.0) * tan(deg_to_rad(35.0 if feet > 1.5 else 3.0))
 	if a_h.length() > tilt:
 		a_h = a_h.normalized() * tilt
 	if a_up <= 0.0:
@@ -1258,10 +1282,10 @@ func _descend(t: Dictionary) -> float:
 
 
 ## Level ground for the legs near where the ship is coming down: the
-## nearest within 250 m tilted less than 6 degrees (or the least tilted:
+## nearest within 300 m tilted less than LEVEL (or the least tilted:
 ## a top-heavy lander can tip on steeper).
 func _pick_spot(t: Dictionary) -> void:
-	var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(t.lat_deg), float(t.lon_deg), 250.0, 0.006)
+	var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(t.lat_deg), float(t.lon_deg), 300.0, LEVEL)
 	_a.spot = [sp[0], sp[1]]
 
 
@@ -1277,8 +1301,9 @@ func _spot_offset(t: Dictionary) -> Vector3:
 func _land(t: Dictionary) -> void:
 	var o: Dictionary = t.get("orbit", {})
 	var agl := float(t.altitude_terrain)
-	if phase != "settle" and t.get("landed", false) and float(t.surface_speed) < 2.0:
-		phase = "settle"
+	if phase != "settle" and float(t.surface_speed) < 2.0 and (t.get("landed", false) \
+			or phase == "descent" and int(t.get("contacts", 0)) > 0 and float(t.get("clearance", 99.0)) < 0.5):
+		phase = "settle"  # (on the legs as they first touch: eased onto them, below)
 	match phase:
 		"round":
 			_land_round(t)
@@ -1397,8 +1422,20 @@ func _land(t: Dictionary) -> void:
 			_autostage(t)
 			_thr(_descend(t))
 		"settle":
-			_thr(0.0)
-			_sas("stability")
+			# (the weight onto the legs gently, held upright on the engine:
+			# a tall ship set down all at once rocks, and on a slope goes
+			# over)
+			if not _a.has("settle_t0"):
+				_a.settle_t0 = float(t.t)
+			var since := float(t.t) - float(_a.settle_t0)
+			var accel := _accel(t)
+			var share := maxf(0.0, 0.7 - since * 0.12)
+			if share > 0.0 and accel > 0.0 and not _dry(t):
+				_point(v3(t.up))
+				_thr(clampf(share * float(_a.g) / accel, 0.0, 1.0))
+			else:
+				_thr(0.0)
+				_sas("stability")
 			if float(t.surface_speed) < 0.3:
 				_a.still = float(_a.get("still", 0.0)) + 1.0
 			if t.get("landed", false) and float(_a.get("still", 0.0)) > 20.0:
@@ -1409,6 +1446,7 @@ func _land(t: Dictionary) -> void:
 
 # ---- land at a place --------------------------------------------------------------
 
+const LEVEL := 0.0006  # 1 - cos of the steepest ground the legs go down on (2 degrees: a tall ship on springy legs goes over on a dune's face)
 const RELIC_STANDOFF := 50.0  # m: set down this far from a relic's middle, and walk
 const AT_PLACE := 40.0        # m: near enough the place to come straight down
 
@@ -2201,8 +2239,16 @@ func _land_home(t: Dictionary) -> void:
 		_a.tlon = float(_a.tlon) + rad_to_deg(back.dot(v3(t.east)) / (R * maxf(cos(deg_to_rad(float(t.lat_deg))), 0.01)))
 		_a.stood_off = true
 		return
+	if d < 2500.0 and not _a.get("spot_aimed", false):
+		# (the level ground for the legs found while still a way off, and
+		# flown to: once down low over the place it is too late to go far)
+		var lv: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(_a.tlat), float(_a.tlon), 300.0, LEVEL)
+		_a.tlat = lv[0]
+		_a.tlon = lv[1]
+		_a.spot_aimed = true
+		return
 	if d < AT_PLACE and vh.length() < 3.0:
-		var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(_a.tlat), float(_a.tlon), 30.0, 0.006)
+		var sp: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(_a.tlat), float(_a.tlon), 300.0, LEVEL)
 		_a.spot = [sp[0], sp[1]]
 		phase = "descent"
 		_say("over the place: %s from %s, coming straight down" % [km(d), _a.tname])
@@ -2218,7 +2264,7 @@ func _land_home(t: Dictionary) -> void:
 	if T < 0.0:
 		a_cmd = (-vel).normalized() * accel  # (none it can fly: brake hard)
 	if (T > 0.0 and T < 2.5 and vel.length() < 6.0) or (d < AT_PLACE * 2.0 and vel.length() < 4.0):
-		var sp2: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(_a.tlat), float(_a.tlon), 30.0, 0.006)
+		var sp2: PackedFloat64Array = _s.core.level_spot(int(t.body_index), float(_a.tlat), float(_a.tlon), 300.0, LEVEL)
 		_a.spot = [sp2[0], sp2[1]]
 		_clear_of_wreckage(t)
 		phase = "descent"
@@ -2227,8 +2273,24 @@ func _land_home(t: Dictionary) -> void:
 	# the straight run in knows nothing of the hills on the way: low over
 	# the ground under it, up first (the height comes before the distance)
 	var floor_h := clampf(d * 0.03, 30.0, 600.0)
-	if agl < floor_h and d > AT_PLACE * 2.0:
+	# (and over the ground ahead: a hill coming up on the way in is seen
+	# in time to climb it, not met at the speed of the run)
+	var hs := vh.length()
+	if hs > 5.0 and d > AT_PLACE * 2.0:
+		for tau in [2.0, 4.0, 8.0, 15.0, 25.0]:
+			var s_ahead := minf(hs * tau, d)
+			var c: float = _s.core.ground_clearance(int(t.body_index), _s.active, PackedFloat64Array([vh.x / hs * s_ahead, vh.y / hs * s_ahead, vh.z / hs * s_ahead]))
+			agl = minf(agl, c)
+			if s_ahead >= d:
+				break
+	# (falling fast, the floor comes up sooner: in time to stop over it)
+	var brake_up := maxf(accel - g_eff, 0.5) * 0.7
+	var stop_h := vs * vs / (2.0 * brake_up) if vs < 0.0 else 0.0
+	var low := agl < floor_h + stop_h and d > AT_PLACE * 2.0
+	if low:
 		var a_up_min := g_eff + 1.5 * ((floor_h - agl) * 0.3 - vs)
+		if vs < 0.0:
+			a_up_min = maxf(a_up_min, g_eff + vs * vs / (2.0 * maxf(agl - floor_h * 0.5, 1.0)))
 		var a_up_now := a_cmd.dot(up)
 		if a_up_now < a_up_min:
 			a_cmd += up * (a_up_min - a_up_now)
@@ -2237,10 +2299,34 @@ func _land_home(t: Dictionary) -> void:
 			var a_h2 := a_cmd - up * a_cmd.dot(up)
 			var room2 := sqrt(maxf(accel * accel - a_v.length_squared(), 0.0))
 			a_cmd = a_v + (a_h2.normalized() * minf(a_h2.length(), room2) if a_h2.length() > 0.01 else Vector3.ZERO)
+	# (and low down, never leaning far over to push along: a tall ship
+	# swung toward the horizon overshoots, noses down, and meets the ground;
+	# the run in takes longer instead, planned again each frame)
+	if float(t.altitude_terrain) < 600.0:
+		var a_v := a_cmd.dot(up)
+		var a_hz := a_cmd - up * a_v
+		var most := maxf(a_v, g_eff * 0.5) * tan(deg_to_rad(35.0))
+		if a_hz.length() > most:
+			a_cmd = up * maxf(a_v, g_eff * 0.5) + a_hz.normalized() * most
 	note = "%s from %s, there in %s" % [km(d), _a.tname, span(T) if T > 0.0 else "?"]
 	_point(a_cmd)
-	# (full push only once pointing the way: thrust the wrong way costs)
-	_thr(clampf(a_cmd.length() / maxf(accel, 0.01), 0.0, 1.0) if _aligned(t, a_cmd, 10.0) else 0.0)
+	# (full push only once pointing the way: thrust the wrong way costs;
+	# but low over the ground, whatever of the push the nose gives now,
+	# while it turns: a big ship turns slowly, and falls meanwhile)
+	# (and turning a long way round, as the push wanted swings over, the
+	# part along the nose meanwhile: only the part across it is wasted)
+	var nose := v3(t.nose)
+	var a_dir := a_cmd.normalized() if a_cmd.length() > 0.01 else up
+	if _aligned(t, a_cmd, 10.0):
+		_thr(clampf(a_cmd.length() / maxf(accel, 0.01), 0.0, 1.0))
+	elif nose.dot(a_dir) > 0.5 or (low and nose.dot(up) > 0.3):
+		_thr(clampf(a_cmd.dot(nose) / maxf(accel, 0.01), 0.0, 1.0))
+	elif float(t.altitude_terrain) < 600.0 and nose.dot(up) > 0.0:
+		# (low down, never quite off while it turns: the engine's gimbal is
+		# what turns a big ship, and with it off the turn runs on past)
+		_thr(0.2)
+	else:
+		_thr(0.0)
 
 
 ## The spot for the legs moved off anything lying on the ground there

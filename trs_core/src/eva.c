@@ -94,10 +94,22 @@ int trs_world_eva_exit(trs_world *w, int id, int part, int penguin_def) {
 	double above = v3_len(r) - b->radius - trs_body_terrain_at(b, w->t, r);
 	/* a craft standing on the ground with a ladder: the penguin climbs down
 	 * it to the ground (out of a tall lander's hatch it would fall) */
-	int ladder = 0;
-	for (int i = 0; i < c->count; i++)
-		ladder |= trs_craft_def(c, i)->is_ladder;
-	if (ladder && (vs->landed || vs->mode == TRS_MODE_LANDED) && above > pd->height * 0.5 + 0.3) {
+	int ladder = -1;
+	for (int i = 0; i < c->count && ladder < 0; i++)
+		if (trs_craft_def(c, i)->is_ladder)
+			ladder = i;
+	if (ladder >= 0 && (vs->landed || vs->mode == TRS_MODE_LANDED) && above > pd->height * 0.5 + 0.3) {
+		/* at the ladder's foot, just out from it (straight down from the
+		 * hatch can be under the ship, among its legs) */
+		const trs_part *lp = &c->parts[ladder];
+		const trs_part_def *ld = trs_craft_def(c, ladder);
+		trs_v3 lo = v3_sub(lp->pos, vs->cm);
+		lo.y = 0;
+		lo = v3_len(lo) > 1e-3 ? v3_norm(lo) : out;
+		trs_v3 at = v3_add(lp->pos, v3_scale(lo, fmax(ld->radius_bottom, ld->radius_top) + EVA_GAP + pd->radius));
+		trs_v3 arm2 = quat_rotate(q, v3_sub(at, vs->cm));
+		r = v3_add(r0, arm2);
+		above = v3_len(r) - b->radius - trs_body_terrain_at(b, w->t, r);
 		r = v3_scale(r, (v3_len(r) - above + pd->height * 0.5 + 0.02) / v3_len(r));
 		v = v3_cross(trs_body_omega(b), r);
 		above = pd->height * 0.5 + 0.02;

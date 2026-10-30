@@ -59,20 +59,34 @@ func run(runner: Node) -> Dictionary:
 		c.parts = keep
 		text = JSON.stringify(c)
 	var id: int = -1
-	if env.call("STAND", "") != "":
+	if env.call("QUICK", "") != "":
+		# from a quicksave's world (a playtest's, say): the very flight that
+		# went wrong, flown again
+		var qd: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(env.call("QUICK", "")))
+		if not s.core.world_load(qd.world):
+			return {"status": "FAIL", "log": "quicksave unreadable: " + s.core.last_error()}
+		Career.restore(qd.career)
+		id = int(qd.active)
+		s.switch_to(id)
+		body = str(s.telemetry().get("body", body))
+	elif env.call("STAND", "") != "":
 		# set down standing at LAT, LON (the place it'd land), then watched
 		# with nothing running: does it stay up?
 		id = s.core.flight_place_landed(text, body, float(env.call("LAT", "32")), float(env.call("LON", "16")))
 		s.switch_to(id)
 		s.core.vessel_remove(pad)
+		s.core.vessel_set_legs(id, true)
 		for k in 500:
+			if k == 25:
+				var uu: Array = s.telemetry().up
+				s.core.vessel_nudge(id, PackedFloat64Array([uu[0] * 0.3, uu[1] * 0.3, uu[2] * 0.3]))
 			s.step_ticks(1)
 			if k % 25 == 0:
 				var tt := s.telemetry()
 				log.append("    T+%.1f pitch %.1f, contacts %s, landed %s, clearance %.2f, %.2f m/s" % [k / 50.0, float(tt.pitch_deg), tt.get("contacts"), tt.landed, float(tt.get("clearance", -1)), float(tt.surface_speed)])
 			await tree.process_frame
 		return {"status": "PASS", "log": "\n".join(log)}
-	if env.call("PE", "") != "":
+	elif env.call("PE", "") != "":
 		# at the top of an ALT x PE orbit (m up), INC degrees
 		var bi_: int = s.core.body_find(body)
 		var bd: Dictionary = JSON.parse_string(s.core.body_info(bi_))
@@ -83,8 +97,9 @@ func run(runner: Node) -> Dictionary:
 		id = s.core.flight_spawn_state(text, body, PackedFloat64Array([ra, 0, 0, 0, va * cos(inc), va * sin(inc)]))
 	else:
 		id = s.core.flight_spawn_orbit(text, body, float(env.call("ALT", "30000")), float(env.call("INC", "12")))
-	s.switch_to(id)
-	s.core.vessel_remove(pad)
+	if env.call("QUICK", "") == "":
+		s.switch_to(id)
+		s.core.vessel_remove(pad)
 	for i in 3:
 		await tree.process_frame
 	if env.call("PARTS", "") != "":
@@ -139,6 +154,32 @@ func run(runner: Node) -> Dictionary:
 			var svv := Vector3(tl.surface_velocity[0], tl.surface_velocity[1], tl.surface_velocity[2])
 			log.append("    near the ground: feet %.2f m up, falling %.2f m/s, %.1f m/s across (%.2f by the program's sum), pitch %.1f, throttle %.2f, impact so far %.1f, contacts %s, landed %s, slope %s" % [float(tl.clearance), -float(tl.vertical_speed),
 				float(tl.horizontal_speed), (svv - upv * float(tl.vertical_speed)).length(), float(tl.pitch_deg), float(tl.throttle), float(tl.get("max_impact", 0)), tl.get("contacts"), tl.landed, str(tl.get("slope_deg", "?"))])
+		if p.phase == "descent" and p._a.has("spot") and not has_meta("spotlog"):
+			set_meta("spotlog", true)
+			var sv: PackedFloat64Array = s.core.level_spot(bi0, float(p._a.spot[0]), float(p._a.spot[1]), 1.0, 1.0)
+			log.append("    the spot: %.5f, %.5f, slope %.4f (%.1f deg)" % [float(p._a.spot[0]), float(p._a.spot[1]), sv[2], rad_to_deg(acos(1.0 - sv[2]))])
+		if p.phase == "home" and float(tl.get("altitude_terrain", 1e9)) < 500.0 and not has_meta("lo%d" % int(s.time())):
+			set_meta("lo%d" % int(s.time()), true)
+			var upl := Vector3(tl.up[0], tl.up[1], tl.up[2])
+			var nol := Vector3(tl.nose[0], tl.nose[1], tl.nose[2])
+			log.append("    low: agl %.0f, vs %.1f, across %.1f, thr %.2f, nose.up %.2f, note %s" % [float(tl.altitude_terrain), float(tl.vertical_speed), float(tl.horizontal_speed),
+				float(tl.throttle), nol.dot(upl), p.note])
+		if (int(tl.get("contacts", 0)) > 0 or p.phase == "settle") and get_meta("tick_n", 0) < 400:
+			# from the first touch: a line every 5 ticks for the next 8 s
+			set_meta("tick_n", get_meta("tick_n", 0) + 1)
+		if (int(tl.get("contacts", 0)) > 0 or p.phase == "settle") and get_meta("tick_n", 0) < 400 and get_meta("tick_n", 0) % 10 == 1:
+			var nn := Vector3(tl.north[0], tl.north[1], tl.north[2])
+			var ee := Vector3(tl.east[0], tl.east[1], tl.east[2])
+			var no := Vector3(tl.nose[0], tl.nose[1], tl.nose[2])
+			var cl := func(v: Vector3) -> float: return float(s.core.ground_clearance(bi0, s.active, PackedFloat64Array([v.x, v.y, v.z])))
+			var gn: float = (cl.call(nn * 5.0) - cl.call(-nn * 5.0)) / 10.0
+			var ge: float = (cl.call(ee * 5.0) - cl.call(-ee * 5.0)) / 10.0
+			log.append("    tick: pitch %.2f, lean toward N %.3f E %.3f, ground falls toward N %.3f E %.3f, contacts %s, vs %.2f, across %.2f, thr %.2f, sas %s, phase %s" % [float(tl.pitch_deg),
+				no.dot(nn), no.dot(ee), gn, ge, tl.get("contacts"), float(tl.vertical_speed), float(tl.horizontal_speed), float(tl.throttle), tl.get("sas"), p.phase])
+		if p.phase == "settle" and not has_meta("touch"):
+			set_meta("touch", true)
+			var sv2: PackedFloat64Array = s.core.level_spot(bi0, float(tl.lat_deg), float(tl.lon_deg), 1.0, 1.0)
+			log.append("    touched down at %.5f, %.5f, slope %.4f (%.1f deg)" % [float(tl.lat_deg), float(tl.lon_deg), sv2[2], rad_to_deg(acos(1.0 - sv2[2]))])
 		if p.phase == "settle" and not has_meta("st%d" % int(s.time() * 2)):
 			set_meta("st%d" % int(s.time() * 2), true)
 			log.append("    settle: pitch %.1f, contacts %s, %.2f m/s, landed %s" % [float(tl.pitch_deg), tl.get("contacts"), float(tl.surface_speed), tl.landed])
@@ -194,7 +235,7 @@ func run(runner: Node) -> Dictionary:
 	var a := Vector3(cos(deg_to_rad(t.lat_deg)) * cos(deg_to_rad(t.lon_deg)), cos(deg_to_rad(t.lat_deg)) * sin(deg_to_rad(t.lon_deg)), sin(deg_to_rad(t.lat_deg)))
 	var b := Vector3(cos(deg_to_rad(rl.lat_deg)) * cos(deg_to_rad(rl.lon_deg)), cos(deg_to_rad(rl.lat_deg)) * sin(deg_to_rad(rl.lon_deg)), sin(deg_to_rad(rl.lat_deg)))
 	var lv: PackedFloat64Array = s.core.level_spot(bi, float(t.lat_deg), float(t.lon_deg), 1.0, 1.0)
-	log.append("ground there: slope %.4f (%.1f deg)" % [lv[2], rad_to_deg(atan(lv[2]))])
+	log.append("ground there: slope %.4f (%.1f deg)" % [lv[2], rad_to_deg(acos(1.0 - lv[2]))])
 	log.append("ended %s: %s; %s, %.0f m from %s, alive %s, %.0f m/s left, %.0f s" % [p.status, p.note, t.get("situation", ""),
 		a.angle_to(b) * R, rl.get("name", "?"), t.get("alive", false), float(t.get("dv_total", 0)), s.time() - t0])
 	return {"status": "PASS" if p.status == "done" else "FAIL", "log": "\n".join(log)}

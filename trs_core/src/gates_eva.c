@@ -184,9 +184,10 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 	}
 	/* 3b. out of a pod high on a tall stack standing on the ground: with no
 	 *     ladder the penguin drops from the hatch; with one aboard it climbs
-	 *     down it and stands at the foot of the craft */
+	 *     down it and stands at its foot (the ladder round the far side
+	 *     from the hatch: not straight down from the hatch) */
 	{
-		double impact[2] = { 0, 0 }, start[2] = { 0, 0 };
+		double impact[2] = { 0, 0 }, start[2] = { 0, 0 }, from_ladder = -1;
 		int lost[2] = { 0, 0 }, stood[2] = { 0, 0 };
 		for (int lad = 0; lad < 2; lad++) {
 			trs_craft tall;
@@ -196,8 +197,10 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 			trs_craft_add(&tall, ti, -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
 			trs_craft_add(&tall, ti, 0, "bottom", "top", v3(0, th, 0), quat_identity(), -1, 0);
 			int pod = trs_craft_add(&tall, pi, 1, "bottom", "top", v3(0, th * 1.5 + ph * 0.5, 0), quat_identity(), -1, 0);
+			int li = -1;
 			if (lad)
-				trs_craft_add(&tall, trs_catalog_find(&cat, "ladder"), 0, "", "", v3(0, 0, cat.defs[ti].radius + 0.05), quat_identity(), -1, 0);
+				li = trs_craft_add(&tall, trs_catalog_find(&cat, "ladder"), 0, "", "", v3(-cat.defs[ti].radius - 0.05, 0, 0),
+						quat_axis_angle(v3(0, 1, 0), -TRS_PI / 2), -1, 0);
 			trs_world *w = malloc(sizeof(trs_world));
 			trs_world_init(w, &sys, 0);
 			int tid = stand(w, &tall, floe, th * 0.5, 0.05);
@@ -209,7 +212,14 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 			const trs_body *F = &sys.bodies[floe];
 			int eid = trs_world_eva_exit(w, tid, pod, pen);
 			trs_vessel *ev = &w->vessels[eid];
+			tv = &w->vessels[tid];
 			start[lad] = v3_len(ev->r) - F->radius - trs_body_terrain_at(F, w->t, ev->r) - pd->height * 0.5;
+			if (lad) {
+				/* across the ground from the ladder's foot */
+				trs_v3 lw = v3_add(tv->r, quat_rotate(tv->q, v3_sub(tv->craft->parts[li].pos, tv->cm)));
+				trs_v3 gap = v3_sub(ev->r, lw), upv = v3_norm(ev->r);
+				from_ladder = v3_len(v3_sub(gap, v3_scale(upv, v3_dot(gap, upv))));
+			}
 			for (int k = 0; k < 4 * TRS_PHYSICS_HZ; k++) {
 				double vin = -v3_dot(v3_sub(ev->v, v3_cross(trs_body_omega(F), ev->r)), v3_norm(ev->r));
 				trs_world_step_physics(w);
@@ -228,11 +238,11 @@ trs_gate_status trs_gate_eva(trs_log *out, const char *data_dir) {
 			free(w);
 			trs_craft_free(&tall);
 		}
-		int ok = start[0] > 5 && impact[0] > 9 && start[1] < 0.1 && impact[1] < 1 && !lost[1] && stood[1];
+		int ok = start[0] > 5 && impact[0] > 9 && start[1] < 0.1 && impact[1] < 1 && !lost[1] && stood[1] && from_ladder >= 0 && from_ladder < 1.0;
 		failed += !ok;
 		trs_log_printf(out, "%s out of a pod %.1f m up a standing stack: no ladder, it drops and meets the ground at %.1f m/s (%s); with a ladder it climbs down "
-				"(feet %.2f m up as it steps off, %.2f m/s at the ground), standing %s\n", ok ? "ok  " : "FAIL", start[0], impact[0],
-				lost[0] ? "lost" : "survives", start[1], impact[1], stood[1] ? "upright" : "NOT upright");
+				"(feet %.2f m up as it steps off, %.2f m from the ladder's foot, %.2f m/s at the ground), standing %s\n", ok ? "ok  " : "FAIL", start[0], impact[0],
+				lost[0] ? "lost" : "survives", start[1], from_ladder, impact[1], stood[1] ? "upright" : "NOT upright");
 	}
 	/* 3. out of a pod on the ground, within reach of its hatch, then away */
 	{

@@ -356,12 +356,14 @@ back; and one that fails stops the script and says why. `hover(1100, 5)` climbs 
 holds it 5 s (the seconds count from there). `transfer("floe")` from a moon's orbit comes home: the
 burn leaves the moon backwards along its orbit, low through Floe's air. `land("chime")`,
 `land(-10, -24)` (`ship land near chime`, `ship land -10 -24`) come down by a place: a relic the
-scanner has charted (50 m off it, then walk) or a landmark, or a latitude and longitude. The orbit
+scanner has charted (50 m off it, then walk; or the nearest level ground within 300 m, tilted under
+2 degrees, where a dune's face would tip a tall ship) or a landmark, or a latitude and longitude. The orbit
 is first made round, then turned to pass over the place on the pass that will come down (the world
 turns under it meanwhile); without air the low point is put over it and the ship brakes in;
 through air a copy of the world flies the way down first (the burn, the fall, the air carrying the
 ship with it as the world turns) to time the burn and trim it on the way, and the last kilometres
-are flown on the engine by powered-descent guidance. A lander that keeps a heat shield under its
+are flown on the engine by powered-descent guidance (watching the ground ahead and never leaning far
+over low down); the legs meet the ground slowly and still, and the engine eases the weight onto them. A lander that keeps a heat shield under its
 engine drops whatever hangs below the shield as it meets the air, opens its chute when the air has
 slowed it, lets the shield fall away below, cuts the chute and lands on the engine; a ship with the
 propellant to stop above the air (the Hearth Torch's kind) just stops above it and comes down
