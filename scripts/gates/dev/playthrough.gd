@@ -570,6 +570,12 @@ static func design(name: String) -> CraftModel:
 			# reach it to climb in; but its foot above theirs, or the ship
 			# lands on the ladder and goes over)
 			m.attach_surface(held("ladder"), torch, 0.0, -0.3, 1)
+			# (and living off the land between the stars: drills low on the
+			# torch, between the legs and in reach of the ground, refineries
+			# and a bin on the drive; the tanks filled on each world)
+			m.attach_surface(held("drill"), torch, PI / 2, -0.8, 3)
+			m.attach_surface(held("refinery"), drive, 0.0, 0.0, 2)
+			m.attach_surface(held("ore_bin"), drive, PI / 2, 0.0, 1)
 			m.auto_stage()
 			m.craft_name = "Star Skua"
 	return m
@@ -952,7 +958,7 @@ print("round %s:", round(get("periapsis") / 1000), "x", round(get("apoapsis") / 
 
 
 func ch_lantern() -> void:
-	unlock(["flight", "shapes", "habitation", "glasswing", "torch", "lasers"])
+	unlock(["flight", "shapes", "habitation", "glasswing", "torch", "lasers", "mining"])
 	var m := design("star_skua")
 	if not await launch(m.save_text()):
 		stuck = "the Star Skua won't launch (research %.0f, unlocked %s)" % [Career.research, Career.unlocked]
@@ -985,6 +991,24 @@ func ch_hollow() -> void:
 	await star_hop("hollow")
 
 
+## Landed: the drills and refineries on until the tanks are full (or as
+## full as two days on this world's ore make them), warping meanwhile.
+func refuel() -> void:
+	var t := tel()
+	if int(t.get("drills", 0)) <= 0:
+		return
+	var l0 := float(t.get("liquid", 0.0))
+	scene.computer.sh("ship mining on")
+	var t0 := s.time()
+	var full := await until(func(): return float(tel().get("liquid", 0.0)) >= float(tel().get("liquid_capacity", 1.0)) * 0.99, 2.0 * 86400.0, 1.0, 5)
+	scene.computer.sh("ship mining off")
+	# (out of the warp the legs take the weight again: on the ground before it goes)
+	await until(func(): return tel().get("landed", false), 30.0)
+	t = tel()
+	say("refuelled on %s (ore %.2f): %.0f kg to %.0f of %.0f kg liquid in %s, %s; drills touching %s" % [t.get("body", "?"), float(t.get("ore_abundance", 0.0)), l0,
+		float(t.get("liquid", 0.0)), float(t.get("liquid_capacity", 0.0)), FlightPrograms.span(s.time() - t0), "full" if full else "not full", t.get("drills_touching", "?")])
+
+
 ## The ship (wherever it is: on a world, or round one) on to the next star
 ## of the thread and down by its relic.
 func star_hop(key: String) -> void:
@@ -995,8 +1019,14 @@ func star_hop(key: String) -> void:
 	if scene == null or not is_instance_valid(scene):
 		await resume_flight()
 	var before := Career.done.duplicate()
+	# (on its legs, if they bounce it a hair off the ground just now)
+	var on_ground := func() -> bool:
+		var tt := tel()
+		return tt.get("landed", false) or (int(tt.get("contacts", 0)) > 0 and float(tt.get("surface_speed", 99.0)) < 2.0)
+	await until(func(): return on_ground.call() or float(tel().get("altitude_terrain", 0.0)) > 100.0, 10.0)
 	var t := tel()
-	if t.get("landed", false):
+	if on_ground.call():
+		await refuel()
 		var r := await script_run("/root/scripts/up.py", "launch()\n", 3000)
 		say("up from %s: %s" % [t.body, " / ".join(r.said.slice(-2))])
 	# out of this world's pull first (straight at the star could be straight

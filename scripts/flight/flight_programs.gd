@@ -426,7 +426,9 @@ func _orbit_text(t: Dictionary) -> String:
 # ---- launch ------------------------------------------------------------------------
 
 func _begin_launch(w: PackedStringArray, t: Dictionary) -> String:
-	if not (t.get("landed", false) or str(t.situation) in ["prelaunch", "landed", "splashed"]):
+	# (a ship on its legs is on the ground, if they bounce it a hair off it now and then)
+	var resting: bool = int(t.get("contacts", 0)) > 0 and float(t.get("surface_speed", 99.0)) < 2.0
+	if not (t.get("landed", false) or resting or str(t.situation) in ["prelaunch", "landed", "splashed"]):
 		return "launch is from the ground (the ship is %s)" % t.situation
 	var b := _body(t)
 	var atm := float(b.get("atmosphere_height", 0.0))

@@ -1711,10 +1711,10 @@ func _inside_view(t: Dictionary, delta: float) -> void:
 			# and the computer's screen under it, in the same view
 			if _inside.screen != null:
 				look = look.lerp(_inside.screen.position, 0.55)
-		_cam.look_at(g * look, (g.basis * u).normalized())
+		_look(_cam, g * look, (g.basis * u).normalized())
 	else:
 		_cam.global_position = g * (target + dir * d)
-		_cam.look_at(g * target, (g.basis * u).normalized())
+		_look(_cam, g * target, (g.basis * u).normalized())
 	_cam.v_offset = 0.0
 
 
@@ -1932,7 +1932,7 @@ func _render(delta: float) -> void:
 	var clear: float = core.ground_clearance(int(t.body_index), origin, PackedFloat64Array(Frame.to_sim(_cam.position)))
 	if clear < CAM_CLEARANCE:
 		_cam.position += up * (CAM_CLEARANCE - clear)
-	_cam.look_at(focus, up)
+	_look(_cam, focus, up)
 	# centre the craft in the band between the top panels and the navball
 	var vh := get_viewport().get_visible_rect().size.y
 	_cam.v_offset = -_cam_dist * tan(deg_to_rad(_cam.fov) * 0.5) * clampf((FlightHUD.BOTTOM_H - FlightHUD.TOP_H) / maxf(vh, 1.0), 0.0, 0.5)
@@ -1942,7 +1942,7 @@ func _render(delta: float) -> void:
 	var eye_clear: float = core.ground_clearance(int(t.body_index), origin, PackedFloat64Array(Frame.to_sim(eye_at)))
 	if eye_clear < CAM_CLEARANCE:
 		_cam.position += up * (CAM_CLEARANCE - eye_clear)
-		_cam.look_at(focus, up)
+		_look(_cam, focus, up)
 	_inside_view(t, delta)
 	_update_booms(delta, drift)
 	_update_failure(delta)
@@ -2379,3 +2379,12 @@ func _update_audio(t: Dictionary) -> void:
 	if open > _chutes_open:
 		Sfx.play("chute")
 	_chutes_open = open
+
+
+## look_at, but not at the point it stands on (or along its own up):
+## Godot refuses those with an error each frame; the view stays as it was.
+static func _look(n: Node3D, target: Vector3, up: Vector3) -> void:
+	var dir := target - n.global_position
+	if dir.length() < 1e-4 or up.length() < 1e-6 or absf(dir.normalized().dot(up.normalized())) > 0.9999:
+		return
+	n.look_at(target, up)

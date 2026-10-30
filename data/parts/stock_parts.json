@@ -426,7 +426,7 @@
       "description": "Short, sturdy, and always a little wobbly.",
       "mass": 50,
       "cost": 450,
-      "leg": { "length": 1.6, "spring": 200000, "damper": 16000, "max_load_speed": 12,
+      "leg": { "length": 1.6, "spring": 600000, "damper": 28000, "max_load_speed": 12,
                "hinge": [0, 0.1, 0.14], "deploy_angle_deg": 22, "stowed_fraction": 0.34, "foot_radius": 0.2 },
       "crash_tolerance": 12,
       "thermal": { "max_temp": 900, "skin_heat": 6000, "emissivity": 0.8 },
