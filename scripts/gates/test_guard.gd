@@ -331,6 +331,18 @@ func run(runner: Node) -> Dictionary:
 		_stop(comp)
 		core.vessel_set_mining(ship, false)
 		s.set_warp("physics", 0)
+	# a script asleep for an hour wakes when something happens (an alarm:
+	# a drill heard), not an hour on
+	comp.machine.write_file("/root/scripts/nap.py", "sleep(3600)\nprint(f\"awake after {ship.time:.0f}\")\n")
+	comp.machine.start("/root/scripts/nap.py")
+	var nap0 := s.time()
+	var before_alarm := _run(scene, 2.0)
+	comp.alarms += 1
+	var after_alarm := _run(scene, 2.0)
+	_stop(comp)
+	var woke := after_alarm.filter(func(l): return str(l).begins_with("awake")).size() > 0
+	_check(before_alarm.filter(func(l): return str(l).begins_with("awake")).is_empty() and woke,
+		"a script asleep for an hour (sleep(3600)): still asleep 2 s on; an alarm, and it wakes (%s), %.0f s after it lay down" % [woke, s.time() - nap0])
 	var g: Dictionary = outcome[0]
 	var u: Dictionary = outcome[1]
 	_check(g.why == "" and str(g.refused).contains("the drill") and g.heard != "" and g.came == 0 and g.fired > 0 and g.drills == 1 and g.dug > 0.0

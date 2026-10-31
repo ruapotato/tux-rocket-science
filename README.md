@@ -219,8 +219,9 @@ blue ice on Floe and Narwhal. Landmarks are data (`"landmarks"`), checked by `te
 the craft rests on the ground (its part within 2 m of it), at a rate set by the world's ore
 (Floe is poor, Krill and Tusk rich). A **Sifter Refinery** turns ore into liquid propellant
 (0.8 kg for every kg) and fills every propellant tank aboard, landed or in orbit. Press **C** to
-switch them on; they draw real power (0.75 kW a drill, 2 kW a refinery), stop when the bin or
-tanks are full or the batteries are flat, and keep going through time warp on a landed craft.
+switch them on; a drill digs up to 1 kg/s (where the ore is richest) for 1.5 kW, a refinery takes
+2 kg/s of ore for 4 kW; they stop when the bin or tanks are full or the batteries are flat, and
+keep going through time warp on a landed craft (till something hears the drill: see above).
 The PROPELLANT panel says what they are doing, or why not.
 
 **Career**: the main menu's first button switches between the **Sandbox** (every part, free; your
@@ -312,7 +313,8 @@ print(f"In orbit: {ship.orbit.bottom / km:.1f} x {ship.orbit.top / km:.1f} km")
   `decouple()`, `deploy()`). An engine's own `throttle` can be set, and setting it lights it.
 - **Aiming and burning:** `aim("prograde")`, `aim_at(pitch, heading)`, `aim_along(forward,
   sideways, outward)`, `throttle(100)`, `burn(dv)`, `stage()`, `sleep(s)` (time warp eases off
-  before the script wakes), `wait_user_trigger()` (waits for your space, and the press is the
+  before the script wakes; something happening, like a drill heard, wakes it at once),
+  `mining()` / `mining(False)`, `ship.heard` (what has heard the drill), `wait_user_trigger()` (waits for your space, and the press is the
   script's, not a stage), `chart("height", ship.height)` (a graph in the Flight app).
 - **The maths:** `speed_needed(height)`, `speed_at(height)`, `burn_time(dv)`, `time_to("top")`,
   `stopping_distance()`; and from the **Flight Planner**: `when_to_leave("krill")` (wait, Δv,

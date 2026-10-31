@@ -437,8 +437,16 @@ func step_ticks(n: int) -> void:
 	_telemetry_tick = -1
 
 
+var _heard_was := ""
+
 ## Advances by a frame of real time, honouring the warp setting.
 func advance(real_dt: float) -> void:
+	# the moment something hears the drill (at any warp): said, once
+	if float(telemetry().get("noise_m", 0.0)) > 0.0 or _heard_was != "":
+		var h := drill_heard()
+		if h != "" and _heard_was == "":
+			events.append({"kind": "drill_heard", "text": h, "t": time()})
+		_heard_was = h
 	if warp_kind == "rails" and warp_index > 0:
 		# on rails nothing burns: throttling up hands the craft back to physics
 		var t := telemetry()

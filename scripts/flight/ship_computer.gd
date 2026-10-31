@@ -98,6 +98,7 @@ var aim_word := ""            # what aim() last pointed at (a direction's name)
 var aim_vec := Vector3.ZERO   # or a direction
 var aim_ph := []              # aim_at(): [pitch, heading], held against the horizon as it turns under the ship
 var aim_fso := []             # aim_along(): [forward, sideways, outward], held to the orbit as it goes
+var alarms := 0              # things that have happened (a drill heard): a script's sleep() ends early at one
 var _wake := [-100, 0.0]      # [frame said, game time] a sleeping script wakes at
 var _ship_id := [-1, -1]      # the vessel (id, serial) the aim was held for
 var _session: FlightSession = null
@@ -193,6 +194,8 @@ static func readings(t: Dictionary, progs: FlightPrograms = null, session: Fligh
 			r["body_radius"] = _n(b.radius)
 			r["atmosphere_height"] = _n(b.atmosphere_height)
 		r["target"] = str(session.target_info().get("name", "none"))
+		r["heard"] = session.drill_heard().replace("\t", " ")  # what has heard the drill ("": all quiet)
+		r["alarms"] = str(get_shared().alarms)
 		var shared := get_shared()
 		var now := float(t.get("t", 0.0))
 		if fresh or absf(now - shared._enc_t) > 2.0:

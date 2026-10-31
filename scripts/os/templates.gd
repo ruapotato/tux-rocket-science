@@ -187,6 +187,9 @@ const DRILL := """# drill_guard.py -- dig for propellant, and keep what comes fo
 # the power for them), run this, and warp: it digs till the tanks are
 # full, and the lasers take whatever comes for the drill, nearest first.
 # Warp stops when something has heard it; warp on once it's dealt with.
+# (ship.heard says what has: "" while all is quiet. A sleep holds time
+# warp back so it wakes on time; so, quiet, it sleeps an hour: something
+# hearing the drill wakes it at once.)
 reach = 600                    # m: as far as ship.threats looks (a Tern's beam reaches 1500)
 lasers = ship.lasers
 if not lasers:
@@ -205,7 +208,10 @@ while ship.liquid < ship.liquid_capacity * 0.995:
         aimed = None
         ship.cease_fire()
         print("All clear")
-    sleep(0.5)
+    if near or ship.heard:
+        sleep(0.5)
+    else:
+        sleep(3600)
 mining(False)
 ship.cease_fire()
 print(f"Tanks full ({ship.liquid:.0f} kg): the drill is off, and quiet")

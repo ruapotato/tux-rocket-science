@@ -1012,6 +1012,9 @@ func refuel() -> void:
 	var heard := {"n": 0, "last": "", "what": []}
 	var full := await until(func():
 		var h := s.drill_heard()
+		if h != heard.last:
+			say("   drill: %s (T+%s, warp %s %d, %.0f kg liquid)" % [h if h != "" else "quiet", FlightPrograms.span(s.time() - t0), s.warp_kind, s.warp_index,
+				float(tel().get("liquid", 0.0))])
 		if h != "" and h != heard.last:
 			heard.n += 1
 			heard.what.append("%s at T+%s" % [h, FlightPrograms.span(s.time() - t0)])

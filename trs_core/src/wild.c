@@ -225,9 +225,11 @@ static void scan(trs_world *w, trs_v3 pf) {
 			wd->cells[q--] = wd->cells[--wd->ncells];
 		}
 	}
+	/* (the hunters that hear a drill first: the wild holds only so many) */
+	for (int pass = 0; pass < 2; pass++)
 	for (int k = 0; k < b->nlife; k++) {
 		const trs_life *L = &b->life[k];
-		if (!L->fauna)
+		if (!L->fauna || (pass == 0 && !(noise > 0 && L->temper == TRS_TEMPER_HOSTILE)))
 			continue;
 		for (int c = 0; c < nn; c++) {
 			trs_v3 centre;
@@ -237,7 +239,7 @@ static void scan(trs_world *w, trs_v3 pf) {
 				trs_v3 pos, fwd;
 				trs_life_animal_at(L, &inst[idx], centre, w->t, &pos, &fwd);
 				int hears = noise > 0 && L->temper == TRS_TEMPER_HOSTILE && v3_len(v3_sub(pos, np)) < noise;
-				if ((v3_len(v3_sub(pos, pf)) > LIVE_R && !hears) || wd->n >= TRS_WILD_MAX)
+				if ((pass == 0 && !hears) || (v3_len(v3_sub(pos, pf)) > LIVE_R && !hears) || wd->n >= TRS_WILD_MAX)
 					continue;
 				int live = 0;
 				for (int i = 0; i < wd->n && !live; i++)
@@ -563,6 +565,15 @@ void trs_wild_step(trs_world *w, double dt) {
 int trs_wild_hunter_near(const trs_world *w, int bi, trs_v3 at, double r) {
 	const trs_body *b = &w->sys.bodies[bi];
 	const trs_wild *wd = &w->wild;
+	/* the wild awake here: the hunters it has taken up are the ones that come */
+	if (wd->body == bi && wd->ncells > 0) {
+		for (int i = 0; i < wd->n; i++) {
+			const trs_critter *c = &wd->c[i];
+			if (c->state != TRS_CRIT_DOWN && b->life[c->kind].temper == TRS_TEMPER_HOSTILE && v3_len(v3_sub(c->pos, at)) < r)
+				return c->kind;
+		}
+		return -1;
+	}
 	trs_patch_id near[64];
 	int nn = 0, found = -1;
 	trs_life_instance *buf = NULL;

@@ -50,6 +50,13 @@ func run(runner: Node) -> Dictionary:
 	scene.hud.hide_help()
 	var s: FlightSession = scene.session
 	var pad := s.active
+	if env.call("FUELKG", "") != "":
+		# (each tank holding this many kg: room to refuel)
+		var cf: Dictionary = JSON.parse_string(text)
+		for pp in cf.parts:
+			if str(pp.part).begins_with("tank_"):
+				pp["fuel"] = float(env.call("FUELKG", "0"))
+		text = JSON.stringify(cf)
 	if env.call("NOLADDER", "") != "":
 		var c: Dictionary = JSON.parse_string(text)
 		var keep := []
@@ -201,7 +208,43 @@ func run(runner: Node) -> Dictionary:
 			log.append("    said: " + line)
 		p.said.clear()
 		await tree.process_frame
-	if env.call("REFUEL", "") != "" and p.status == "done":
+	if env.call("REFUEL", "") == "guard" and p.status == "done":
+		# drill_guard.py, as a player would: warp, and what comes, comes
+		var Templates: GDScript = load("res://scripts/os/templates.gd")
+		comp.machine.write_file("/root/scripts/drill_guard.py", Templates.DRILL)
+		_say(log, "    drill_guard.py: %s" % str(comp.machine.start("/root/scripts/drill_guard.py")))
+		var seen := comp.log_count
+		var tw := s.time()
+		var heard_was := ""
+		var frames := 0
+		var w_real := Time.get_ticks_msec()
+		while s.time() - tw < 7200.0 and Time.get_ticks_msec() - w_real < 900000:
+			if s.warp_kind != "rails" or s.warp_index < 5:
+				s.set_warp("rails", 5)
+			s.advance(1.0 / 60.0)
+			comp.update(scene, s.telemetry())
+			frames += 1
+			for e in s.events:
+				if str(e.kind) == "drill_heard":
+					comp.alarms += 1
+				if str(e.kind) == "part_destroyed":
+					_say(log, "    T+%.0f lost %s (%s)" % [s.time() - tw, e.get("part", ""), str(e.get("speed", ""))])
+			s.events.clear()
+			var hh := s.drill_heard()
+			if hh != heard_was:
+				_say(log, "    T+%.0f heard: %s (warp %s %d)" % [s.time() - tw, hh if hh != "" else "quiet", s.warp_kind, s.warp_index])
+				heard_was = hh
+			var fresh := mini(comp.log_count - seen, comp.log.size())
+			for k in range(comp.log.size() - fresh, comp.log.size()):
+				_say(log, "    T+%.0f said: %s" % [s.time() - tw, comp.log[k]])
+			seen = comp.log_count
+			var Play: GDScript = load("res://scripts/gates/dev/playthrough.gd")
+			if not s.telemetry().get("alive", false) or (frames % 30 == 0 and Play._scripts(comp).is_empty()):
+				break
+			await tree.process_frame
+		var tq := s.telemetry()
+		_say(log, "    after %.0f s (%d frames): liquid %.0f of %.0f, drills %s" % [s.time() - tw, frames, float(tq.get("liquid", 0)), float(tq.get("liquid_capacity", 0)), tq.get("drills")])
+	if env.call("REFUEL", "") != "" and env.call("REFUEL", "") != "guard" and p.status == "done":
 		# mining under warp a while, then out of it: how the ship comes back
 		comp.sh("ship mining on")
 		var tw := s.time()
@@ -257,3 +300,8 @@ func run(runner: Node) -> Dictionary:
 	log.append("ended %s: %s; %s, %.0f m from %s, alive %s, %.0f m/s left, %.0f s" % [p.status, p.note, t.get("situation", ""),
 		a.angle_to(b) * R, rl.get("name", "?"), t.get("alive", false), float(t.get("dv_total", 0)), s.time() - t0])
 	return {"status": "PASS" if p.status == "done" else "FAIL", "log": "\n".join(log)}
+
+
+static func _say(log: PackedStringArray, line: String) -> void:
+	log.append(line)
+	print("RIG " + line)

@@ -907,6 +907,7 @@ static VmStatus n_wait(VM *v, Value *a, int n, Value *out)
     (void)n;
     if (a[0].k != V_INT && a[0].k != V_NUM && a[0].k != V_BOOL) { vm_runtime_error(v, "TypeError: sleep() wants seconds, a number"); return VM_ERROR; }
     double until = reading_num(v, "time") + arg_num(a[0]);
+    double alarms = reading_num(v, "alarms");   /* (something happening wakes it early) */
     char wake[64];
     nom_snprintf(wake, sizeof wake, "wake %d", (int)until + 1);
     /* at least a frame, as Python's sleep(0) gives the others a turn: a
@@ -914,6 +915,7 @@ static VmStatus n_wait(VM *v, Value *a, int n, Value *out)
     bool once = in_background();
     while (once || reading_num(v, "time") < until) {
         once = false;
+        if (reading_num(v, "alarms") != alarms) break;
         if (reading_num(v, "time") < until) ask(v, wake);    /* so a warp eases off before it */
         if (!yield(v)) return VM_ERROR;
     }

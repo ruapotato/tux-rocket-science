@@ -933,10 +933,14 @@ func _on_sim_event(e: Dictionary) -> void:
 			if e.reason == "engines firing":
 				hud.toast("Warp stopped: engines firing (they only burn at normal time or physics warp)", 3.0)
 			elif e.reason == "heard":
-				hud.toast("Warp stopped: %s" % e.text, 4.0)
-				Sfx.play("alarm")
+				pass  # (said as it was heard: drill_heard)
 			else:
 				hud.toast("Warp stopped: %s ahead" % e.reason, 2.5)
+		"drill_heard":
+			hud.toast("%s! Time warp waits till it's dealt with" % e.text, 5.0)
+			Sfx.play("alarm")
+			if computer != null:
+				computer.alarms += 1  # (a sleeping script wakes)
 		"warp_eased":
 			hud.toast("Warp eased to %dx: closing on %s" % [int(e.rate), String(session.telemetry().get("body", "the ground")).capitalize()], 2.0)
 
