@@ -445,7 +445,7 @@ func advance(real_dt: float) -> void:
 	if float(telemetry().get("noise_m", 0.0)) > 0.0 or _heard_was != "":
 		var h := drill_heard()
 		if h != "" and _heard_was == "":
-			events.append({"kind": "drill_heard", "text": h, "t": time()})
+			_say_event({"kind": "drill_heard", "text": h, "t": time()})
 		_heard_was = h
 	if warp_kind == "rails" and warp_index > 0:
 		# on rails nothing burns: throttling up hands the craft back to physics
@@ -456,31 +456,31 @@ func advance(real_dt: float) -> void:
 			var cap := braking_cap(t, real_dt)
 			if cap < warp_index:
 				set_warp("rails", cap)
-				events.append({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
+				_say_event({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
 			# (eased right off, this frame still runs, at 1x)
 			core.warp_ship(active, real_dt * (RAILS_WARP[warp_index] if warp_index > 0 else 1.0))
 			_collect_events()
 			_telemetry_tick = -1
 			if t.has("course") and not telemetry().has("course"):
 				set_warp("rails", 0)
-				events.append({"kind": "arrived", "body": t.course_name, "t": time()})
+				_say_event({"kind": "arrived", "body": t.course_name, "t": time()})
 			return
 		# a drill heard: whatever heard it is on its way, at normal time
 		var heard := drill_heard()
 		if heard != "":
 			set_warp("rails", 0)
-			events.append({"kind": "warp_stopped", "reason": "heard", "text": heard, "t": time()})
+			_say_event({"kind": "warp_stopped", "reason": "heard", "text": heard, "t": time()})
 			return
 		# (the Stillwater Drive pushes through warp: its path is stepped)
 		if t.get("thrust", 0.0) > 0.0 and not t.landed:
 			set_warp("rails", 0)
-			events.append({"kind": "warp_stopped", "reason": "engines firing", "t": time()})
+			_say_event({"kind": "warp_stopped", "reason": "engines firing", "t": time()})
 			return
 		# closing on the ground or the air, warp eases off level by level
 		var cap := rails_cap(t)
 		if cap < warp_index:
 			set_warp("rails", cap)
-			events.append({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
+			_say_event({"kind": "warp_eased", "rate": RAILS_WARP[cap] if cap > 0 else 1.0, "t": time()})
 			if cap <= 0:
 				return
 		var ev: Dictionary = JSON.parse_string(core.warp(real_dt * RAILS_WARP[warp_index], active))
@@ -488,7 +488,7 @@ func advance(real_dt: float) -> void:
 			set_warp("rails", 0)
 		elif ev.event == "atmosphere" or ev.event == "surface":
 			set_warp("rails", 0)
-			events.append({"kind": "warp_stopped", "reason": ev.event, "t": ev.t})
+			_say_event({"kind": "warp_stopped", "reason": ev.event, "t": ev.t})
 		_collect_events()
 		_telemetry_tick = -1
 		return
@@ -525,6 +525,13 @@ func _manage_ranges() -> void:
 				core.vessel_set_mode(v.id, "rails")
 		elif d < PHYSICS_RANGE * 0.9 and v.mode != "physics":
 			core.vessel_set_mode(v.id, "physics")
+
+
+## An event the session itself makes (warp eased or stopped, a drill
+## heard...): kept with the core's, and said to whoever listens.
+func _say_event(e: Dictionary) -> void:
+	events.append(e)
+	sim_event.emit(e)
 
 
 func _collect_events() -> void:
