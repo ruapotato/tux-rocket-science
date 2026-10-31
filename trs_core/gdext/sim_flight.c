@@ -1056,6 +1056,11 @@ static void m_vessel_part_states(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(pj, "laser_range", trs_json_new_num(d->laser_range));
 			trs_json_set(pj, "laser_dps", trs_json_new_num(d->laser_dps));
 			trs_json_set(pj, "firing", trs_json_new_bool(p->beam > 0));
+			if (p->beam > 0) {
+				static const char *HIT[] = { "nothing", "vessel", "animal", "ground" };
+				trs_json_set(pj, "beam_m", trs_json_new_num(p->beam));
+				trs_json_set(pj, "beam_hit", trs_json_new_str(HIT[p->beam_hit >= 0 && p->beam_hit <= 3 ? p->beam_hit : 0]));
+			}
 			if (strcmp(kind, "part") == 0 || strcmp(kind, d->category) == 0)
 				kind = "laser";
 		}

@@ -119,7 +119,7 @@ func run(runner: Node) -> Dictionary:
 	if comp == null:
 		comp = ShipComputer.get_shared()
 		scene.computer = comp
-	var words: String = "land " + (env.call("PLACE", "near chime") if env.call("PLACE", "") != "none" else "")
+	var words: String = env.call("PROG", "") if env.call("PROG", "") != "" else "land " + (env.call("PLACE", "near chime") if env.call("PLACE", "") != "none" else "")
 	words = words.strip_edges()
 	comp.programs.start(scene, words.split(" "), s.telemetry())
 	var p := comp.programs
@@ -230,6 +230,14 @@ func run(runner: Node) -> Dictionary:
 				if str(e.kind) == "part_destroyed":
 					_say(log, "    T+%.0f lost %s (%s)" % [s.time() - tw, e.get("part", ""), str(e.get("speed", ""))])
 			s.events.clear()
+			if frames % 300 == 0 and s.drill_heard() != "":
+				var all_th := 0
+				var near_all: Array = JSON.parse_string(s.core.things_near(s.active, 600.0))
+				for th in near_all:
+					all_th += 1 if th.get("threat", false) else 0
+				var listed := str(comp.readings(s.telemetry(), comp.programs, s).get("frame", ""))
+				_say(log, "    T+%.0f threats in 600 m: %d of %d things; the script's ship.threats: %s" % [s.time() - tw, all_th, near_all.size(),
+					str(comp._near_cache.get("lists", {}).get("threats", []).size())])
 			var hh := s.drill_heard()
 			if hh != heard_was:
 				_say(log, "    T+%.0f heard: %s (warp %s %d)" % [s.time() - tw, hh if hh != "" else "quiet", s.warp_kind, s.warp_index])

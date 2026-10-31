@@ -478,3 +478,33 @@ void trs_world_lasers_step(trs_world *w, double h) {
 		}
 	}
 }
+
+int trs_laser_reaches(const trs_world *w, int id, trs_thing th) {
+	if (id < 0 || id >= w->nvessels || !w->vessels[id].alive || !w->vessels[id].craft)
+		return 0;
+	const trs_vessel *vs = &w->vessels[id];
+	trs_v3 point;
+	double rad;
+	if (!trs_thing_where(w, vs->body, th, &point, &rad))
+		return 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->laser_range <= 0)
+			continue;
+		trs_v3 at, axis;
+		trs_laser_mount(w, vs, i, &at, &axis);
+		trs_v3 to = v3_sub(point, at);
+		double dist = v3_len(to);
+		if (dist < 1e-6 || dist > d->laser_range + 2.0)
+			continue;
+		trs_v3 dir = v3_scale(to, 1.0 / dist);
+		if (d->laser_arc < TRS_PI && acos(fmax(-1, fmin(1, v3_dot(dir, axis)))) > d->laser_arc)
+			continue;
+		double len;
+		int hp;
+		trs_thing hit = trs_world_ray(w, vs->body, at, dir, d->laser_range, id, &len, &hp);
+		if (hit.kind == th.kind && hit.id == th.id)
+			return 1;
+	}
+	return 0;
+}

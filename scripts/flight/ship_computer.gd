@@ -553,7 +553,13 @@ func _near_rows(t: Dictionary, core: Object, rows: Array, lists: Dictionary) -> 
 	lists["contacts"] = []
 	lists["threats"] = []
 	var near: Array = JSON.parse_string(core.things_near(gun, LIFE_RANGE))
-	for th in near.slice(0, LIFE_MOST):
+	# (the nearest LIFE_MOST, and every threat in range besides: a crowd of
+	# moths must not hide what is coming for the drill)
+	var listed := []
+	for k in near.size():
+		if k < LIFE_MOST or (near[k].get("threat", false) and listed.size() < LIFE_MOST * 3):
+			listed.append(near[k])
+	for th in listed:
 		var animal := str(th.what) == "animal"
 		var key := ("a%d" % int(th.id)) if animal else ("v%ds%d" % [int(th.id), int(th.serial)])
 		_things[key] = [int(th.kind), int(th.id), int(th.serial)]
@@ -571,7 +577,7 @@ func _near_rows(t: Dictionary, core: Object, rows: Array, lists: Dictionary) -> 
 		rows.append("%s.species\t%s\t" % [pre, th.get("species", "ship" if not animal else "")])
 		for f in ["distance", "bearing", "above", "health"]:
 			rows.append("%s.%s\t%s\t" % [pre, f, _n(th.get(f, 0.0))])
-		for f in ["hostile", "penguin", "alien", "threat", "after_us"]:
+		for f in ["hostile", "penguin", "alien", "threat", "after_us", "in_reach"]:
 			rows.append("%s.%s\t%s\t" % [pre, f, "true" if th.get(f, false) else "false"])
 		rows.append("%s.state\t%s\t" % [pre, th.get("state", "")])
 		rows.append("%s.alive\ttrue\t" % pre)

@@ -185,7 +185,7 @@ penguin on EVA carries a small zapper for its own defence, and from a script, `s
 `.health`), `ship.fire_at(thing)` locks the lasers on it, and **guard.py** (a Script Editor
 template) keeps the ground round a landed ship clear while you walk.
 
-**A drill is loud.** Digging for ore, the Pecker Ore Drill is heard 1.5 km off by whatever hunts
+**A drill is loud.** Digging for ore, the Pecker Ore Drill is heard 1 km off by whatever hunts
 there (Haven's fangrunners, Gloam's crawlers, Saffron's stalkers), which come to chew on the drill
 itself; and a Jaeger camp within 30 km sends its raiders, fast and high, for the noise. Time warp
 stops when something has heard the drill and won't run again till it's dealt with (or the drill is

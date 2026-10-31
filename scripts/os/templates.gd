@@ -181,11 +181,12 @@ else:
 
 const DRILL := """# drill_guard.py -- dig for propellant, and keep what comes for the drill off it
 #
-# A drill digging is loud: hunters within 1.5 km hear it and come to chew
+# A drill digging is loud: hunters within 1 km hear it and come to chew
 # on it, and a Jaeger camp within 30 km sends its raiders. Land on legs
 # with a drill within 2 m of the ground (and an ore bin, a refinery and
 # the power for them), run this, and warp: it digs till the tanks are
-# full, and the lasers take whatever comes for the drill, nearest first.
+# full, and the lasers take whatever comes for the drill: the nearest a
+# beam can get to (in_reach: no dune between), then the nearest.
 # Warp stops when something has heard it; warp on once it's dealt with.
 # (ship.heard says what has: "" while all is quiet. A sleep holds time
 # warp back so it wakes on time; so, quiet, it sleeps an hour: something
@@ -199,9 +200,12 @@ print(f"Digging: {ship.liquid:.0f} of {ship.liquid_capacity:.0f} kg")
 aimed = None
 while ship.liquid < ship.liquid_capacity * 0.995:
     near = [c for c in ship.threats if c.distance < reach]
-    if near and lasers:
-        if near[0] != aimed:
-            aimed = near[0]
+    shot = [c for c in near if c.in_reach]
+    if not shot:
+        shot = near
+    if shot and lasers:
+        if shot[0] != aimed:
+            aimed = shot[0]
             print(f"{aimed.name}, {aimed.distance:.0f} m off: firing")
         ship.fire_at(aimed)       # the lasers lock on it, and fire while it's in reach
     elif aimed:

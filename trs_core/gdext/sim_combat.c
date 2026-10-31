@@ -229,6 +229,7 @@ static trs_json *thing_json(const trs_world *w, int from, trs_thing th) {
 	trs_json_set(o, "rel", rel);
 	trs_json_set(o, "radius", trs_json_new_num(rad));
 	trs_json_set(o, "threat", trs_json_new_bool(trs_thing_threat(w, from, th, 1)));
+	trs_json_set(o, "in_reach", trs_json_new_bool(trs_laser_reaches(w, from, th)));
 	if (th.kind == TRS_THING_CRITTER) {
 		const trs_critter *c = &w->wild.c[trs_wild_find(w, th.id)];
 		const trs_life *L = trs_critter_kind(w, c);

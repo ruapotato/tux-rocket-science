@@ -549,6 +549,9 @@ int trs_thing_where(const trs_world *w, int body, trs_thing th, trs_v3 *at, doub
  * within `range` m: a vessel's part (not vessel `skip`'s), an animal, the
  * ground. *dist gets how far; *part the part's index for a vessel. */
 trs_thing trs_world_ray(const trs_world *w, int body, trs_v3 o, trs_v3 d, double range, int skip, double *dist, int *part);
+/* Can a laser of vessel id hit th now: in its range and arc, and a beam
+ * from its mount reaching th first (no hill, nor anything else, between) */
+int trs_laser_reaches(const trs_world *w, int id, trs_thing th);
 /* The lasers' orders: guard mode (0..2), a lock (TRS_THING_NONE lets go),
  * fire by hand at a point (SOI frame), or not. Return the lasers aboard. */
 int trs_world_set_guard(trs_world *w, int id, int mode);

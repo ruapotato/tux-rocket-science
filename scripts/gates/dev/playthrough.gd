@@ -566,7 +566,7 @@ static func design(name: String) -> CraftModel:
 			# feet) and let a lean on a dune's face grow till it goes over)
 			m.attach_surface(held("landing_leg"), torch, PI / 12, -0.6, 12)
 			m.attach_surface(held("signal_scanner"), 0, 0.0, 0.0, 1)
-			m.attach_surface(held("laser_turret"), core, PI / 4, 0.0, 2)
+			m.attach_surface(held("laser_turret"), core, PI / 4, 0.0, 4)
 			# (low on the ship, by the legs: from the ground a penguin must
 			# reach it to climb in; but its foot above theirs, or the ship
 			# lands on the ladder and goes over)
@@ -1019,20 +1019,45 @@ func refuel() -> void:
 			heard.n += 1
 			heard.what.append("%s at T+%s" % [h, FlightPrograms.span(s.time() - t0)])
 		heard.last = h
+		if h != "" and Time.get_ticks_msec() - int(heard.get("snap", 0)) > 30000:
+			heard.snap = Time.get_ticks_msec()
+			var near_all: Array = JSON.parse_string(s.core.things_near(s.active, 600.0))
+			var th := near_all.filter(func(x): return x.get("threat", false))
+			var by := {}
+			for x in th:
+				var k := "%s %s" % [str(x.get("species", x.get("what", "?"))), str(x.get("state", ""))]
+				by[k] = int(by.get(k, 0)) + 1
+			var guns := []
+			for ps in JSON.parse_string(s.core.vessel_part_states(s.active)):
+				if ps.has("laser_range"):
+					guns.append("%s%s" % ["on " + str(ps.get("beam_hit", "?")) if ps.get("firing", false) else "idle", "" if float(ps.get("health", 100)) > 99 else " (hurt)"])
+			var reach_n := th.filter(func(x): return x.get("in_reach", false)).size()
+			say("   threats within 600 m: %d of %d things %s, %d in reach; the script sees %d; nearest %s at %.0f m; drills %s; turrets %s" % [th.size(), near_all.size(), str(by), reach_n,
+				comp._near_cache.get("lists", {}).get("threats", []).size(), str(th[0].get("species", th[0].get("what"))) if not th.is_empty() else "-",
+				float(th[0].distance) if not th.is_empty() else 0.0, tel().get("drills", "?"), str(guns)])
+			say("      lock %s, ec %.0f of %.0f (gen %.0f, use %.0f kW), gun %d, active %d" % [str(tel().get("lock", "-")), float(tel().get("ec", 0)), float(tel().get("ec_capacity", 0)),
+				float(tel().get("ec_gen", 0)), float(tel().get("ec_use", 0)), comp.gun, s.active])
 		return _scripts(comp).is_empty() or not tel().get("alive", false), 2.0 * 86400.0, 1.0, 5)
 	comp.stop_scripts()
 	scene.computer.sh("ship mining off")
 	var fired := 0
 	var n := mini(comp.log_count - seen, comp.log.size())
+	var kinds := {}
 	for line in comp.log.slice(comp.log.size() - n):
 		fired += 1 if str(line).ends_with("firing") else 0
+		var key := str(line).split(",")[0] if str(line).ends_with("firing") else str(line).left(60)
+		kinds[key] = int(kinds.get(key, 0)) + 1
+	say("   drill_guard.py said: %s" % str(kinds))
 	# (out of the warp the legs take the weight again: on the ground before it goes)
 	await until(func(): return tel().get("landed", false), 30.0)
+	await key(KEY_F5)  # (and a quicksave: the launch from here can be flown again)
+	await frames(3)
 	t = tel()
 	say("refuelled on %s (ore %.2f): %.0f kg to %.0f of %.0f kg liquid in %s, %s; drills %s, touching %s; heard %d times (%s), the lasers turned on %d" % [
 		t.get("body", "?"), float(t.get("ore_abundance", 0.0)), l0, float(t.get("liquid", 0.0)), float(t.get("liquid_capacity", 0.0)),
 		FlightPrograms.span(s.time() - t0), "done" if full else "given up", t.get("drills", "?"), t.get("drills_touching", "?"), heard.n,
 		"; ".join(heard.what.slice(0, 6)), fired])
+	say("   standing at %.1f degrees pitch, %s, %d parts" % [float(t.get("pitch_deg", 0)), t.get("situation", ""), int(t.get("parts", 0))])
 
 
 ## The ship (wherever it is: on a world, or round one) on to the next star
