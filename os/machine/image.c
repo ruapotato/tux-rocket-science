@@ -1488,6 +1488,8 @@ static const Package PKG_SHELL = {
       { "/root/examples/hover.py", NULL, 0644, NULL },
       { "/root/examples/watch.py", NULL, 0644, NULL },
       { "/root/examples/suicide_burn.py", NULL, 0644, NULL },
+      { "/root/examples/guard.py", NULL, 0644, NULL },
+      { "/root/examples/drill_guard.py", NULL, 0644, NULL },
       { "/bin/ed", NULL, 0755, NULL },
       { "/bin/echo", NULL, 0755, NULL },
       { "/bin/wc", NULL, 0755, NULL },
@@ -1700,7 +1702,7 @@ static const Package PKG_SHELL = {
         "\n"
         "1.4  -- find and netstat, because everybody reached for them and they were\n"
         "       not there.\n", 0644, NULL },
-    }, 78   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen */
+    }, 80   /* RUNBOOK: 55 -> 66: /bin/rb, /bin/py, /bin/test + [, seven examples; TRS: + /bin/ship, its own fourteen, guard.py and drill_guard.py */
 };
 
 
@@ -3733,6 +3735,8 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "  ship run /root/examples/hover.py      hold a height on a controller you can tune\n"
         "  ship run /root/examples/watch.py      a co-pilot: it warns you while you fly\n"
         "  ship run /root/examples/suicide_burn.py  up 3 km and down on the engine, like a booster\n"
+        "  ship run /root/examples/guard.py      the lasers keep the ground round the ship clear\n"
+        "  ship run /root/examples/drill_guard.py  dig for propellant, and defend the drill\n"
         "  ship run /root/examples/to_orbit.py   the pad to orbit by YOUR logic: the parts\n"
         "                                        by name, the maths, a look and a fix\n"
         "  ship run /root/examples/krill_by_hand.py  to Krill and down: when_to_leave,\n"
@@ -3787,7 +3791,7 @@ void image_generated(const Machine *m, const char *path, Buf *out)
         "  land()  land(\"chime\")  land(-10, -24)   down, or down by a place\n"
         "  hover(30, 10)  node()  abort()  autostage(False)\n"
         "  wait(5)  wait_until(\"altitude\", \"<\", 5000)  get(\"apoapsis\")\n"
-        "  throttle(100) stage() sas(\"prograde\") point(45, 90) chutes() legs()\n"
+        "  throttle(100) stage() sas(\"prograde\") point(45, 90) chutes() legs() mining()\n"
         "  say(\"hi\")  countdown(5)\n"
         "\n"
         "Numbers are real (2.5 is 2.5), with sqrt sin cos atan2 ... pi.\n"
@@ -4301,6 +4305,39 @@ else if (strcmp(path, "/root/examples/orbit.py") == 0)
         "            aimed = None\n"
         "            ship.cease_fire()\n"
         "        sleep(0.5)\n"
+        );
+    else if (strcmp(path, "/root/examples/drill_guard.py") == 0)
+        buf_puts(out,
+        "# drill_guard.py -- dig for propellant, and keep what comes for the drill off it\n"
+        "#\n"
+        "# A drill digging is loud: hunters within 1.5 km hear it and come to chew\n"
+        "# on it, and a Jaeger camp within 30 km sends its raiders. Land on legs\n"
+        "# with a drill within 2 m of the ground (and an ore bin, a refinery and\n"
+        "# the power for them), run this, and warp: it digs till the tanks are\n"
+        "# full, and the lasers take whatever comes for the drill, nearest first.\n"
+        "# Warp stops when something has heard it; warp on once it's dealt with.\n"
+        "reach = 600                    # m: as far as ship.threats looks (a Tern's beam reaches 1500)\n"
+        "lasers = ship.lasers\n"
+        "if not lasers:\n"
+        "    print(\"No lasers aboard: the drill will be eaten. Fit a Tern Laser Turret (Utility)\")\n"
+        "mining()\n"
+        "print(f\"Digging: {ship.liquid:.0f} of {ship.liquid_capacity:.0f} kg\")\n"
+        "aimed = None\n"
+        "while ship.liquid < ship.liquid_capacity * 0.995:\n"
+        "    near = [c for c in ship.threats if c.distance < reach]\n"
+        "    if near and lasers:\n"
+        "        if near[0] != aimed:\n"
+        "            aimed = near[0]\n"
+        "            print(f\"{aimed.name}, {aimed.distance:.0f} m off: firing\")\n"
+        "        ship.fire_at(aimed)       # the lasers lock on it, and fire while it's in reach\n"
+        "    elif aimed:\n"
+        "        aimed = None\n"
+        "        ship.cease_fire()\n"
+        "        print(\"All clear\")\n"
+        "    sleep(0.5)\n"
+        "mining(False)\n"
+        "ship.cease_fire()\n"
+        "print(f\"Tanks full ({ship.liquid:.0f} kg): the drill is off, and quiet\")\n"
         );
     /* END test-by-hand examples */
     else if (strcmp(path, "/root/examples/hop.py") == 0)

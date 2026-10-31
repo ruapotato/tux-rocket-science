@@ -317,6 +317,72 @@ trs_gate_status trs_gate_wild(trs_log *out, const char *data_dir) {
 				"%d of its parts bitten\n", ok ? "ok  " : "FAIL", near, charged, bitten);
 		done(w);
 	}
+	/* 4c. a drill digging is heard: dusk crawlers 600 m off come for the
+	 *     drill and bite it (and nothing else); the drill stopped, they
+	 *     lose interest; never started, they never come */
+	{
+		trs_craft dr;
+		trs_craft_init(&dr, &cat);
+		trs_craft_add(&dr, trs_catalog_find(&cat, "probe_core"), -1, "", "", v3(0, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&dr, trs_catalog_find(&cat, "battery"), 0, "", "", v3(0.6, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&dr, trs_catalog_find(&cat, "ore_bin"), 0, "", "", v3(-0.6, 0, 0), quat_identity(), -1, 0);
+		int drill = trs_craft_add(&dr, trs_catalog_find(&cat, "drill"), 0, "", "", v3(0, -0.4, 0.5), quat_identity(), -1, 0);
+		const double noise = trs_craft_def(&dr, drill)->drill_noise;
+		int came[2] = { 0, 0 }, bit_drill[2] = { 0, 0 }, bit_else[2] = { 0, 0 }, heard0[2] = { 0, 0 }, left = 0, gone = 0;
+		double first = -1;
+		char who[64];
+		for (int dig = 0; dig < 2; dig++) {
+			trs_world *w = fresh(&sys, t0);
+			const trs_body *b = &sys.bodies[gloam];
+			int k = kind_of(b, "crawlers");
+			trs_v3 at;
+			find_animal(w, gloam, k, 5, &at);
+			int sh = put(w, &dr, gloam, along(b, at, 2.0, 600), 1.0, 1);
+			trs_world_set_focus(w, sh);
+			trs_world_set_isru(w, sh, dig);
+			trs_world_step_physics(w);
+			heard0[dig] = trs_world_drill_heard(w, sh, who, sizeof who);
+			for (int s = 0; s < 300 * TRS_PHYSICS_HZ && w->vessels[sh].alive; s++) {
+				trs_world_step_physics(w);
+				int charging = 0;
+				for (int i = 0; i < w->wild.n; i++)
+					charging += w->wild.c[i].kind == k && w->wild.c[i].state == TRS_CRIT_CHARGE && w->wild.c[i].other.id == sh;
+				came[dig] = came[dig] > charging ? came[dig] : charging;
+				if (dig && first < 0 && w->vessels[sh].craft->parts[drill].damage > 0)
+					first = s * h;
+				/* once the drill has been bitten a while, stop it: they go */
+				if (dig && first >= 0 && s * h > first + 10 && w->vessels[sh].craft->parts[drill].running) {
+					trs_world_set_isru(w, sh, 0);
+					run(w, 6.0);
+					left = 1;
+					for (int i = 0; i < w->wild.n; i++)
+						left &= !(w->wild.c[i].state == TRS_CRIT_CHARGE && w->wild.c[i].other.id == sh);
+					break;
+				}
+			}
+			/* (bitten enough, the drill comes off: what is left is the rest) */
+			int has_drill = 0;
+			for (int i = 0; w->vessels[sh].alive && i < w->vessels[sh].craft->count; i++) {
+				double dmg = w->vessels[sh].craft->parts[i].damage;
+				if (trs_craft_def(w->vessels[sh].craft, i)->drill_kg_s > 0)
+					has_drill = 1, bit_drill[dig] |= dmg > 0;
+				else
+					bit_else[dig] += dmg > 0;
+			}
+			if (dig) {
+				bit_drill[dig] |= first >= 0;
+				gone = !has_drill;
+			}
+			done(w);
+		}
+		trs_craft_free(&dr);
+		int ok = noise > 0 && heard0[1] == TRS_HEARD_HUNTER && heard0[0] == TRS_HEARD_NONE && came[1] > 0 && bit_drill[1] && !bit_else[1] && left &&
+				 came[0] == 0 && !bit_drill[0] && !bit_else[0];
+		failed += !ok;
+		trs_log_printf(out, "%s a drill digging 600 m from dusk crawlers (heard %.0f m off): heard at once (%d), %d come for it, the first bite on it "
+				"%.0f s in, nothing else bitten (%d), the drill %s; stopped they let it be (%s); not digging: heard %d, %d come, bitten %d\n", ok ? "ok  " : "FAIL",
+				noise, heard0[1], came[1], first, bit_else[1], gone ? "bitten off" : "still on", left ? "yes" : "no", heard0[0], came[0], bit_drill[0] + bit_else[0]);
+	}
 	/* 5. a turret on guard sees them off before they reach the penguin */
 	{
 		trs_world *w = fresh(&sys, t0);

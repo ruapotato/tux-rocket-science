@@ -210,6 +210,7 @@ typedef struct {
 	 * their draw, kW; drill_ground: running drills that reach the ground
 	 * (found while the craft rests, kept while it sits LANDED) */
 	double ore_rate, refine_rate, isru_kw;
+	double dug_t;     /* when its drills last brought ore up (they are heard a while after) */
 	int drill_ground;
 	/* between the stars: proper velocity (gamma v; v is kept as u / gamma),
 	 * how far the home calendar has run ahead of the ship's clock (s), the
@@ -435,6 +436,19 @@ double trs_vessel_solar(const trs_world *w, const trs_vessel *vs, int *sunlit);
  * rests on the ground, running refineries turn ore into liquid
  * propellant; both stop where the batteries can't pay. */
 void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt);
+/* How far a vessel's digging is heard (m; 0: quiet): the loudest running
+ * drill's noise, while ore is coming up (and NOISE_HOLD s after: a ship
+ * settling on its legs a moment doesn't fall quiet). */
+double trs_vessel_noise(const trs_world *w, const trs_vessel *vs);
+/* Something has heard a vessel's drill and is coming, or would come:
+ * TRS_HEARD_RAIDERS (on their way), _CHARGING (a hunter at it), _NEST (a
+ * nest within earshot with raiders to send: `who` its name), _HUNTER (a
+ * hunter within earshot: `who` its kind's id); 0 when all is quiet. */
+enum { TRS_HEARD_NONE = 0, TRS_HEARD_RAIDERS, TRS_HEARD_CHARGING, TRS_HEARD_NEST, TRS_HEARD_HUNTER };
+int trs_world_drill_heard(const trs_world *w, int id, char *who, int n);
+/* A hunter (hostile, not downed) walking its loop within r m of body-fixed
+ * `at` on body `bi` now: its kind's index, or -1. */
+int trs_wild_hunter_near(const trs_world *w, int bi, trs_v3 at, double r);
 /* The Stillwater Drive's throttle (0..1); returns the drives aboard. */
 int trs_world_set_drive(trs_world *w, int id, double throttle);
 /* The drive's full push (m/s2) and power (kW) for the whole vessel. */

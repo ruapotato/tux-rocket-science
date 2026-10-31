@@ -328,6 +328,75 @@ trs_gate_status trs_gate_aliens(trs_log *out, const char *data_dir) {
 		failed += !ok;
 		trs_log_printf(out, "%s we leave: %d up; back near: %d up; a rails warp: %d up\n", ok ? "ok  " : "FAIL", left, again, warped);
 	}
+
+	/* 9. a drill digging 25 km off (far outside their reach, and their
+	 *    waking) is heard: they go up and come for it, fast and slowing to
+	 *    fight; quiet, nobody comes */
+	{
+		trs_craft dr;
+		trs_craft_copy(&dr, &probe);
+		trs_craft_add(&dr, trs_catalog_find(&cat, "ore_bin"), 0, "", "", v3(-0.6, 0, 0), quat_identity(), -1, 0);
+		trs_craft_add(&dr, trs_catalog_find(&cat, "drill"), 0, "", "", v3(0, -0.4, 0.5), quat_identity(), -1, 0);
+		/* (batteries for minutes of digging; on legs: a lander that stays
+		 * standing when it is let go) */
+		for (int k = 0; k < 6; k++)
+			trs_craft_add(&dr, trs_catalog_find(&cat, "battery"), 0, "", "", v3(0.6 * cos(k), 0.3, 0.6 * sin(k)), quat_identity(), -1, 0);
+		for (int k = 0; k < 4; k++) {
+			double a = TRS_PI / 4 + k * TRS_PI / 2;
+			int l = trs_craft_add(&dr, trs_catalog_find(&cat, "landing_leg"), 0, "", "", v3(0.5 * cos(a), -0.2, 0.5 * sin(a)),
+					quat_axis_angle(v3(0, 1, 0), TRS_PI / 2 - a), -1, 0);
+			dr.parts[l].legs_deployed = 1;
+		}
+		int up_q = -1, heard[2] = { 0, 0 }, after = 0;
+		double arrive = -1, fastest = 0;
+		char who[64] = "";
+		for (int dig = 0; dig < 2; dig++) {
+			trs_world *w9 = malloc(sizeof(trs_world));
+			trs_world_init(w9, &sys, t0);
+			trs_world_set_nest_craft(w9, ne->craft, &raider);
+			/* (the dusk crawlers about there would come for it too: calmed,
+			 * in this world, so it is the Jaegers alone that come) */
+			for (int k = 0; k < w9->sys.bodies[gi].nlife; k++)
+				if (w9->sys.bodies[gi].life[k].temper == TRS_TEMPER_HOSTILE)
+					w9->sys.bodies[gi].life[k].temper = TRS_TEMPER_CALM;
+			int d9 = put(w9, &dr, gi, along(b, nest_ground, 1.0, 25000), 2.0);
+			trs_world_set_focus(w9, d9);
+			/* (let go and settled on its legs, as a ship set down is) */
+			trs_vessel_set_mode(w9, d9, TRS_MODE_PHYSICS);
+			w9->vessels[d9].sas = TRS_SAS_UPRIGHT;
+			run(w9, 8.0);
+			trs_world_set_isru(w9, d9, dig);
+			run(w9, 1.0);
+			trs_world_step_physics(w9);
+			heard[dig] = trs_world_drill_heard(w9, d9, who, sizeof who);
+			for (int s = 0; s < 240 * TRS_PHYSICS_HZ && arrive < 0; s++) {
+				trs_world_step_physics(w9);
+				if (!dig && s == 10 * TRS_PHYSICS_HZ) {
+					up_q = raiders(w9, code);
+					break;
+				}
+				w9->nevents = 0;
+				trs_v3 at = w9->vessels[d9].mode == TRS_MODE_LANDED ? trs_body_from_fixed(b, w9->t, w9->vessels[d9].fixed_r) : w9->vessels[d9].r;
+				for (int i = 0; i < w9->nvessels; i++) {
+					const trs_vessel *vs = &w9->vessels[i];
+					if (!vs->alive || vs->pilot != code)
+						continue;
+					after |= vs->pilot_state == 1 && vs->pilot_target.id == d9;
+					fastest = fmax(fastest, v3_len(v3_sub(vs->v, v3_cross(trs_body_omega(b), vs->r))));
+					if (v3_len(v3_sub(vs->r, at)) < 700 && arrive < 0)
+						arrive = s * h;
+				}
+			}
+			trs_world_free(w9);
+			free(w9);
+		}
+		trs_craft_free(&dr);
+		ok = b->nests[0].hear > 25000 && up_q == 0 && heard[0] == TRS_HEARD_NONE && (heard[1] == TRS_HEARD_NEST || heard[1] == TRS_HEARD_RAIDERS) && after && arrive > 0 && arrive < 240;
+		failed += !ok;
+		trs_log_printf(out, "%s a drill digging 25 km from %s (it hears %.0f km): heard at once (%d), they come for it (%s), the first within "
+				"700 m %.0f s on, at most %.0f m/s on the way; quiet: heard %d, %d up after 10 s\n", ok ? "ok  " : "FAIL", ne->name, b->nests[0].hear / 1000,
+				heard[1], after ? "yes" : "no", arrive, fastest, heard[0], up_q);
+	}
 	trs_world_free(w);
 	free(w);
 	trs_craft_free(&raider);

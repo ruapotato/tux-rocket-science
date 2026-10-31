@@ -25,6 +25,7 @@
 extends RefCounted
 
 const DIR := "user://playtest/"
+const Templates := preload("res://scripts/os/templates.gd")
 const CHAPTERS := ["floe", "computer", "orbit", "krill", "chime", "hearth", "keel", "lantern", "ember", "brine", "marrow", "tarn", "hollow"]
 ## the thread, star by star: [star, world, relic, a word for it]
 const THREAD := {"lantern": ["lantern", "haven", "haven_archive", "archive"], "ember": ["ember", "gloam", "gloam_lamp", "lamp"],
@@ -998,15 +999,37 @@ func refuel() -> void:
 	if int(t.get("drills", 0)) <= 0:
 		return
 	var l0 := float(t.get("liquid", 0.0))
-	scene.computer.sh("ship mining on")
+	# drill_guard.py (the Script Editor's template): digs, and the lasers
+	# keep off what comes for the drill; warp stops when something heard it
+	var comp: ShipComputer = scene.computer
+	var seen := comp.log_count
+	comp.machine.write_file("/root/scripts/drill_guard.py", Templates.DRILL)
+	var why := str(comp.machine.start("/root/scripts/drill_guard.py"))
+	if why != "":
+		say("drill_guard.py won't start: %s" % why)
+		return
 	var t0 := s.time()
-	var full := await until(func(): return float(tel().get("liquid", 0.0)) >= float(tel().get("liquid_capacity", 1.0)) * 0.99, 2.0 * 86400.0, 1.0, 5)
+	var heard := {"n": 0, "last": "", "what": []}
+	var full := await until(func():
+		var h := s.drill_heard()
+		if h != "" and h != heard.last:
+			heard.n += 1
+			heard.what.append("%s at T+%s" % [h, FlightPrograms.span(s.time() - t0)])
+		heard.last = h
+		return _scripts(comp).is_empty() or not tel().get("alive", false), 2.0 * 86400.0, 1.0, 5)
+	comp.stop_scripts()
 	scene.computer.sh("ship mining off")
+	var fired := 0
+	var n := mini(comp.log_count - seen, comp.log.size())
+	for line in comp.log.slice(comp.log.size() - n):
+		fired += 1 if str(line).ends_with("firing") else 0
 	# (out of the warp the legs take the weight again: on the ground before it goes)
 	await until(func(): return tel().get("landed", false), 30.0)
 	t = tel()
-	say("refuelled on %s (ore %.2f): %.0f kg to %.0f of %.0f kg liquid in %s, %s; drills touching %s" % [t.get("body", "?"), float(t.get("ore_abundance", 0.0)), l0,
-		float(t.get("liquid", 0.0)), float(t.get("liquid_capacity", 0.0)), FlightPrograms.span(s.time() - t0), "full" if full else "not full", t.get("drills_touching", "?")])
+	say("refuelled on %s (ore %.2f): %.0f kg to %.0f of %.0f kg liquid in %s, %s; drills %s, touching %s; heard %d times (%s), the lasers turned on %d" % [
+		t.get("body", "?"), float(t.get("ore_abundance", 0.0)), l0, float(t.get("liquid", 0.0)), float(t.get("liquid_capacity", 0.0)),
+		FlightPrograms.span(s.time() - t0), "done" if full else "given up", t.get("drills", "?"), t.get("drills_touching", "?"), heard.n,
+		"; ".join(heard.what.slice(0, 6)), fired])
 
 
 ## The ship (wherever it is: on a world, or round one) on to the next star

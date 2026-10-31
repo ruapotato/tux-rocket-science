@@ -352,11 +352,36 @@ func braking_cap(t: Dictionary, real_dt: float) -> int:
 	return cap
 
 
+var _heard := ["", -1000000]  # what has heard the drill, and when that was asked (ms)
+
+## What has heard the active ship's drill and is coming ("" while all is
+## quiet): a drill is loud, and warp stops till that's been dealt with.
+func drill_heard(fresh := false) -> String:
+	if not fresh and Time.get_ticks_msec() - int(_heard[1]) < 500:
+		return _heard[0]
+	var d: Dictionary = JSON.parse_string(core.drill_heard(active))
+	var who := str(d.get("who", ""))
+	var body := str(telemetry().get("body", ""))
+	var kind: Dictionary = Sim.life_kind(body, who)
+	var animals := str(kind.get("name", who)).to_lower()
+	var text := ""
+	match str(d.get("heard", "")):
+		"raiders": text = "Jaegers from %s are coming for the drill" % who
+		"nest": text = "%s heard the drill" % who.capitalize()
+		"charging": text = "%s are coming for the drill" % animals.capitalize()
+		"hunter": text = "%s heard the drill" % animals.capitalize()
+	_heard = [text, Time.get_ticks_msec()]
+	return text
+
+
 ## Why on-rails warp is not allowed right now ("" if it is).
 func rails_refusal() -> String:
 	var t := telemetry()
 	if not t.get("alive", false):
 		return "no vessel"
+	var heard := drill_heard()
+	if heard != "":
+		return "%s: warp waits till that's dealt with (or the drill stops)" % heard
 	if t.get("interstellar", false):
 		return ""  # out here the drive burns through warp, by the ship's clock
 	if t.landed and t.get("thrust", 0.0) <= 0.0:
@@ -431,6 +456,12 @@ func advance(real_dt: float) -> void:
 			if t.has("course") and not telemetry().has("course"):
 				set_warp("rails", 0)
 				events.append({"kind": "arrived", "body": t.course_name, "t": time()})
+			return
+		# a drill heard: whatever heard it is on its way, at normal time
+		var heard := drill_heard()
+		if heard != "":
+			set_warp("rails", 0)
+			events.append({"kind": "warp_stopped", "reason": "heard", "text": heard, "t": time()})
 			return
 		# (the Stillwater Drive pushes through warp: its path is stepped)
 		if t.get("thrust", 0.0) > 0.0 and not t.landed:
@@ -557,7 +588,13 @@ func warp_to(t_target: float) -> String:
 		var now := time()
 		if now >= t_target - 1e-6:
 			break
-		var ev: Dictionary = JSON.parse_string(core.warp(minf(t_target - now, 21600.0), active))
+		# (a drill digging: looked at every ten minutes, for what may hear it)
+		var digging := float(telemetry().get("noise_m", 0.0)) > 0.0
+		if digging and drill_heard(true) != "":
+			stopped = drill_heard()
+			break
+		var ev: Dictionary = JSON.parse_string(core.warp(minf(t_target - now, 600.0 if digging else 21600.0), active))
+		_telemetry_tick = -1
 		if ev.event == "refused":
 			stopped = "refused"
 			break

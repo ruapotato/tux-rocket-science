@@ -155,14 +155,15 @@ typedef struct {
 	 * within drill_reach m of the ground of a resting craft, digs
 	 * drill_kg_s x the body's ore abundance for drill_kw; a refinery,
 	 * running, turns refine_kg_s of ore into refine_yield x as much
-	 * liquid propellant (into every tank aboard) for refine_kw */
+	 * liquid propellant (into every tank aboard) for refine_kw. A drill
+	 * digging is loud: what lives within drill_noise m hears it */
 	double ore_capacity;
 
 	/* the Stillwater Drive: pushes every atom of the ship alike (so nobody
 	 * aboard feels it) at drive_accel m/s2 for drive_kw, and only between
 	 * the stars; a reactor makes gen_kw whatever the light */
 	double drive_accel, drive_kw, gen_kw;
-	double drill_kg_s, drill_kw, drill_reach;
+	double drill_kg_s, drill_kw, drill_reach, drill_noise;
 	double refine_kg_s, refine_yield, refine_kw;
 
 	/* wheel: a sprung foot wheel_length out along the

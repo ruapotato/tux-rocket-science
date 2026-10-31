@@ -179,6 +179,38 @@ else:
         sleep(0.5)
 """
 
+const DRILL := """# drill_guard.py -- dig for propellant, and keep what comes for the drill off it
+#
+# A drill digging is loud: hunters within 1.5 km hear it and come to chew
+# on it, and a Jaeger camp within 30 km sends its raiders. Land on legs
+# with a drill within 2 m of the ground (and an ore bin, a refinery and
+# the power for them), run this, and warp: it digs till the tanks are
+# full, and the lasers take whatever comes for the drill, nearest first.
+# Warp stops when something has heard it; warp on once it's dealt with.
+reach = 600                    # m: as far as ship.threats looks (a Tern's beam reaches 1500)
+lasers = ship.lasers
+if not lasers:
+    print("No lasers aboard: the drill will be eaten. Fit a Tern Laser Turret (Utility)")
+mining()
+print(f"Digging: {ship.liquid:.0f} of {ship.liquid_capacity:.0f} kg")
+aimed = None
+while ship.liquid < ship.liquid_capacity * 0.995:
+    near = [c for c in ship.threats if c.distance < reach]
+    if near and lasers:
+        if near[0] != aimed:
+            aimed = near[0]
+            print(f"{aimed.name}, {aimed.distance:.0f} m off: firing")
+        ship.fire_at(aimed)       # the lasers lock on it, and fire while it's in reach
+    elif aimed:
+        aimed = None
+        ship.cease_fire()
+        print("All clear")
+    sleep(0.5)
+mining(False)
+ship.cease_fire()
+print(f"Tanks full ({ship.liquid:.0f} kg): the drill is off, and quiet")
+"""
+
 const BLANK := """# my_script.py
 #
 # ship.  (type the dot: it lists what the ship has)   ship.part("...")
@@ -194,5 +226,6 @@ const LIST := [
 	["Co-pilot: warnings while you fly", "watch.py", WATCH],
 	["Suicide burn: land like a booster", "suicide_burn.py", SUICIDE],
 	["Guard: the lasers keep the ground clear", "guard.py", GUARD],
+	["Drill guard: dig, and defend the drill", "drill_guard.py", DRILL],
 	["Blank", "my_script.py", BLANK],
 ]

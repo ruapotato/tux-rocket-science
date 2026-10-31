@@ -27,7 +27,9 @@
  * near, a curious one trots up to a penguin and stays at its heels, a
  * hostile one goes for the nearest penguin and bites, and any of them hurt
  * runs from whoever did it (or, hostile and hurt by a penguin, goes for
- * them). A ship they leave be: aboard it, a penguin is safe. Hurt
+ * them). A ship they leave be: aboard it, a penguin is safe; unless it
+ * is digging: a hunter within earshot of a drill (its noise_m) comes for
+ * the drill, and bites it till the noise stops or it is driven off. Hurt
  * enough, one goes down; its herd makes up the loss in DEAD_S. They move at
  * WILD_HZ on the terrain's own height. */
 #include "trs/world.h"
@@ -181,19 +183,38 @@ static int is_dead(trs_world *w, trs_patch_id p, int k, int idx) {
 	return 0;
 }
 
+/* the loudest drill near the focus: where (body-fixed) and how far it is
+ * heard (0: all quiet) */
+static double noise_near(const trs_world *w, trs_v3 pf, trs_v3 *at) {
+	double loud = 0;
+	for (int i = 0; i < w->nvessels; i++) {
+		const trs_vessel *vs = &w->vessels[i];
+		trs_v3 p;
+		double n = vs->alive && vs->body == w->wild.body ? trs_vessel_noise(w, vs) : 0;
+		if (n > loud && vessel_fixed(w, vs, &p) && v3_len(v3_sub(p, pf)) < DROP_R + n)
+			loud = n, *at = p;
+	}
+	return loud;
+}
+
 static void scan(trs_world *w, trs_v3 pf) {
 	trs_wild *wd = &w->wild;
 	const trs_body *b = &w->sys.bodies[wd->body];
+	/* (a drill digging: the hunters within its earshot are alive to it too) */
+	trs_v3 np = pf;
+	double noise = noise_near(w, pf, &np);
 	/* the herds have made up old losses */
 	for (int q = 0; q < wd->ndead; q++)
 		if (wd->dead[q].until <= w->t)
 			wd->dead[q--] = wd->dead[--wd->ndead];
 	/* let go of the far ones */
 	for (int i = 0; i < wd->n; i++)
-		if (wd->c[i].state != TRS_CRIT_DOWN && v3_len(v3_sub(wd->c[i].pos, pf)) > DROP_R)
+		if (wd->c[i].state != TRS_CRIT_DOWN && v3_len(v3_sub(wd->c[i].pos, pf)) > DROP_R &&
+				!(noise > 0 && b->life[wd->c[i].kind].temper == TRS_TEMPER_HOSTILE && v3_len(v3_sub(wd->c[i].pos, np)) < noise + 200))
 			wd->c[i--] = wd->c[--wd->n];
 	trs_patch_id near[64];
-	int nn = trs_life_cells_near(b, v3_norm(pf), LIVE_R, near, 64);
+	double reach = fmax(LIVE_R, noise > 0 ? v3_len(v3_sub(np, pf)) + noise : 0);
+	int nn = trs_life_cells_near(b, v3_norm(pf), reach, near, 64);
 	/* forget cells no longer near */
 	for (int q = 0; q < wd->ncells; q++) {
 		int keep = 0;
@@ -215,7 +236,8 @@ static void scan(trs_world *w, trs_v3 pf) {
 			for (int idx = 0; idx < n; idx++) {
 				trs_v3 pos, fwd;
 				trs_life_animal_at(L, &inst[idx], centre, w->t, &pos, &fwd);
-				if (v3_len(v3_sub(pos, pf)) > LIVE_R || wd->n >= TRS_WILD_MAX)
+				int hears = noise > 0 && L->temper == TRS_TEMPER_HOSTILE && v3_len(v3_sub(pos, np)) < noise;
+				if ((v3_len(v3_sub(pos, pf)) > LIVE_R && !hears) || wd->n >= TRS_WILD_MAX)
 					continue;
 				int live = 0;
 				for (int i = 0; i < wd->n && !live; i++)
@@ -245,6 +267,9 @@ typedef struct {
 	trs_v3 p;
 	double radius;
 	int eva, alien;
+	double noise;  /* m its drill is heard (0: quiet) */
+	trs_v3 drill;  /* body-fixed: the noisy drill, what a hunter goes for */
+	int drill_part;
 } actor;
 
 static trs_thing vessel_thing(const trs_world *w, int id) {
@@ -290,10 +315,41 @@ static int thing_pos(const trs_world *w, const actor *a, int na, trs_thing th, t
 		if (a[k].id == th.id && a[k].serial == th.serial) {
 			*p = a[k].p;
 			*radius = a[k].radius;
+			if (a[k].drill_part >= 0) /* (a ship digging: the drill is what it goes for) */
+				*p = a[k].drill, *radius = 0.3;
 			return 1;
 		}
 	(void)w;
 	return 0;
+}
+
+static const actor *actor_of(const actor *a, int na, trs_thing th) {
+	for (int k = 0; k < na; k++)
+		if (th.kind == TRS_THING_VESSEL && a[k].id == th.id && a[k].serial == th.serial)
+			return &a[k];
+	return NULL;
+}
+
+/* the running drill nearest the ground, body-fixed under it (-1: none) */
+static int low_drill(const trs_world *w, const trs_vessel *vs, trs_v3 *at) {
+	const trs_body *b = &w->sys.bodies[vs->body];
+	int best = -1;
+	double bg = 1e300;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->drill_kg_s <= 0 || !vs->craft->parts[i].running)
+			continue;
+		trs_v3 arm = v3_sub(vs->craft->parts[i].pos, vs->cm), p;
+		if (vs->mode == TRS_MODE_LANDED)
+			p = v3_add(vs->fixed_r, quat_rotate(vs->fixed_q, arm));
+		else
+			p = trs_body_to_fixed(b, w->t, v3_add(vs->r, quat_rotate(vs->q, arm)));
+		double ground = b->terrain.enabled ? trs_terrain_height(&b->terrain, b->radius, v3_norm(p)) : 0;
+		double gap = v3_len(p) - b->radius - ground;
+		if (gap < bg)
+			bg = gap, best = i, *at = v3_scale(v3_norm(p), b->radius + ground);
+	}
+	return best;
 }
 
 static double hashf(int id, int k) {
@@ -336,12 +392,15 @@ static void step(trs_world *w, double dt) {
 		trs_v3 p;
 		if (!vs->alive || !vs->craft || vs->body != wd->body || !vessel_fixed(w, vs, &p))
 			continue;
-		if (v3_len(v3_sub(p, pf)) > DROP_R + 300)
+		double noise = vs->is_alien ? 0 : trs_vessel_noise(w, vs);
+		if (v3_len(v3_sub(p, pf)) > DROP_R + 300 + noise)
 			continue;
 		actor *a = &act[na++];
 		a->id = i, a->serial = vs->serial, a->p = p;
 		a->eva = trs_vessel_is_eva(vs);
 		a->alien = vs->is_alien;
+		a->noise = noise;
+		a->drill_part = noise > 0 ? low_drill(w, vs, &a->drill) : -1;
 		a->radius = a->eva ? 0.35 : fmax(0.5, vs->bound_radius * 0.6);
 		/* (the one it sits round is the centre of mass; the parts reach
 		 * further, but most of a lander is within this of it) */
@@ -379,6 +438,13 @@ static void step(trs_world *w, double dt) {
 			} else if (L->temper == TRS_TEMPER_HOSTILE) {
 				if (pen >= 0 && dp < L->aggro)
 					set_state(w, c, TRS_CRIT_CHARGE, vessel_thing(w, act[pen].id));
+				else
+					/* a drill digging within earshot: it comes for the noise */
+					for (int k = 0; k < na; k++)
+						if (act[k].drill_part >= 0 && v3_len(v3_sub(act[k].drill, c->pos)) < act[k].noise) {
+							set_state(w, c, TRS_CRIT_CHARGE, vessel_thing(w, act[k].id));
+							break;
+						}
 			}
 		}
 		if (c->state == TRS_CRIT_ROAM) {
@@ -415,7 +481,16 @@ static void step(trs_world *w, double dt) {
 			break;
 		}
 		case TRS_CRIT_CHARGE: {
-			if (!there || dist > 2 * L->aggro) {
+			const actor *tg = actor_of(act, na, c->other);
+			int at_drill = tg && !tg->eva && tg->drill_part >= 0;
+			if (tg && !tg->eva && !at_drill) {
+				/* the noise has stopped: nothing there to go for any more */
+				set_state(w, c, TRS_CRIT_WANDER, (trs_thing){ 0, 0, 0 });
+				break;
+			}
+			if (at_drill) /* (along the ground to it: the drill is a little above it) */
+				dist = fmax(0, v3_len(v3_madd(to, v3_norm(c->pos), -v3_dot(to, v3_norm(c->pos)))) - orad);
+			if (!there || dist > (at_drill ? tg->noise * 1.2 : 2 * L->aggro)) {
 				set_state(w, c, TRS_CRIT_WANDER, (trs_thing){ 0, 0, 0 });
 				break;
 			}
@@ -431,7 +506,7 @@ static void step(trs_world *w, double dt) {
 				if (w->t >= c->next_bite) {
 					c->next_bite = w->t + BITE_EVERY;
 					int vid = c->other.id;
-					trs_part_hurt(w, vid, 0, L->bite, TRS_DESTROY_BITTEN);
+					trs_part_hurt(w, vid, at_drill ? tg->drill_part : 0, L->bite, TRS_DESTROY_BITTEN);
 				}
 			}
 			break;
@@ -483,4 +558,41 @@ void trs_wild_step(trs_world *w, double dt) {
 		wd->acc -= WILD_DT;
 		step(w, WILD_DT);
 	}
+}
+
+int trs_wild_hunter_near(const trs_world *w, int bi, trs_v3 at, double r) {
+	const trs_body *b = &w->sys.bodies[bi];
+	const trs_wild *wd = &w->wild;
+	trs_patch_id near[64];
+	int nn = 0, found = -1;
+	trs_life_instance *buf = NULL;
+	for (int k = 0; k < b->nlife && found < 0; k++) {
+		const trs_life *L = &b->life[k];
+		if (!L->fauna || L->temper != TRS_TEMPER_HOSTILE)
+			continue;
+		if (!buf) {
+			nn = trs_life_cells_near(b, v3_norm(at), r, near, 64);
+			buf = malloc(sizeof(trs_life_instance) * 400);
+		}
+		for (int c = 0; c < nn && found < 0; c++) {
+			trs_v3 centre;
+			int n = trs_life_cell(b, near[c], 1u << k, &centre, buf, 400);
+			for (int idx = 0; idx < n && found < 0; idx++) {
+				trs_v3 pos, fwd;
+				trs_life_animal_at(L, &buf[idx], centre, w->t, &pos, &fwd);
+				if (v3_len(v3_sub(pos, at)) > r)
+					continue;
+				int dead = 0;
+				for (int q = 0; q < wd->ndead && !dead; q++)
+					dead = wd->dead[q].body == bi && wd->dead[q].kind == k && wd->dead[q].idx == idx && same_patch(wd->dead[q].cell, near[c]) &&
+							wd->dead[q].until > w->t;
+				for (int q = 0; q < wd->n && !dead && wd->body == bi; q++)
+					dead = wd->c[q].state == TRS_CRIT_DOWN && wd->c[q].kind == k && wd->c[q].idx == idx && same_patch(wd->c[q].cell, near[c]);
+				if (!dead)
+					found = k;
+			}
+		}
+	}
+	free(buf);
+	return found;
 }

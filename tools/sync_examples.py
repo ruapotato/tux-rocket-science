@@ -65,7 +65,8 @@ def main():
     block = ["    /* BEGIN test-by-hand examples (tools/sync_examples.py writes these) */\n"]
     for name, text in [("to_orbit.py", to_orbit), ("krill_by_hand.py", krill), ("first_script.py", const(tpl, "FIRST")),
                        ("hover.py", const(tpl, "HOVER")), ("watch.py", const(tpl, "WATCH")),
-                       ("suicide_burn.py", const(tpl, "SUICIDE")), ("guard.py", const(tpl, "GUARD"))]:
+                       ("suicide_burn.py", const(tpl, "SUICIDE")), ("guard.py", const(tpl, "GUARD")),
+                       ("drill_guard.py", const(tpl, "DRILL"))]:
         lines = text.split("\n", 1)
         body = (lines[0] + "\n#\n" + HEADS[name] + lines[1]) if name in HEADS else text
         block.append('    else if (strcmp(path, "/root/examples/%s") == 0)\n        buf_puts(out,\n%s        );\n' % (name, c_lit(body)))

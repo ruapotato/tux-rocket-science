@@ -418,6 +418,7 @@ trs_json *trs_world_to_json(const trs_world *w) {
 		PUT_I(o, vs, jump);
 		PUT_I(o, vs, anchored);
 		PUT_I(o, vs, drill_ground);
+		PUT_D(o, vs, dug_t);
 		PUT_V(o, vs, u);
 		PUT_D(o, vs, tau_lag);
 		PUT_D(o, vs, drive);
@@ -576,6 +577,7 @@ int trs_world_from_json(trs_world *w, const trs_part_catalog *cat, const trs_jso
 		GET_I(o, vs, jump);
 		GET_I(o, vs, anchored);
 		GET_I(o, vs, drill_ground);
+		GET_D(o, vs, dug_t);
 		GET_V(o, vs, u);
 		GET_D(o, vs, tau_lag);
 		GET_D(o, vs, drive);

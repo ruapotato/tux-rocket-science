@@ -476,6 +476,7 @@ static void m_telemetry(void *self, const trs_val *a, trs_val *r) {
 			trs_json_set(j, "ore_rate", trs_json_new_num(vs->ore_rate));
 			trs_json_set(j, "refine_rate", trs_json_new_num(vs->refine_rate));
 			trs_json_set(j, "mining_kw", trs_json_new_num(vs->isru_kw));
+			trs_json_set(j, "noise_m", trs_json_new_num(trs_vessel_noise(w, vs)));
 		}
 	}
 	/* between the stars, and the Stillwater Drive */
@@ -1003,6 +1004,20 @@ static void m_vessel_parts(void *self, const trs_val *a, trs_val *r) {
  * tank, kg), feed (an engine: % of propellant left in what can reach it),
  * thrust, thrust_max (N, now), isp, temp, max_temp, chute, legs, fired}]:
  * what the ship's computer sees of each part */
+/* drill_heard(id) -> {"heard": raiders|charging|nest|hunter|"", "who": a
+ * nest's name or a hunter's kind}: what has heard the vessel's drill and
+ * is coming (or would, given the time) */
+static void m_drill_heard(void *self, const trs_val *a, trs_val *r) {
+	trs_sim_handle *h = H(self);
+	trs_json *o = trs_json_new(TRS_JSON_OBJECT);
+	static const char *NAMES[] = { "", "raiders", "charging", "nest", "hunter" };
+	char who[64] = "";
+	int code = ok_vessel(h, a[0].i) ? trs_world_drill_heard(h->world, (int)a[0].i, who, sizeof who) : 0;
+	trs_json_set(o, "heard", trs_json_new_str(NAMES[code]));
+	trs_json_set(o, "who", trs_json_new_str(who));
+	ret_json(r, o);
+}
+
 static void m_vessel_part_states(void *self, const trs_val *a, trs_val *r) {
 	trs_sim_handle *h = H(self);
 	trs_json *arr = trs_json_new(TRS_JSON_ARRAY);
@@ -1939,6 +1954,7 @@ const trs_method_def TRS_SIM_FLIGHT_METHODS[] = {
 	{ "vessel_render", m_vessel_render, A, 2, { I, I }, { "id", "origin" } },
 	{ "vessel_parts", m_vessel_parts, S, 1, { I }, { "id" } },
 	{ "vessel_part_states", m_vessel_part_states, S, 1, { I }, { "id" } },
+	{ "drill_heard", m_drill_heard, S, 1, { I }, { "id" } },
 	{ "part_action", m_part_action, S, 4, { I, I, S, F }, { "id", "uid", "what", "value" } },
 	{ "vessel_frame", m_vessel_frame, A, 2, { I, I }, { "id", "origin" } },
 	{ "body_render", m_body_render, A, 1, { I }, { "origin" } },

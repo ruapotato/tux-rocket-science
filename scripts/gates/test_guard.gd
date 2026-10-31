@@ -23,7 +23,10 @@
 ## the left mouse button held on an animal fires the turrets at it (hp off
 ## it at the turrets' rate, nothing once let go); Shift + click locks on.
 ## There is no key for guarding: that is the script's. On Floe the shelf penguins come over to
-## ours and guard.py never fires on them; E catalogues one.
+## ours and guard.py never fires on them; E catalogues one. A drill digging
+## is heard: on Saffron the stalkers come for it, time warp won't run while
+## they're coming, and drill_guard.py keeps them off it while it fills the
+## tanks; left unguarded, the drill is bitten off.
 extends RefCounted
 
 const Templates := preload("res://scripts/os/templates.gd")
@@ -42,16 +45,17 @@ func _check(ok: bool, msg: String) -> void:
 
 ## The lander set down near one of `species` on body (45 m south of it),
 ## standing on its legs, the pad's rocket gone; its id.
-func _set_down(scene: Node3D, body: String, species: String, seed := 1) -> int:
+func _set_down(scene: Node3D, body: String, species: String, seed := 1, south := 45.0, text := "") -> int:
 	var s: FlightSession = scene.session
 	var core := s.core
 	var bi := core.body_find(body)
 	var R: float = JSON.parse_string(core.body_info(bi)).radius
 	var at: PackedFloat64Array = core.find_life(bi, species, seed)
-	var text := WildShot.lander_only(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "warden_lander.craft.json"))
+	if text == "":
+		text = WildShot.lander_only(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "warden_lander.craft.json"))
 	var pad := s.active
 	# (on level ground near there: a lander tips over on a dune's face)
-	var lv: PackedFloat64Array = core.level_spot(bi, at[0] - rad_to_deg(45.0 / R), at[1], 60.0, 0.006)
+	var lv: PackedFloat64Array = core.level_spot(bi, at[0] - rad_to_deg(south / R), at[1], 60.0, 0.006)
 	var id := core.flight_place_landed(text, body, lv[0], lv[1])
 	s.switch_to(id)
 	core.vessel_remove(pad)
@@ -101,6 +105,34 @@ func _hostiles(core: TrsSim, from: int, reach: float) -> int:
 	var n := 0
 	for th in JSON.parse_string(core.things_near(from, reach)):
 		n += 1 if th.get("hostile", false) and str(th.what) == "animal" else 0
+	return n
+
+
+## The Warden Lander with a drill low on its tank (in reach of the ground
+## on its legs), an ore bin and a refinery: one that lives off the land.
+static func _drill_lander() -> String:
+	var m := CraftModel.new()
+	m.load_text(WildShot.lander_only(FileAccess.get_file_as_string(Sim.STOCK_CRAFT_DIR + "warden_lander.craft.json")))
+	var tank := -1
+	for i in m.parts.size():
+		if str(m.parts[i].part) == "tank_m":
+			tank = i
+	m.attach_surface(CraftModel.held_single("drill"), tank, 0.0, -0.8, 1)
+	m.attach_surface(CraftModel.held_single("ore_bin"), tank, PI / 2, 0.1, 1)
+	m.attach_surface(CraftModel.held_single("refinery"), tank, PI, 0.3, 1)
+	m.craft_name = "Warden Lander (drilling)"
+	# (the tanks low: there is something to dig for)
+	var c: Dictionary = JSON.parse_string(m.save_text())
+	for p in c.parts:
+		if str(p.part).begins_with("tank_"):
+			p["fuel"] = 100.0
+	return JSON.stringify(c)
+
+
+func _part_count(core: TrsSim, id: int, part_id: String) -> int:
+	var n := 0
+	for p in JSON.parse_string(core.vessel_part_states(id)):
+		n += 1 if str(p.part) == part_id else 0
 	return n
 
 
@@ -267,6 +299,45 @@ func run(runner: Node) -> Dictionary:
 		int(n.locks), hurt, got])
 	_stop(comp)
 	comp.update(scene, s.telemetry())
+	core.vessel_remove(pen)
+
+	# 5. a drill digging on Saffron, 300 m from a pack of dune stalkers: it
+	# is heard, warp won't run while they come, and drill_guard.py keeps
+	# them off the drill; then the same with nobody guarding it
+	var outcome := []
+	for guarded in [true, false]:
+		s.switch_to(ship)
+		ship = _set_down(scene, "saffron", "dune_stalkers", 2, 300.0, _drill_lander())
+		comp.update(scene, s.telemetry())
+		var liq0 := float(s.telemetry().get("liquid", 0.0))
+		if guarded:
+			comp.machine.write_file("/root/scripts/drill_guard.py", Templates.DRILL)
+			why = str(comp.machine.start("/root/scripts/drill_guard.py"))
+		else:
+			core.vessel_set_mining(ship, true)
+		said = _run(scene, 3.0)
+		var refused := s.set_warp("rails", 3)
+		var heard := s.drill_heard(true)
+		var came := {"n": 0}
+		said += _run(scene, 150.0, func() -> void:
+			for th in JSON.parse_string(core.things_near(ship, 300.0)):
+				if str(th.what) == "animal" and th.get("hostile", false) and float(th.distance) < 60.0:
+					came.n = maxi(int(came.n), 1))
+		var shots := 0
+		for l in said:
+			shots += 1 if str(l).ends_with("firing") else 0
+		outcome.append({"why": why if guarded else "", "refused": refused, "heard": heard, "came": int(came.n), "fired": shots,
+			"drills": _part_count(core, ship, "drill"), "dug": float(s.telemetry().get("liquid", 0.0)) - liq0, "alive": s.telemetry().get("alive", false)})
+		_stop(comp)
+		core.vessel_set_mining(ship, false)
+		s.set_warp("physics", 0)
+	var g: Dictionary = outcome[0]
+	var u: Dictionary = outcome[1]
+	_check(g.why == "" and str(g.refused).contains("the drill") and g.heard != "" and g.came == 0 and g.fired > 0 and g.drills == 1 and g.dug > 0.0
+		and u.came > 0 and u.drills == 0,
+		("a drill digging on Saffron 300 m from dune stalkers: warp refused (\"%s\"); drill_guard.py fired %d times, none got within 60 m, the drill "
+		+ "is still on (%d) and %.1f kg of propellant made; unguarded, they reached it and the drill was bitten off (%d left)") % [g.refused, g.fired,
+		g.drills, g.dug, u.drills])
 	scene.queue_free()
 	await tree.process_frame
 	for v in Sim.vessels():

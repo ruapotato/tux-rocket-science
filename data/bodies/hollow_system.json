@@ -102,7 +102,7 @@
         { "id": "cairn_beacon", "name": "the Beacon", "lat_deg": 28, "lon_deg": 3 }
       ],
       "nests": [
-        {"id": "ring_hold", "name": "the Jaegers' hold in the Great Ring", "count": 4, "height": 300, "patrol_km": 3, "detect_km": 5, "lat_deg": 29.719, "lon_deg": 3, "craft": "jaeger_raider", "respawn_h": 6}
+        {"id": "ring_hold", "name": "the Jaegers' hold in the Great Ring", "count": 4, "height": 300, "patrol_km": 3, "detect_km": 5, "lat_deg": 29.719, "lon_deg": 3, "craft": "jaeger_raider", "respawn_h": 6, "hear_km": 30}
       ],
       "life": [
         {

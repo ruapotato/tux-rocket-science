@@ -932,6 +932,9 @@ func _on_sim_event(e: Dictionary) -> void:
 		"warp_stopped":
 			if e.reason == "engines firing":
 				hud.toast("Warp stopped: engines firing (they only burn at normal time or physics warp)", 3.0)
+			elif e.reason == "heard":
+				hud.toast("Warp stopped: %s" % e.text, 4.0)
+				Sfx.play("alarm")
 			else:
 				hud.toast("Warp stopped: %s ahead" % e.reason, 2.5)
 		"warp_eased":

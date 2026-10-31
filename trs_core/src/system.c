@@ -239,6 +239,7 @@ static int add_bodies(trs_system *sys, const trs_json *root, char *err, size_t e
 			ne->patrol = trs_json_num(e, "patrol_km", 2) * 1000.0;
 			ne->detect = trs_json_num(e, "detect_km", 4) * 1000.0;
 			ne->respawn = trs_json_num(e, "respawn_h", 6) * 3600.0;
+			ne->hear = trs_json_num(e, "hear_km", 0) * 1000.0;
 		}
 		const trs_json *ls = trs_json_get(j, "launch_site");
 		if (ls) {

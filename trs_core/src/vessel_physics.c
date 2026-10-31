@@ -1241,6 +1241,8 @@ void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt) {
 	double kj = dig_kw * dt * f_dig + ref_kw * dt * f_ref;
 	trs_craft_ec_add(c, -kj);
 	vs->ore_rate = dug / dt;
+	if (dug > 0)
+		vs->dug_t = w->t;
 	vs->refine_rate = used / dt;
 	vs->isru_kw = kj / dt;
 	if (dug > 0 || used > 0) {
@@ -1251,13 +1253,27 @@ void trs_vessel_isru(trs_world *w, trs_vessel *vs, double dt) {
 	}
 }
 
+#define NOISE_HOLD 10.0
+
+double trs_vessel_noise(const trs_world *w, const trs_vessel *vs) {
+	if (!vs->alive || !vs->craft || vs->dug_t <= 0 || w->t - vs->dug_t > NOISE_HOLD)
+		return 0;
+	double loud = 0;
+	for (int i = 0; i < vs->craft->count; i++) {
+		const trs_part_def *d = trs_craft_def(vs->craft, i);
+		if (d->drill_kg_s > 0 && vs->craft->parts[i].running)
+			loud = fmax(loud, d->drill_noise);
+	}
+	return loud;
+}
+
 int trs_world_set_isru(trs_world *w, int id, int on) {
 	if (id < 0 || id >= w->nvessels || !w->vessels[id].alive || !w->vessels[id].craft)
 		return 0;
 	trs_craft *c = w->vessels[id].craft;
 	int n = 0;
 	if (!on)
-		w->vessels[id].ore_rate = w->vessels[id].refine_rate = w->vessels[id].isru_kw = 0;
+		w->vessels[id].ore_rate = w->vessels[id].refine_rate = w->vessels[id].isru_kw = w->vessels[id].dug_t = 0;
 	for (int i = 0; i < c->count; i++) {
 		const trs_part_def *d = trs_craft_def(c, i);
 		if (d->drill_kg_s > 0 || d->refine_kg_s > 0) {

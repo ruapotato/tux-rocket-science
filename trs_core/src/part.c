@@ -154,6 +154,7 @@ static int parse_part(trs_part_def *d, const trs_json *j, char *err, size_t errl
 		d->drill_kg_s = trs_json_num(mn, "drill_kg_s", 0);
 		d->drill_kw = trs_json_num(mn, "drill_kw", 0);
 		d->drill_reach = trs_json_num(mn, "drill_reach", 1.0);
+		d->drill_noise = trs_json_num(mn, "noise_m", 0);
 		d->refine_kg_s = trs_json_num(mn, "refine_kg_s", 0);
 		d->refine_yield = trs_json_num(mn, "refine_yield", 0.8);
 		d->refine_kw = trs_json_num(mn, "refine_kw", 0);

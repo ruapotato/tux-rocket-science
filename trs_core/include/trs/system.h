@@ -88,14 +88,15 @@ typedef enum { TRS_TEMPER_CALM = 0, TRS_TEMPER_SHY, TRS_TEMPER_CURIOUS, TRS_TEMP
 /* Where the Jaegers keep their ships on a body (alien.c): `count` raiders
  * of craft `craft` hang `height` m over the ground at dir, wandering
  * `patrol` m round it, and go for any ship that isn't theirs within
- * `detect` m. One lost comes back after `respawn` s. */
+ * `detect` m. One lost comes back after `respawn` s. A drill digging within
+ * `hear` m of the nest it hears, and sends its raiders for. */
 typedef struct {
 	char id[32];
 	char name[48];
 	char craft[32];
 	trs_v3 dir;
 	int count;
-	double height, patrol, detect, respawn;
+	double height, patrol, detect, respawn, hear;
 } trs_nest;
 
 #define TRS_MAX_RELICS 4

@@ -1073,6 +1073,14 @@ static VmStatus n_legs(VM *v, Value *a, int n, Value *out)
     val_release(w);
     return st;
 }
+/* mining() / mining(False): the drills and refineries on or off (C) */
+static VmStatus n_mining(VM *v, Value *a, int n, Value *out)
+{
+    Value w = str_newz(n == 0 || val_truthy(a[0]) ? "on" : "off");
+    VmStatus st = quick(v, "mining", &w, 1, out);
+    val_release(w);
+    return st;
+}
 QUICK(n_rcs, "rcs")
 QUICK(n_say, "say")
 QUICK(n_beep, "beep")
@@ -3685,6 +3693,7 @@ static const Native NATIVES[] = {
     { "point",     2, 2, n_point     },
     { "chutes",    0, 0, n_chutes    },
     { "legs",      0, 1, n_legs      },
+    { "mining",    0, 1, n_mining    },
     { "rcs",       1, 1, n_rcs       },
     { "say",       1, 1, n_say       },
     { "beep",      0, 1, n_beep      },
@@ -4164,7 +4173,7 @@ void _start(void)
                "  wait_for_window(\"krill\")  until_orbit_crosses(\"krill\")\n"
                "  transfer(\"krill\")  warp_to(\"krill\")  capture(30000)  land()\n"
                "  hover(50, 20)  node()  wait(5)  wait_until(\"altitude\", \"<\", 5000)\n"
-               "  throttle(1) stage() sas(\"prograde\") point(45, 90) chutes() legs()\n"
+               "  throttle(1) stage() sas(\"prograde\") point(45, 90) chutes() legs() mining()\n"
                "  get(\"apoapsis\")  countdown(5)  say(\"hi\")  abort()\n"
                "  maths: sqrt sin cos tan atan2 ... (radians), rad() deg(), pi,\n"
                "         abs min max round floor ceil float\n"

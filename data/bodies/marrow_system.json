@@ -115,7 +115,7 @@
         { "id": "saffron_hourglass", "name": "the Hourglass", "lat_deg": -20, "lon_deg": -166 }
       ],
       "nests": [
-        {"id": "glass_camp", "name": "the Jaeger camp in the dunes", "count": 3, "height": 250, "patrol_km": 2.5, "detect_km": 4, "lat_deg": -18.772, "lon_deg": -166, "craft": "jaeger_raider", "respawn_h": 6}
+        {"id": "glass_camp", "name": "the Jaeger camp in the dunes", "count": 3, "height": 250, "patrol_km": 2.5, "detect_km": 4, "lat_deg": -18.772, "lon_deg": -166, "craft": "jaeger_raider", "respawn_h": 6, "hear_km": 30}
       ],
       "life": [
         {

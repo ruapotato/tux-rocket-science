@@ -183,9 +183,17 @@ any ship of yours within reach, and fire back. The **Tern Laser Turret** (R&D: L
 button and locks on with Shift + click. Keeping watch by itself is something you code: a
 penguin on EVA carries a small zapper for its own defence, and from a script, `ship.life` lists what lives near (`.name`, `.distance`, `.hostile`, `.penguin`,
 `.health`), `ship.fire_at(thing)` locks the lasers on it, and **guard.py** (a Script Editor
-template) keeps the ground round a landed ship clear while you walk. A laser's damage is its
+template) keeps the ground round a landed ship clear while you walk.
+
+**A drill is loud.** Digging for ore, the Pecker Ore Drill is heard 1.5 km off by whatever hunts
+there (Haven's fangrunners, Gloam's crawlers, Saffron's stalkers), which come to chew on the drill
+itself; and a Jaeger camp within 30 km sends its raiders, fast and high, for the noise. Time warp
+stops when something has heard the drill and won't run again till it's dealt with (or the drill is
+stopped), so refuelling where the ore is good is a fight; the quiet moons and Selkie's and Mere's
+shores cost nothing but time. **drill_guard.py** (a template) digs till the tanks are full and turns
+the lasers on whatever comes for the drill; left unguarded, the drill gets bitten off. A laser's damage is its
 dps for the time its beam is on the target, the batteries pay its kW for the same time, and
-`test-wild`, `test-aliens` and `test-guard` check all of it.
+`test-wild`, `test-aliens` and `test-guard` check all of it, the drill's noise too.
 
 **Biomes**: every world with ground is split into named regions (Floe's Glacier Shelf, the Puffin
 Spires, Frozen Seas, Highlands, Tundra and Polar Caps; Krill's Crater Floors and Rims; Kelp's

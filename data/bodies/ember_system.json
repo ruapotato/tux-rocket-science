@@ -115,7 +115,7 @@
         { "id": "gloam_lamp", "name": "the Lamp", "lat_deg": 4, "lon_deg": 92 }
       ],
       "nests": [
-        {"id": "lamp_camp", "name": "the Jaeger camp by the Lamp", "count": 3, "height": 220, "patrol_km": 2, "detect_km": 4, "lat_deg": 5.322, "lon_deg": 92, "craft": "jaeger_raider", "respawn_h": 6}
+        {"id": "lamp_camp", "name": "the Jaeger camp by the Lamp", "count": 3, "height": 220, "patrol_km": 2, "detect_km": 4, "lat_deg": 5.322, "lon_deg": 92, "craft": "jaeger_raider", "respawn_h": 6, "hear_km": 30}
       ],
       "life": [
         {
